@@ -284,7 +284,9 @@ export function getDebtorStatement(
     .sort((a, b) => {
       const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
       if (dateDiff !== 0) return dateDiff;
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return aTime - bTime;
     });
 
   let balance = 0;

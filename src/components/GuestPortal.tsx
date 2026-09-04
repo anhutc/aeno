@@ -29,6 +29,8 @@ import {
   Phone,
   RotateCcw,
   Search,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
@@ -83,6 +85,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   // Privacy: Hide debtor PIN/Pass by default on screen
   const [showPin, setShowPin] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
   // Copy state
   const [copiedAcc, setCopiedAcc] = useState(false);
@@ -492,7 +495,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   const currentBalance = getDebtorBalance(debtor.id, transactions);
   const statement = getDebtorStatement(debtor.id, transactions);
-  const statementReversed = [...statement].reverse();
+  const displayedStatement = sortOrder === 'newest' ? [...statement].reverse() : statement;
 
   // VietQR Memo
   const vietQrMemo = `${activeSettings.defaultMemoPrefix || 'TRA NO'} ${debtor.name}`
@@ -818,23 +821,48 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
         {/* 📜 LỊCH SỬ BIẾN ĐỘNG (CỘNG / TRỪ) - Mobile Optimized */}
         <div className="p-4 sm:p-6">
-          <div className="flex items-center justify-between mb-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5">
             <h2 className="font-bold text-xs sm:text-sm text-slate-900 uppercase tracking-wide flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-500" />
-              <span>LỊCH SỬ ({statement.length})</span>
+              <span>LỊCH SỬ BIẾN ĐỘNG ({statement.length})</span>
             </h2>
-            <span className="text-[11px] text-slate-400">
-              Mới nhất
-            </span>
+            <div className="flex items-center self-start sm:self-auto bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium text-slate-600">
+              <button
+                type="button"
+                onClick={() => setSortOrder('newest')}
+                className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  sortOrder === 'newest'
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'hover:text-slate-900 text-slate-500'
+                }`}
+                title="Sắp xếp mới nhất lên đầu"
+              >
+                <ArrowDownWideNarrow className="w-3 h-3 text-emerald-600" />
+                <span>Mới nhất trước</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSortOrder('oldest')}
+                className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  sortOrder === 'oldest'
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'hover:text-slate-900 text-slate-500'
+                }`}
+                title="Sắp xếp cũ nhất lên đầu"
+              >
+                <ArrowUpNarrowWide className="w-3 h-3 text-slate-400" />
+                <span>Cũ nhất trước</span>
+              </button>
+            </div>
           </div>
 
-          {statementReversed.length === 0 ? (
+          {displayedStatement.length === 0 ? (
             <div className="text-center py-8 bg-slate-50 rounded-2xl text-slate-400 text-xs border border-dashed border-slate-200">
               Chưa ghi nhận biến động giao dịch nào.
             </div>
           ) : (
             <div className="space-y-2.5">
-              {statementReversed.map(({ transaction: tx, runningBalance }) => {
+              {displayedStatement.map(({ transaction: tx, runningBalance }) => {
                 const isAdd = tx.type === 'ADD';
                 return (
                   <div

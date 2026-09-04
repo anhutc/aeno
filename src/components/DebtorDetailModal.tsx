@@ -9,7 +9,7 @@
  * ============================================================================
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   Plus,
@@ -25,6 +25,8 @@ import {
   BookOpen,
   AlertTriangle,
   Lock,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -66,11 +68,18 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+
+  const currentBalance = debtor ? getDebtorBalance(debtor.id, transactions) : 0;
+  const statement = useMemo(() => {
+    return debtor ? getDebtorStatement(debtor.id, transactions) : [];
+  }, [debtor, transactions]);
+
+  const displayedStatement = useMemo(() => {
+    return sortOrder === 'newest' ? [...statement].reverse() : statement;
+  }, [statement, sortOrder]);
 
   if (!debtor) return null;
-
-  const currentBalance = getDebtorBalance(debtor.id, transactions);
-  const statement = getDebtorStatement(debtor.id, transactions);
 
   return (
     <>
@@ -221,20 +230,48 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
 
             {/* Statement History */}
             <div>
-              <div className="flex items-center justify-between mb-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
                 <h3 className="font-bold text-slate-800 text-xs sm:text-sm flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-slate-500" />
-                  Lịch sử biến động theo thời gian ({statement.length} giao dịch)
+                  <span>Lịch sử biến động ({statement.length} giao dịch)</span>
                 </h3>
+                <div className="flex items-center self-start sm:self-auto bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setSortOrder('newest')}
+                    className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                      sortOrder === 'newest'
+                        ? 'bg-white text-slate-900 font-bold shadow-xs'
+                        : 'hover:text-slate-900 text-slate-500'
+                    }`}
+                    title="Sắp xếp giao dịch mới nhất lên đầu"
+                  >
+                    <ArrowDownWideNarrow className="w-3 h-3 text-emerald-600" />
+                    <span>Mới nhất trước</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSortOrder('oldest')}
+                    className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                      sortOrder === 'oldest'
+                        ? 'bg-white text-slate-900 font-bold shadow-xs'
+                        : 'hover:text-slate-900 text-slate-500'
+                    }`}
+                    title="Sắp xếp giao dịch cũ nhất lên đầu"
+                  >
+                    <ArrowUpNarrowWide className="w-3 h-3 text-slate-400" />
+                    <span>Cũ nhất trước</span>
+                  </button>
+                </div>
               </div>
 
-              {statement.length === 0 ? (
+              {displayedStatement.length === 0 ? (
                 <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
                   Chưa có giao dịch nào cho người này.
                 </div>
               ) : (
                 <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white">
-                  {statement.map(({ transaction: tx, runningBalance }) => {
+                  {displayedStatement.map(({ transaction: tx, runningBalance }) => {
                     const isAdd = tx.type === 'ADD';
                     return (
                       <div
