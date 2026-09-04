@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Remix Remix Sổ Ghi Nợ",
+  "description": "Ứng dụng quản lý sổ nợ cá nhân, chia tiền cuộc vui tự động, tra cứu bằng mã PIN và thanh toán VietQR",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

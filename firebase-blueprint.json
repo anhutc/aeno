@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "debtor": {
+      "title": "Debtor",
+      "description": "Represents a debtor record in the debt ledger",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "initialDebt": { "type": "number" },
+        "pin": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "initialDebt", "pin"]
+    },
+    "transaction": {
+      "title": "Transaction",
+      "description": "Represents a debt or payment transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "debtorId": { "type": "string" },
+        "type": { "type": "string", "enum": ["ADD", "SUB"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "note": { "type": "string" },
+        "category": { "type": "string" },
+        "billImage": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "debtorId", "type", "amount", "date"]
+    },
+    "party": {
+      "title": "PartySplit",
+      "description": "Represents a group bill splitting event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "date": { "type": "string" },
+        "payer": { "type": "string" },
+        "splitMode": { "type": "string" },
+        "notes": { "type": "string" },
+        "billImage": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "totalAmount", "date", "payer"]
+    },
+    "appSettings": {
+      "title": "AppSettings",
+      "description": "Application settings and owner preferences",
+      "type": "object",
+      "properties": {
+        "ownerName": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "bankBin": { "type": "string" },
+        "qrTemplate": { "type": "string" },
+        "ownerPassword": { "type": "string" },
+        "lookupInstruction": { "type": "string" },
+        "transferTitle": { "type": "string" },
+        "settledNote": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/debtors/{debtorId}": {
+      "schema": "debtor",
+      "description": "Collection of all debtors"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "transaction",
+      "description": "Collection of all debt transactions"
+    },
+    "/parties/{partyId}": {
+      "schema": "party",
+      "description": "Collection of group bill splits"
+    },
+    "/settings/{settingId}": {
+      "schema": "appSettings",
+      "description": "System settings and owner configuration"
+    }
+  }
+}
