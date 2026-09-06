@@ -229,7 +229,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             <>
               <span className="text-slate-300 hidden sm:inline">•</span>
               <div className="flex items-center gap-1.5 text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
-                <span className="text-[11px] text-slate-500">STK Nhận:</span>
+                <span className="text-[11px] text-slate-500">STK:</span>
                 <span className="font-mono font-bold text-slate-900">
                   {settings.bankName || 'Ngân hàng'} - {settings.accountNumber}
                 </span>
@@ -250,17 +250,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </>
           )}
         </div>
-
-        {onOpenSettings && (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="text-emerald-700 hover:text-emerald-800 font-semibold hover:underline text-[11px] cursor-pointer flex items-center gap-1 ml-auto"
-          >
-            <span>Cài đặt sổ & VietQR</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        )}
       </div>
 
       {/* 3 Quick Action Buttons */}
@@ -277,10 +266,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
             <div>
               <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-200">
-                Thêm Người Nợ
+                Con Nợ
               </div>
               <div className="font-bold text-xs sm:text-sm leading-tight">
-                Thêm Con Nợ
+                Thêm Mới
               </div>
             </div>
           </div>
@@ -324,7 +313,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 Ăn Uống / Sự Kiện
               </div>
               <div className="font-bold text-xs sm:text-sm leading-tight">
-                Chia Tiền Nhóm
+                Ăn Chia Nhóm
               </div>
             </div>
           </div>

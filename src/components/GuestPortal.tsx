@@ -808,7 +808,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   />
                   <div className="mt-2.5 text-center space-y-1">
                     <p className="text-xs font-semibold text-slate-700 leading-relaxed">
-                      👉 Mở App ngân hàng quét mã QR này: <strong>STK &amp; Nội dung đã được điền sẵn</strong>.
+                      <strong>👉 Mở App ngân hàng quét mã QR này</strong>.
                     </p>
                     <p className="text-[11px] text-slate-500">
                       Bạn chỉ cần gõ số tiền muốn chuyển ngay trên ứng dụng ngân hàng.
