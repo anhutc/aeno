@@ -15,7 +15,6 @@ import {
   PlusCircle,
   MinusCircle,
   Calendar,
-  Receipt,
   Upload,
   Save,
   UserPlus,

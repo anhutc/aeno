@@ -70,6 +70,8 @@ export interface TemplateVariables {
   ten_ngan_hang?: string;
   stk?: string;
   ten_chu_tk?: string;
+  memo?: string;
+  noi_dung_ck?: string;
 }
 
 export const TEMPLATE_TAG_DESCRIPTIONS: { tag: string; label: string; example: string }[] = [
@@ -80,6 +82,7 @@ export const TEMPLATE_TAG_DESCRIPTIONS: { tag: string; label: string; example: s
   { tag: '{bank}', label: 'Tên ngân hàng ({NGAN_HANG})', example: 'MB Bank' },
   { tag: '{account}', label: 'Số tài khoản ({SO_TK})', example: '0987654321' },
   { tag: '{accountName}', label: 'Chủ tài khoản ({CHU_TK})', example: 'NGUYEN VAN A' },
+  { tag: '{memo}', label: 'Nội dung chuyển khoản QR ({NOI_DUNG_CK})', example: 'NAM TRA NO' },
   { tag: '{owner}', label: 'Tên chủ sổ ({CHU_SO})', example: 'Anh Dũng' },
   { tag: '{ownerPhone}', label: 'SĐT Chủ Nợ ({SDT_CHU_NO})', example: '0987654321' },
 ];
@@ -91,6 +94,7 @@ export function renderMessageTemplate(
 ): string {
   const tpl = template && template.trim() ? template : fallbackTemplate;
   const passValue = vars.pass || vars.pin || '';
+  const memoValue = vars.memo || vars.noi_dung_ck || `TRA NO ${vars.name || ''}`;
   return tpl
     .replace(/\{name\}|\{TEN_KHACH\}|\{ten_nguoi_no\}/gi, vars.name || '')
     .replace(/\{pass\}|\{pin\}|\{PASS\}/gi, passValue)
@@ -100,7 +104,8 @@ export function renderMessageTemplate(
     .replace(/\{ownerPhone\}|\{SDT_CHU_NO\}|\{sdt_chu_no\}/gi, vars.ownerPhone || '')
     .replace(/\{bank\}|\{NGAN_HANG\}|\{ten_ngan_hang\}/gi, vars.bank || '')
     .replace(/\{account\}|\{SO_TK\}|\{stk\}/gi, vars.account || '')
-    .replace(/\{accountName\}|\{CHU_TK\}|\{ten_chu_tk\}/gi, vars.accountName || '');
+    .replace(/\{accountName\}|\{CHU_TK\}|\{ten_chu_tk\}/gi, vars.accountName || '')
+    .replace(/\{memo\}|\{NOI_DUNG_CK\}|\{noi_dung_ck\}/gi, memoValue);
 }
 
 export function getDebtorTemplateVariables(params: {
@@ -112,6 +117,7 @@ export function getDebtorTemplateVariables(params: {
   bankName: string;
   accountNumber: string;
   accountName: string;
+  defaultMemoPrefix?: string;
 }): TemplateVariables {
   const url = `${window.location.origin}${window.location.pathname}#guest`;
   const formattedBalance =
@@ -120,6 +126,12 @@ export function getDebtorTemplateVariables(params: {
       : formatVND(params.balance);
 
   const pass = params.debtorPin;
+  const suffix = (params.defaultMemoPrefix ?? 'TRA NO').trim();
+  const rawMemo = suffix ? `${params.debtorName} ${suffix}` : params.debtorName;
+  const cleanMemo = rawMemo
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
 
   return {
     name: params.debtorName,
@@ -132,5 +144,7 @@ export function getDebtorTemplateVariables(params: {
     bank: params.bankName,
     account: params.accountNumber,
     accountName: params.accountName,
+    memo: cleanMemo,
+    noi_dung_ck: cleanMemo,
   };
 }

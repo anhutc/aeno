@@ -30,11 +30,14 @@ import {
   Cloud,
   Pencil,
   Lock,
+  Copy,
+  Check,
+  Filter,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance } from '../utils/storage';
-import { apiSyncAllNow } from '../utils/api';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
 import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
@@ -53,7 +56,6 @@ interface OwnerDashboardProps {
   onSelectDebtor: (debtor: Debtor) => void;
   onViewImage: (url: string, title?: string) => void;
   onDeleteDebtor?: (debtorId: string) => void;
-  onOpenChangePin?: (debtor: Debtor) => void;
   onOpenSettings?: () => void;
   onDataReload?: () => void;
   onEditTx?: (tx: Transaction) => void;
@@ -73,7 +75,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onSelectDebtor,
   onViewImage,
   onDeleteDebtor,
-  onOpenChangePin,
   onOpenSettings,
   onDataReload,
   onEditTx,
@@ -83,6 +84,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'DEBTORS' | 'TRANSACTIONS' | 'PARTIES'>('DEBTORS');
+  const [debtorStatusFilter, setDebtorStatusFilter] = useState<'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'SETTLED'>('ALL');
+  const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
+  const [copiedStk, setCopiedStk] = useState(false);
   const [guideDebtor, setGuideDebtor] = useState<Debtor | null>(null);
   const [debtorToDelete, setDebtorToDelete] = useState<Debtor | null>(null);
   const [partyToDelete, setPartyToDelete] = useState<PartySplit | null>(null);
@@ -120,13 +124,42 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   const netBalance = totalReceivable - totalPayable;
 
-  // Filter debtors
-  const filteredDebtors = debtors.filter(
-    (d) =>
-      d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (d.pin && d.pin.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (d.note && d.note.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // Counts by status
+  const receivableDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) > 0);
+  const payableDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) < 0);
+  const settledDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) === 0);
+
+  // Filter debtors by search and status
+  const filteredDebtors = debtors
+    .filter((d) => {
+      if (debtorStatusFilter === 'RECEIVABLE') return getDebtorBalance(d.id, transactions) > 0;
+      if (debtorStatusFilter === 'PAYABLE') return getDebtorBalance(d.id, transactions) < 0;
+      if (debtorStatusFilter === 'SETTLED') return getDebtorBalance(d.id, transactions) === 0;
+      return true;
+    })
+    .filter(
+      (d) =>
+        d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (d.pin && d.pin.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (d.note && d.note.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+  const handleCopyPin = (e: React.MouseEvent, debtor: Debtor) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(debtor.pin);
+    setCopiedPinId(debtor.id);
+    showToast(`Đã sao chép mật khẩu "${debtor.pin}" của ${debtor.name}`, 'success');
+    setTimeout(() => setCopiedPinId(null), 2000);
+  };
+
+  const handleCopyStk = () => {
+    if (settings.accountNumber) {
+      navigator.clipboard.writeText(settings.accountNumber);
+      setCopiedStk(true);
+      showToast(`Đã sao chép STK: ${settings.accountNumber}`, 'success');
+      setTimeout(() => setCopiedStk(false), 2000);
+    }
+  };
 
   // Recent transactions sorted descending
   const recentTransactions = [...transactions]
@@ -168,16 +201,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       {/* Thông tin cấu hình Chủ Sổ & STK hiện tại (Đồng bộ tức thì) */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white border border-slate-200/90 rounded-2xl shadow-2xs text-xs">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 font-bold text-slate-800">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Chủ Nợ: <strong className="text-emerald-700">{settings.ownerName || 'Chủ Nợ'}</strong></span>
+          <div className="flex items-center gap-2 font-bold text-slate-800">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold border border-emerald-300 shadow-2xs">
+              👑 Chủ Nợ
+            </span>
+            <span className="text-slate-900 text-sm font-black">{settings.ownerName || 'Chủ Nợ'}</span>
           </div>
+
           {settings.ownerPhone && (
             <>
               <span className="text-slate-300 hidden sm:inline">•</span>
               <div className="flex items-center gap-1.5 text-slate-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
                 <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                <span>SĐT:</span>
+                <span className="text-[11px] text-slate-500">Hotline/Zalo:</span>
                 <a
                   href={`tel:${settings.ownerPhone}`}
                   className="font-mono font-bold text-emerald-800 hover:text-emerald-900 hover:underline"
@@ -188,16 +224,31 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
             </>
           )}
-          <span className="text-slate-300 hidden sm:inline">•</span>
-          <div className="flex items-center gap-1.5 text-slate-600">
-            <span>STK:</span>
-            <span className="font-mono font-bold text-slate-900">
-              {settings.bankName || 'Ngân hàng'} {settings.accountNumber ? `- ${settings.accountNumber}` : ''}
-            </span>
-            {settings.accountName && (
-              <span className="text-slate-500 text-[11px]">({settings.accountName})</span>
-            )}
-          </div>
+
+          {settings.accountNumber && (
+            <>
+              <span className="text-slate-300 hidden sm:inline">•</span>
+              <div className="flex items-center gap-1.5 text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                <span className="text-[11px] text-slate-500">STK Nhận:</span>
+                <span className="font-mono font-bold text-slate-900">
+                  {settings.bankName || 'Ngân hàng'} - {settings.accountNumber}
+                </span>
+                {settings.accountName && (
+                  <span className="text-slate-500 text-[11px] font-semibold hidden md:inline">
+                    ({settings.accountName})
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCopyStk}
+                  className="ml-1 p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                  title="Sao chép số tài khoản"
+                >
+                  {copiedStk ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {onOpenSettings && (
@@ -206,7 +257,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             onClick={onOpenSettings}
             className="text-emerald-700 hover:text-emerald-800 font-semibold hover:underline text-[11px] cursor-pointer flex items-center gap-1 ml-auto"
           >
-            <span>Cài đặt</span>
+            <span>Cài đặt sổ & VietQR</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         )}
@@ -226,10 +277,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
             <div>
               <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-200">
-                Con nợ mới
+                Thêm Người Nợ
               </div>
               <div className="font-bold text-xs sm:text-sm leading-tight">
-                Thêm Người
+                Thêm Con Nợ
               </div>
             </div>
           </div>
@@ -248,10 +299,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
             <div>
               <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-blue-200">
-                Giao dịch mới
+                Giao Dịch Đơn
               </div>
               <div className="font-bold text-xs sm:text-sm leading-tight">
-                Thêm Giao Dịch
+                Ghi Nợ / Thu Nợ
               </div>
             </div>
           </div>
@@ -270,10 +321,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
             <div>
               <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-amber-200">
-                Giao dịch ăn chia
+                Ăn Uống / Sự Kiện
               </div>
               <div className="font-bold text-xs sm:text-sm leading-tight">
-                Thêm Giao Dịch
+                Chia Tiền Nhóm
               </div>
             </div>
           </div>
@@ -370,13 +421,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
 
         {activeTab === 'DEBTORS' && (
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full sm:w-72">
             <input
               type="text"
-              placeholder="Tìm theo tên con nợ..."
+              placeholder="Tìm theo tên con nợ, pass PIN..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800"
+              className="w-full pl-8 pr-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 placeholder-slate-400"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
           </div>
@@ -386,6 +437,61 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       {/* --- TAB 1: DEBTOR CARDS --- */}
       {activeTab === 'DEBTORS' && (
         <div className="space-y-3">
+          {/* Filter Pills for Quick Status Selection */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+            <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 pl-1 shrink-0">
+              <Filter className="w-3 h-3" />
+              Lọc:
+            </span>
+            <button
+              type="button"
+              onClick={() => setDebtorStatusFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                debtorStatusFilter === 'ALL'
+                  ? 'bg-slate-800 text-white shadow-2xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              Tất cả ({debtors.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setDebtorStatusFilter('RECEIVABLE')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                debtorStatusFilter === 'RECEIVABLE'
+                  ? 'bg-rose-600 text-white shadow-2xs'
+                  : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/60'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+              Đang nợ bạn ({receivableDebtors.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setDebtorStatusFilter('PAYABLE')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                debtorStatusFilter === 'PAYABLE'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+              Bạn nợ họ ({payableDebtors.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setDebtorStatusFilter('SETTLED')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                debtorStatusFilter === 'SETTLED'
+                  ? 'bg-slate-600 text-white shadow-2xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+              Đã hết nợ ({settledDebtors.length})
+            </button>
+          </div>
+
           {filteredDebtors.length === 0 ? (
             debtors.length === 0 ? (
               <div className="text-center py-12 sm:py-16 px-4 bg-white rounded-3xl border border-dashed border-slate-300 text-slate-600 text-xs space-y-4 shadow-2xs">
@@ -424,13 +530,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             ) : (
               <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs space-y-2">
                 <Users className="w-8 h-8 mx-auto text-slate-300" />
-                <div>Không tìm thấy con nợ nào phù hợp với từ khóa "{searchTerm}".</div>
+                <div>Không tìm thấy con nợ nào phù hợp với bộ lọc hiện tại.</div>
                 <button
                   type="button"
-                  onClick={() => setSearchTerm('')}
+                  onClick={() => {
+                    setSearchTerm('');
+                    setDebtorStatusFilter('ALL');
+                  }}
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
                 >
-                  Xóa bộ lọc
+                  Đặt lại bộ lọc
                 </button>
               </div>
             )
@@ -447,37 +556,34 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-base shrink-0">
+                          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200/80 flex items-center justify-center font-black text-slate-700 text-base shrink-0 shadow-2xs">
                             {debtor.name.charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
                             <h3
                               onClick={() => onSelectDebtor(debtor)}
-                              className="font-bold text-sm text-slate-900 hover:text-emerald-600 cursor-pointer flex items-center gap-1.5 truncate"
+                              className="font-bold text-sm sm:text-base text-slate-900 hover:text-emerald-600 cursor-pointer flex items-center gap-1.5 truncate"
                             >
                               <span>{debtor.name}</span>
                             </h3>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">
-                              {onOpenChangePin ? (
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-1">
+                              {/* PIN badge with 1-click copy */}
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-900 rounded-lg font-mono text-[11px] font-semibold border border-amber-200">
+                                <KeyRound className="w-3 h-3 text-amber-600 shrink-0" />
+                                <span>PIN: {debtor.pin}</span>
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenChangePin(debtor);
-                                  }}
-                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded font-mono text-[11px] font-semibold border border-amber-300 transition-colors cursor-pointer"
-                                  title="Bấm để đổi mật khẩu tra cứu cho người này"
+                                  onClick={(e) => handleCopyPin(e, debtor)}
+                                  className="ml-0.5 p-0.5 hover:bg-amber-200/70 rounded text-amber-700 hover:text-amber-950 transition-colors cursor-pointer"
+                                  title="Sao chép mã PIN tra cứu"
                                 >
-                                  <KeyRound className="w-3 h-3 text-amber-600" />
-                                  <span>Pass: {debtor.pin}</span>
-                                  <span className="text-[9px] text-amber-600 font-normal">✎</span>
+                                  {copiedPinId === debtor.id ? (
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3 h-3" />
+                                  )}
                                 </button>
-                              ) : (
-                                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-900 rounded font-mono text-[11px] font-semibold border border-amber-200">
-                                  <KeyRound className="w-3 h-3" />
-                                  Pass: {debtor.pin}
-                                </span>
-                              )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -485,7 +591,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         {/* Balance Badge */}
                         <div className="text-right shrink-0">
                           <div
-                            className={`font-black text-sm font-mono ${
+                            className={`font-black text-sm sm:text-base font-mono ${
                               balance > 0
                                 ? 'text-rose-600'
                                 : balance < 0
@@ -495,27 +601,35 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           >
                             {balance > 0 ? `+${formatVND(balance)}` : formatVND(balance)}
                           </div>
-                          <div className="text-[10px] text-slate-400">
+                          <span
+                            className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mt-0.5 ${
+                              balance > 0
+                                ? 'bg-rose-50 text-rose-700'
+                                : balance < 0
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
                             {balance > 0 ? 'Đang nợ bạn' : balance < 0 ? 'Bạn nợ họ' : 'Hết nợ'}
-                          </div>
+                          </span>
                         </div>
                       </div>
 
                       {debtor.note && (
-                        <p className="text-xs text-slate-500 mt-2 bg-slate-50 px-2.5 py-1.5 rounded-lg break-words">
+                        <p className="text-xs text-slate-500 mt-2.5 bg-slate-50 px-2.5 py-1.5 rounded-lg break-words border border-slate-100">
                           📝 {debtor.note}
                         </p>
                       )}
                     </div>
 
-                    {/* Action buttons (Cleaned up: Replaced Zalo/reminder with Lookup Guide & Direct View) */}
+                    {/* Action buttons */}
                     <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => onOpenAddTx(debtor.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg transition-colors text-[11px] cursor-pointer"
-                          title="Tạo giao dịch cho người này"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl transition-colors text-[11px] cursor-pointer shadow-2xs"
+                          title="Ghi nợ hoặc thu tiền cho người này"
                         >
                           <PlusCircle className="w-3.5 h-3.5" />
                           <span>Giao dịch</span>
@@ -524,22 +638,21 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         <button
                           type="button"
                           onClick={() => setGuideDebtor(debtor)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors text-[11px] cursor-pointer"
-                          title="Xem và gửi hướng dẫn tra cứu & mật khẩu cho người này"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-[11px] cursor-pointer"
+                          title="Xem tin nhắn và đường link tra cứu gửi cho người này"
                         >
                           <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Hướng dẫn</span>
+                          <span>Tra Cứu</span>
                         </button>
 
                         {onDeleteDebtor && (
                           <button
                             type="button"
                             onClick={() => setDebtorToDelete(debtor)}
-                            className="inline-flex items-center gap-1 px-2 py-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
-                            title="Xóa nợ"
+                            className="inline-flex items-center gap-1 px-2 py-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl text-[11px] font-semibold transition-colors cursor-pointer"
+                            title="Xóa con nợ này"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Xóa</span>
                           </button>
                         )}
                       </div>
@@ -547,7 +660,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectDebtor(debtor)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg transition-colors text-[11px] cursor-pointer ml-auto"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-colors text-[11px] cursor-pointer ml-auto shadow-xs"
                       >
                         <span>Chi tiết</span>
                         <ChevronRight className="w-3 h-3" />

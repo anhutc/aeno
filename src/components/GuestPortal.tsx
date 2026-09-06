@@ -31,6 +31,7 @@ import {
   Search,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
@@ -509,7 +510,9 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   const displayedStatement = sortOrder === 'newest' ? [...statement].reverse() : statement;
 
   // VietQR Memo
-  const vietQrMemo = `${activeSettings.defaultMemoPrefix || 'TRA NO'} ${debtor.name}`
+  const suffix = (activeSettings.defaultMemoPrefix ?? 'TRA NO').trim();
+  const rawMemo = suffix ? `${debtor.name} ${suffix}` : debtor.name;
+  const vietQrMemo = rawMemo
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();

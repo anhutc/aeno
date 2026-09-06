@@ -27,6 +27,9 @@ import {
   Lock,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
+  Copy,
+  Check,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -34,6 +37,7 @@ import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { EditTransactionModal } from './EditTransactionModal';
+import { ShareDebtorImageModal } from './ShareDebtorImageModal';
 
 interface DebtorDetailModalProps {
   debtor: Debtor | null;
@@ -65,10 +69,20 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   onOpenChangePin,
 }) => {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+  const [isShareImageOpen, setIsShareImageOpen] = useState(false);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [copiedPin, setCopiedPin] = useState(false);
+
+  const handleCopyPin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!debtor) return;
+    navigator.clipboard.writeText(debtor.pin);
+    setCopiedPin(true);
+    setTimeout(() => setCopiedPin(false), 2000);
+  };
 
   const currentBalance = debtor ? getDebtorBalance(debtor.id, transactions) : 0;
   const statement = useMemo(() => {
@@ -102,23 +116,18 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   {debtor.name}
                 </h2>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-0.5">
-                  {onOpenChangePin ? (
+                  <div className="inline-flex items-center gap-1.5 text-amber-300 bg-slate-800/80 px-2.5 py-1 rounded-lg font-mono text-xs font-semibold border border-amber-400/40">
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Pass: {debtor.pin}</span>
                     <button
                       type="button"
-                      onClick={() => onOpenChangePin(debtor)}
-                      className="flex items-center gap-1 text-amber-300 hover:text-amber-200 bg-slate-800/80 hover:bg-slate-700 px-2 py-0.5 rounded font-mono text-xs font-semibold border border-amber-400/40 transition-colors cursor-pointer"
-                      title="Bấm để chủ sổ đổi mật khẩu tra cứu của người này"
+                      onClick={handleCopyPin}
+                      className="ml-0.5 p-1 hover:bg-slate-700 rounded text-amber-300 hover:text-white transition-colors cursor-pointer"
+                      title="Sao chép mật khẩu tra cứu"
                     >
-                      <KeyRound className="w-3 h-3 text-amber-400" />
-                      <span>Pass: {debtor.pin}</span>
-                      <Edit3 className="w-2.5 h-2.5 text-amber-400/70 ml-0.5" />
+                      {copiedPin ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-amber-300 font-mono">
-                      <KeyRound className="w-3 h-3" />
-                      Pass: {debtor.pin}
-                    </span>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -155,62 +164,77 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
           <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
             {/* Balance card */}
             <div
-              className={`p-4 sm:p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              className={`p-4 sm:p-5 rounded-2xl border transition-all ${
                 currentBalance > 0
-                  ? 'bg-rose-50/70 border-rose-200 text-rose-950'
+                  ? 'bg-rose-50/70 border-rose-200/80 text-rose-950'
                   : currentBalance < 0
-                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                  ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
                   : 'bg-slate-50 border-slate-200 text-slate-700'
               }`}
             >
-              <div className="min-w-0">
-                <span className="text-xs uppercase tracking-wider font-bold opacity-75">
-                  Số Nợ Hiện Tại
-                </span>
-                <div className="flex items-baseline gap-1.5 whitespace-nowrap font-mono mt-0.5">
-                  <span className="text-2xl sm:text-3xl font-black tracking-tight">
-                    {currentBalance > 0
-                      ? `+ ${formatVND(currentBalance).replace(' VNĐ', '')}`
-                      : formatVND(currentBalance).replace(' VNĐ', '')}
+              {/* Top: Số nợ & Trạng thái */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider font-bold opacity-70">
+                    Số Nợ Hiện Tại
                   </span>
-                  <span className="text-xs sm:text-sm font-bold opacity-80">VNĐ</span>
+                  <div className="flex items-baseline gap-2 font-mono mt-0.5">
+                    <span className="text-3xl sm:text-4xl font-black tracking-tight">
+                      {currentBalance > 0
+                        ? `+${formatVND(currentBalance).replace(' VNĐ', '')}`
+                        : formatVND(currentBalance).replace(' VNĐ', '')}
+                    </span>
+                    <span className="text-sm font-bold opacity-75">VNĐ</span>
+                  </div>
                 </div>
-                <p className="text-xs font-medium mt-1">
-                  {currentBalance > 0 ? (
-                    <span className="text-rose-700 font-semibold">
-                      👉 {debtor.name} đang nợ bạn
-                    </span>
-                  ) : currentBalance < 0 ? (
-                    <span className="text-emerald-700 font-semibold">
-                      👉 Bạn đang nợ {debtor.name} (cần trả lại họ)
-                    </span>
-                  ) : (
-                    <span className="text-slate-500 font-semibold">
-                      🎉 Đã thanh toán hết (Không ai nợ ai)
-                    </span>
-                  )}
-                </p>
+
+                <div className="self-start sm:self-center">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                      currentBalance > 0
+                        ? 'bg-rose-100/90 text-rose-800 border-rose-200'
+                        : currentBalance < 0
+                        ? 'bg-emerald-100/90 text-emerald-800 border-emerald-200'
+                        : 'bg-white text-slate-600 border-slate-200 shadow-2xs'
+                    }`}
+                  >
+                    {currentBalance > 0 ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                        <span>{debtor.name} đang nợ bạn</span>
+                      </>
+                    ) : currentBalance < 0 ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Bạn đang nợ {debtor.name}</span>
+                      </>
+                    ) : (
+                      <span>Đã thanh toán hết (Không ai nợ ai)</span>
+                    )}
+                  </span>
+                </div>
               </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-2 w-full md:w-auto shrink-0 flex-wrap sm:flex-nowrap">
+              {/* Action Buttons Row: Equal 3-column grid, no crowding or overlapping */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3.5 mt-3.5 border-t border-black/5">
                 <button
                   type="button"
                   onClick={() => onOpenAddTx(debtor.id)}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  title="Ghi nợ hoặc thu tiền cho người này"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Giao dịch</span>
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span>Tạo Giao Dịch</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setIsGuideModalOpen(true)}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer whitespace-nowrap"
-                  title="Xem và sao chép hướng dẫn truy cập tra cứu gửi con nợ"
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                  title="Xem và sao chép hướng dẫn tra cứu kèm mã PIN gửi con nợ"
                 >
-                  <BookOpen className="w-4 h-4 text-blue-600" />
-                  <span>Tra cứu</span>
+                  <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Gửi Link Tra Cứu</span>
                 </button>
 
                 <button
@@ -219,11 +243,11 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                     onClose();
                     onDirectGuestView(debtor);
                   }}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer whitespace-nowrap"
-                  title="Chủ nợ xem trực tiếp giao diện tra cứu khách của con nợ này"
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  title="Chủ nợ xem trực tiếp giao diện tra cứu của con nợ này"
                 >
-                  <Eye className="w-4 h-4 text-amber-400" />
-                  <span>Giao diện con nợ</span>
+                  <Eye className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Giao Diện Con Nợ</span>
                 </button>
               </div>
             </div>
@@ -235,33 +259,47 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   <Calendar className="w-4 h-4 text-slate-500" />
                   <span>Lịch sử biến động ({statement.length} giao dịch)</span>
                 </h3>
-                <div className="flex items-center self-start sm:self-auto bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium text-slate-600">
-                  <button
-                    type="button"
-                    onClick={() => setSortOrder('newest')}
-                    className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                      sortOrder === 'newest'
-                        ? 'bg-white text-slate-900 font-bold shadow-xs'
-                        : 'hover:text-slate-900 text-slate-500'
-                    }`}
-                    title="Sắp xếp giao dịch mới nhất lên đầu"
-                  >
-                    <ArrowDownWideNarrow className="w-3 h-3 text-emerald-600" />
-                    <span>Mới nhất trước</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSortOrder('oldest')}
-                    className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                      sortOrder === 'oldest'
-                        ? 'bg-white text-slate-900 font-bold shadow-xs'
-                        : 'hover:text-slate-900 text-slate-500'
-                    }`}
-                    title="Sắp xếp giao dịch cũ nhất lên đầu"
-                  >
-                    <ArrowUpNarrowWide className="w-3 h-3 text-slate-400" />
-                    <span>Cũ nhất trước</span>
-                  </button>
+                <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder('newest')}
+                      className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                        sortOrder === 'newest'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'hover:text-slate-900 text-slate-500'
+                      }`}
+                      title="Sắp xếp giao dịch mới nhất lên đầu"
+                    >
+                      <ArrowDownWideNarrow className="w-3 h-3 text-emerald-600" />
+                      <span>Mới nhất trước</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder('oldest')}
+                      className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                        sortOrder === 'oldest'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'hover:text-slate-900 text-slate-500'
+                      }`}
+                      title="Sắp xếp giao dịch cũ nhất lên đầu"
+                    >
+                      <ArrowUpNarrowWide className="w-3 h-3 text-slate-400" />
+                      <span>Cũ nhất trước</span>
+                    </button>
+                  </div>
+
+                  {statement.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsShareImageOpen(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 border border-emerald-200/80 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                      title="Tạo ảnh bảng kê các giao dịch để gửi cho người này"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Xuất ảnh giao dịch</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -380,13 +418,20 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
 
           {/* Footer */}
           <div className="px-5 sm:px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
-            <span className="truncate max-w-xs">
-              Ghi chú: {debtor.note || 'Không có ghi chú'}
-            </span>
+            <div className="truncate max-w-md text-slate-600">
+              {debtor.note ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span>📝 Ghi chú:</span>
+                  <strong className="text-slate-800 font-medium">{debtor.note}</strong>
+                </span>
+              ) : (
+                <span className="text-slate-400 italic">Không có ghi chú thêm</span>
+              )}
+            </div>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-700 font-semibold transition-colors cursor-pointer"
+              className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-700 font-semibold transition-colors cursor-pointer shadow-2xs"
             >
               Đóng
             </button>
@@ -473,6 +518,15 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
           setEditingTx(null);
         }}
       />
+      {/* Modal Tạo Ảnh Gửi Nhanh Cho Con Nợ */}
+      {isShareImageOpen && debtor && (
+        <ShareDebtorImageModal
+          debtor={debtor}
+          transactions={transactions}
+          settings={settings}
+          onClose={() => setIsShareImageOpen(false)}
+        />
+      )}
     </>
   );
 };
