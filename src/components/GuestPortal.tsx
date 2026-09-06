@@ -205,7 +205,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   if (!debtor) {
     const currentSettings = settings || appSettings;
     return (
-      <div className="min-h-[72vh] flex items-center justify-center p-3 sm:p-4 w-full animate-in fade-in duration-200">
+      <div className="max-w-xl w-full mx-auto space-y-4 sm:space-y-5 pb-12 animate-in fade-in duration-200">
         {/* If user is Admin/Owner */}
         {isOwnerAuthenticated ? (
           debtors && debtors.length > 0 ? (
@@ -264,7 +264,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-96 overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pr-1">
                   {debtors
                     .filter((d) => {
                       if (!searchQuery.trim()) return true;
