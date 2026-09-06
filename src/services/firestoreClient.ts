@@ -634,3 +634,36 @@ export function subscribeToFirestoreData(callbacks: {
     return () => {};
   }
 }
+
+/**
+ * Real-time subscription to a specific debtor's transactions
+ * Allows guests on mobile phones to see instant live updates whenever the owner records a payment or debt
+ */
+export function subscribeToDebtorTransactions(
+  debtorId: string,
+  onUpdate: (txs: Transaction[]) => void
+): () => void {
+  try {
+    ensureClientAuth().catch(() => {});
+    const db = getClientFirestore();
+    const q = query(collection(db, 'transactions'), where('debtorId', '==', debtorId));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const txs: Transaction[] = [];
+        snap.forEach((d) => txs.push(d.data() as Transaction));
+        txs.sort(
+          (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+        );
+        onUpdate(txs);
+      },
+      (err) => {
+        console.warn('Debtor transactions realtime listener notice:', err?.message);
+      }
+    );
+    return unsub;
+  } catch (err) {
+    console.warn('Could not initialize debtor realtime listener:', err);
+    return () => {};
+  }
+}

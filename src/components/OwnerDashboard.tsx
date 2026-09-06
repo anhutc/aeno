@@ -89,36 +89,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
-  const [isSyncingAll, setIsSyncingAll] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'info' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
-  };
-
-  const handleSyncAllNow = async () => {
-    setIsSyncingAll(true);
-    try {
-      const res = await apiSyncAllNow({ debtors, transactions, parties, settings });
-      if (res.success) {
-        const timeStr = new Date().toLocaleTimeString('vi-VN');
-        setLastSyncTime(timeStr);
-        showToast(
-          res.message ||
-            `Đã lưu và đồng bộ toàn bộ ${debtors.length} người nợ, ${transactions.length} giao dịch lên Cloud Firestore thành công!`,
-          'success'
-        );
-        onDataReload?.();
-      } else {
-        showToast(res.message || 'Không thể đồng bộ toàn bộ dữ liệu lên Cloud Firestore', 'info');
-      }
-    } catch (err: any) {
-      showToast(`Lỗi đồng bộ: ${err?.message || 'Thất bại'}`, 'info');
-    } finally {
-      setIsSyncingAll(false);
-    }
   };
 
   // Check if current data contains sample mockup data
@@ -295,61 +270,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
             <div>
               <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-amber-200">
-                Giao dịch nhiều người
+                Giao dịch ăn chia
               </div>
               <div className="font-bold text-xs sm:text-sm leading-tight">
-                Giao Dịch Chia Tiền
+                Thêm Giao Dịch
               </div>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-white/70 group-hover:translate-x-1 transition-transform" />
         </button>
-      </div>
-
-      {/* Cloud Firestore Instant Sync Bar */}
-      <div className="p-3.5 sm:p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-2xl border border-slate-700/80 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-            <Cloud className="w-5 h-5 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-xs sm:text-sm text-white">
-                Đồng bộ tức thì Cloud Firestore
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                Trực Tiếp
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300 mt-0.5 flex items-center gap-1.5 flex-wrap">
-              <span><strong>{debtors.length}</strong> con nợ</span>
-              <span>•</span>
-              <span><strong>{transactions.length}</strong> giao dịch</span>
-              <span>•</span>
-              <span><strong>{parties.length}</strong> cuộc chia tiền</span>
-              {lastSyncTime && (
-                <>
-                  <span>•</span>
-                  <span className="text-emerald-300 font-medium">Đã đồng bộ lúc {lastSyncTime}</span>
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-          <button
-            type="button"
-            onClick={handleSyncAllNow}
-            disabled={isSyncingAll}
-            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
-            title="Lưu và đồng bộ ngay lập tức lên Cloud Firestore"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-spin' : ''}`} />
-            <span>{isSyncingAll ? 'Đang Lưu & Đồng Bộ...' : '⚡ Lưu & Đồng Bộ Toàn Bộ Ngay'}</span>
-          </button>
-        </div>
       </div>
 
       {/* Financial Overview Cards */}
@@ -389,7 +318,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         {/* Net balance */}
         <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-1">
-            <span>Số Dư</span>
+            <span>Số dư</span>
             <Wallet className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="text-xl sm:text-2xl font-black tracking-tight text-white font-mono">
@@ -425,7 +354,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            📜 Lịch Sử Giao Dịch ({transactions.length})
+            📜 Giao Dịch ({transactions.length})
           </button>
           <button
             type="button"
@@ -436,7 +365,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            🎉 Chia Đầu Người ({parties.length})
+            🎉 Ăn Chia({parties.length})
           </button>
         </div>
 

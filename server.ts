@@ -251,7 +251,23 @@ app.use(async (req, _res, next) => {
   });
 
   // Get all data for authenticated owner
-  app.get('/api/owner/data', authMiddleware, (_req, res) => {
+  app.get('/api/owner/data', authMiddleware, async (_req, res) => {
+    try {
+      if (isFirestoreActive) {
+        const remote = await loadDataFromFirestore();
+        inMemoryDb = remote;
+        return res.json({
+          success: true,
+          debtors: remote.debtors,
+          transactions: remote.transactions,
+          parties: remote.parties,
+          settings: remote.settings,
+        });
+      }
+    } catch (e) {
+      console.warn('Error loading fresh Firestore data in /api/owner/data:', e);
+    }
+
     const db = getDatabase();
     res.json({
       success: true,

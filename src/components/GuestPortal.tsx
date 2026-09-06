@@ -35,7 +35,7 @@ import {
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
-import { apiGuestLookup } from '../utils/api';
+import { apiGuestLookup, subscribeToDebtorTransactions } from '../utils/api';
 import { DEFAULT_SETTLED_NOTE, DEFAULT_LOOKUP_INSTRUCTION } from '../utils/textTemplate';
 import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
 
@@ -122,6 +122,17 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       handleLookupByPin(initialPin);
     }
   }, [initialPin, isOwnerAuthenticated, debtors]);
+
+  // Real-time listener: When debtor is viewing statement on mobile, auto-update when owner records changes
+  useEffect(() => {
+    if (!debtor || isOwnerAuthenticated) return;
+    const unsub = subscribeToDebtorTransactions(debtor.id, (updatedTxs) => {
+      setTransactions(updatedTxs);
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [debtor?.id, isOwnerAuthenticated]);
 
   const handleLookupByPin = async (inputPass: string) => {
     const clean = inputPass.trim();
@@ -615,8 +626,14 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
         {/* Header */}
         <div className="bg-slate-900 text-white px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div>
-            <div className="text-xs uppercase tracking-widest text-emerald-400 font-bold">
-              👤 THÔNG TIN TRA CỨU
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-widest text-emerald-400 font-bold">
+                👤 THÔNG TIN TRA CỨU
+              </span>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Trực tiếp
+              </span>
             </div>
             <h1 className="text-lg sm:text-xl font-bold mt-0.5">
               {debtor.name}

@@ -138,30 +138,9 @@ export default function App() {
     }
   }, []);
 
-  // Sync on mount and periodic interval
+  // Initial hydrate on mount
   useEffect(() => {
     refreshDataFromServer(true);
-
-    const interval = setInterval(() => {
-      // Avoid polling in the background if the user has an open modal
-      if (isAnyModalOpenRef.current) {
-        return;
-      }
-      refreshDataFromServer();
-    }, 15000);
-
-    const handleFocus = () => {
-      if (isAnyModalOpenRef.current) {
-        return;
-      }
-      refreshDataFromServer();
-    };
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-    };
   }, [refreshDataFromServer]);
 
   // Real-time synchronization across devices via Firestore listeners
@@ -170,8 +149,7 @@ export default function App() {
     try {
       unsubscribe = subscribeToFirestoreData({
         onDebtors: (remoteDebtors) => {
-          if (Array.isArray(remoteDebtors) && remoteDebtors.length > 0) {
-            // Only update if there are remote debtors to prevent wiping during transient network states
+          if (Array.isArray(remoteDebtors)) {
             setDebtors(remoteDebtors);
             saveDebtors(remoteDebtors);
           }
@@ -449,21 +427,6 @@ export default function App() {
     return false;
   };
 
-  const [isGlobalSyncing, setIsGlobalSyncing] = useState(false);
-  const handleGlobalSync = async () => {
-    setIsGlobalSyncing(true);
-    try {
-      const res = await apiSyncAllNow({ debtors, transactions, parties, settings });
-      if (res.success) {
-        await refreshDataFromServer();
-      }
-    } catch (e) {
-      console.warn('Global sync error:', e);
-    } finally {
-      setIsGlobalSyncing(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased">
       {/* Top Navigation */}
@@ -473,8 +436,6 @@ export default function App() {
         onViewChange={handleViewChange}
         onOwnerLogout={handleOwnerLogout}
         settings={settings}
-        onQuickSync={handleGlobalSync}
-        isSyncing={isGlobalSyncing}
       />
 
       {/* Main Container */}

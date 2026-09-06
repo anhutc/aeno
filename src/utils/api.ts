@@ -52,9 +52,10 @@ import {
   clearAllFirestoreDirect,
   loadPresetDirect,
   subscribeToFirestoreData,
+  subscribeToDebtorTransactions,
 } from '../services/firestoreClient';
 
-export { subscribeToFirestoreData };
+export { subscribeToFirestoreData, subscribeToDebtorTransactions };
 
 const OWNER_TOKEN_KEY = 'debt_app_owner_token';
 

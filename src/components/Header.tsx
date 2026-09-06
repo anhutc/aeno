@@ -25,8 +25,6 @@ interface HeaderProps {
   onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS') => void;
   onOwnerLogout: () => void;
   settings: AppSettings;
-  onQuickSync?: () => void;
-  isSyncing?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,15 +33,12 @@ export const Header: React.FC<HeaderProps> = ({
   onViewChange,
   onOwnerLogout,
   settings,
-  onQuickSync,
-  isSyncing = false,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [firestoreStatus, setFirestoreStatus] = useState<FirestoreStatusInfo | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const prevSyncingRef = useRef(isSyncing);
 
   const checkStatus = useCallback(async () => {
     setIsCheckingStatus(true);
@@ -74,14 +69,6 @@ export const Header: React.FC<HeaderProps> = ({
     const interval = setInterval(checkStatus, 30000); // Poll every 30s
     return () => clearInterval(interval);
   }, [checkStatus]);
-
-  // Re-check when sync operation finishes
-  useEffect(() => {
-    if (prevSyncingRef.current && !isSyncing) {
-      checkStatus();
-    }
-    prevSyncingRef.current = isSyncing;
-  }, [isSyncing, checkStatus]);
 
   // Close popover on click outside
   useEffect(() => {
@@ -543,19 +530,6 @@ export const Header: React.FC<HeaderProps> = ({
               )}
               <span className="hidden md:inline">{copiedLink ? 'Đã sao chép' : 'Chia sẻ'}</span>
             </button>
-
-            {isOwnerAuthenticated && onQuickSync && (
-              <button
-                type="button"
-                onClick={onQuickSync}
-                disabled={isSyncing}
-                title="Lưu và đồng bộ ngay toàn bộ dữ liệu lên Cloud Firestore"
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 hover:text-white rounded-xl text-xs font-semibold border border-emerald-700/60 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span className="hidden lg:inline">{isSyncing ? 'Đang lưu...' : 'Lưu Cloud'}</span>
-              </button>
-            )}
 
             {isOwnerAuthenticated && (
               <button

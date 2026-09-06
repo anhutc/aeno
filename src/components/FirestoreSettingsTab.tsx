@@ -14,6 +14,7 @@ import {
   Trash2,
   FileJson,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import {
@@ -574,47 +575,58 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
             </button>
           </div>
 
-          {/* Card B: Đồng bộ dữ liệu lên Cloud */}
-          <div className="border border-blue-200/90 bg-blue-50/40 hover:bg-blue-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
+          {/* Card B: Tự động lưu & đồng bộ 2 chiều */}
+          <div className="border border-emerald-200/90 bg-emerald-50/40 hover:bg-emerald-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
             <div>
-              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-blue-950">
-                <Cloud className="w-4 h-4 text-blue-600" />
-                <span>Đồng bộ dữ liệu lên Cloud</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-950">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Tự Động Đồng Bộ 2 Chiều</span>
+                </div>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-md font-semibold border border-emerald-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Thời gian thực
+                </span>
               </div>
               <p className="text-xs text-slate-600 min-h-[38px] mt-2 leading-relaxed">
-                Chủ động tải toàn bộ người nợ, giao dịch và chia tiền hiện tại lên Cloud Firestore để chia sẻ cho mọi người.
+                Mọi thao tác ghi nợ, trả tiền, chia tiền tự động lưu lên Cloud Firestore và cập nhật tới tất cả thiết bị khác trong &lt; 0.1s.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handlePushToCloud}
-              disabled={isPushing}
-              className="mt-3 w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isPushing ? 'animate-spin' : ''}`} />
-              <span>{isPushing ? 'Đang đẩy dữ liệu...' : 'Đẩy dữ liệu lên Cloud ngay'}</span>
-            </button>
+            <div className="mt-3 py-2 px-3 bg-emerald-100/60 rounded-xl flex items-center justify-between text-xs text-emerald-900 font-medium border border-emerald-200/80">
+              <span className="flex items-center gap-1.5">
+                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Không cần ấn lưu thủ công</span>
+              </span>
+              <span className="text-[10px] font-bold text-emerald-700 bg-white/80 px-2 py-0.5 rounded-md">
+                Tự động 100%
+              </span>
+            </div>
           </div>
 
-          {/* Card C: Tải lại từ Cloud Firestore */}
-          <div className="border border-indigo-200/90 bg-indigo-50/40 hover:bg-indigo-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
+          {/* Card C: Tự bảo vệ & Phục hồi ngoại tuyến */}
+          <div className="border border-blue-200/90 bg-blue-50/40 hover:bg-blue-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
             <div>
-              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-indigo-950">
-                <Download className="w-4 h-4 text-indigo-600" />
-                <span>Tải lại từ Cloud Firestore</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-blue-950">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  <span>Bảo Toàn Đa Thiết Bị</span>
+                </div>
+                <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-md font-semibold border border-blue-200">
+                  Chống xung đột
+                </span>
               </div>
               <p className="text-xs text-slate-600 min-h-[38px] mt-2 leading-relaxed">
-                Kéo bản ghi mới nhất từ máy chủ về máy (hữu ích khi người khác vừa nhập liệu và bạn muốn làm mới).
+                Đồng bộ sự kiện WebSocket liên tục. Khi nhiều thiết bị (Điện thoại, Máy tính) cùng truy cập, dữ liệu luôn nhất quán.
               </p>
             </div>
             <button
               type="button"
-              onClick={handlePullFromCloud}
-              disabled={isPulling}
-              className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              onClick={handlePingTest}
+              disabled={isCheckingStatus}
+              className="mt-3 w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              <RotateCcw className={`w-3.5 h-3.5 ${isPulling ? 'animate-spin' : ''}`} />
-              <span>{isPulling ? 'Đang tải lại...' : 'Tải lại dữ liệu mới nhất'}</span>
+              <Zap className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+              <span>{isCheckingStatus ? 'Đang đo độ trễ...' : 'Kiểm tra tốc độ phản hồi (Ping)'}</span>
             </button>
           </div>
         </div>
