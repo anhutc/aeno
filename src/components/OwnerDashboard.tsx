@@ -520,7 +520,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>Danh Bạ Con Nợ</span>
+              <span>Danh Bạ</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${activeTab === 'DEBTORS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {debtors.length}
               </span>
@@ -536,7 +536,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }`}
             >
               <Calendar className="w-3.5 h-3.5" />
-              <span>Biến Động Giao Dịch</span>
+              <span>Giao Dịch</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${activeTab === 'TRANSACTIONS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {transactions.length}
               </span>
@@ -552,7 +552,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }`}
             >
               <PartyPopper className="w-3.5 h-3.5" />
-              <span>Cuộc Vui Nhóm</span>
+              <span>Cuộc Vui</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${activeTab === 'PARTIES' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {parties.length}
               </span>
