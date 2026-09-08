@@ -529,10 +529,10 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-950 uppercase">
                       <QrCode className="w-4 h-4 text-emerald-600" />
-                      <span>Mã VietQR STK Ngân Hàng</span>
+                      <span>Mã QR</span>
                     </div>
                     <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">
-                      Quét mọi App
+                      247
                     </span>
                   </div>
 
@@ -546,7 +546,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     />
                     <div className="mt-2.5 text-center space-y-0.5">
                       <p className="text-xs font-bold text-slate-800">
-                        👉 Mở App ngân hàng quét mã QR này
+                        👉 Mở App ngân hàng quét mã
                       </p>
                       <p className="text-[11px] text-slate-500">
                         Bạn chỉ cần gõ số tiền muốn chuyển ngay trên ứng dụng ngân hàng.

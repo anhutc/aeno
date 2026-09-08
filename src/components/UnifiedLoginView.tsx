@@ -105,9 +105,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
             {settings.appTitle || 'Sổ Ghi Nợ & Chia Tiền'}
           </h1>
-          <p className="text-xs text-slate-500 mt-2 max-w-xs mx-auto leading-relaxed">
-            Hệ thống tự động nhận diện vai trò: Mở bảng điều hành nếu là <strong>Chủ nợ</strong>, hoặc hiển thị sao kê nếu là <strong>Con nợ</strong>.
-          </p>
         </div>
 
         {/* Single Input Form */}
@@ -155,7 +152,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 <span>Con Nợ</span>
               </div>
               <p className="text-emerald-700 leading-snug">
-                Nhập mã PIN cá nhân do chủ sổ cấp để xem sao kê và quét VietQR trả tiền.
+                Nhập mã PIN cá nhân do chủ nợ cấp để xem sao kê và quét VietQR trả tiền.
               </p>
             </div>
 
@@ -165,7 +162,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 <span>Chủ Nợ</span>
               </div>
               <p className="text-amber-700 leading-snug">
-                Nhập mật khẩu quản lý để ghi nợ, tính toán và quản lý toàn bộ sổ sách.
+                Nhập mật khẩu quản lý để ghi nợ, tính toán và quản lý.
               </p>
             </div>
           </div>
@@ -183,7 +180,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
               </>
             ) : (
               <>
-                <span>Xác Thực & Mở Sổ</span>
+                <span>Xác Thực</span>
                 <ArrowRight className="w-4 h-4 text-white" />
               </>
             )}
@@ -193,7 +190,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         {/* Footer Note */}
         <div className="p-3.5 bg-slate-50/90 border-t border-slate-100 text-center text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
           <KeyRound className="w-3.5 h-3.5 text-slate-400" />
-          <span>Bảo mật cá nhân hóa • Dữ liệu mã hóa an toàn trên Cloud Firestore</span>
+          <span>Bảo mật cá nhân hóa • Dữ liệu mã hóa an toàn</span>
         </div>
       </div>
     </div>

@@ -286,17 +286,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </>
           )}
         </div>
-
-        {onOpenSettings && (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="text-[11px] text-slate-500 hover:text-slate-800 font-medium hover:underline inline-flex items-center gap-1 ml-auto cursor-pointer"
-          >
-            <span>Thiết lập sổ</span>
-            <ChevronRight className="w-3 h-3" />
-          </button>
-        )}
       </div>
 
       {/* BỐ CỤC MỚI LẠ 1: BẢNG ĐIỀU KHIỂN TÀI CHÍNH BENTO BẤT ĐỐI XỨNG (EXECUTIVE BENTO COCKPIT - BRIGHT LIGHT THEME) */}
