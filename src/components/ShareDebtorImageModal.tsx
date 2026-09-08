@@ -46,6 +46,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
   const [showOptions, setShowOptions] = useState(false);
   const [scaleFactor, setScaleFactor] = useState(1);
   const [qrBase64, setQrBase64] = useState<string | null>(null);
+  const [cardHeight, setCardHeight] = useState<number>(0);
 
   // Customization options
   const [txLimit, setTxLimit] = useState<'all' | '10' | '5'>('all');
@@ -313,11 +314,6 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
           </span>
           <div className="text-base font-black text-slate-900 mt-0.5">
             {debtor.name}
-            {debtor.phone && (
-              <span className="text-xs font-normal text-slate-500 ml-2 font-mono">
-                ({debtor.phone})
-              </span>
-            )}
           </div>
         </div>
         {showPin && debtor.pin && (
@@ -552,18 +548,20 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/85 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150"
+      id="share-debtor-image-modal-backdrop"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-150"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      {/* KHUNG CAPTURE ẨN DÀNH RIÊNG CHO XUẤT ẢNH: luôn giữ kích thước chuẩn 590px, đầy đủ 100% không bị cắt */}
+      {/* KHUNG CAPTURE CHUẨN XUẤT ẢNH: Kích thước 590px, nằm trong DOM hợp lệ nhưng vô hình để xuất ảnh nét 100% */}
       <div
         style={{
-          position: 'fixed',
-          left: '-9999px',
+          position: 'absolute',
           top: 0,
+          left: 0,
           width: '590px',
-          zIndex: -9999,
+          opacity: 0,
           pointerEvents: 'none',
+          zIndex: -10,
         }}
       >
         <div ref={captureCardRef}>
@@ -573,17 +571,17 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
 
       {/* MODAL GIAO DIỆN CHÍNH */}
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-auto flex flex-col max-h-[96vh] h-[92vh] sm:h-auto">
-        {/* Header Modal Gọn Gàng */}
-        <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+        {/* Header Modal Gọn Gàng - Sáng & Tinh tế */}
+        <div className="px-4 py-3 bg-slate-50 text-slate-900 flex items-center justify-between shrink-0 border-b border-slate-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
               <FileSpreadsheet className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm font-bold text-white truncate">
+              <h2 className="text-sm font-bold text-slate-900 truncate">
                 Xuất Ảnh Bảng Kê - {debtor.name}
               </h2>
-              <p className="text-[11px] text-slate-400 truncate">
+              <p className="text-[11px] text-slate-500 truncate">
                 Đầy đủ chi tiết các giao dịch &amp; mã QR thanh toán
               </p>
             </div>
@@ -594,17 +592,17 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
             <button
               type="button"
               onClick={() => setViewMode(viewMode === 'fit' ? 'actual' : 'fit')}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs rounded-xl text-xs font-medium transition-colors cursor-pointer"
               title={viewMode === 'fit' ? 'Xem kích thước thật 100%' : 'Thu nhỏ vừa màn hình'}
             >
               {viewMode === 'fit' ? (
                 <>
-                  <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                  <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
                   <span className="hidden sm:inline">Phóng to</span>
                 </>
               ) : (
                 <>
-                  <Minimize2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <Minimize2 className="w-3.5 h-3.5 text-emerald-600" />
                   <span className="hidden sm:inline">Vừa màn hình</span>
                 </>
               )}
@@ -614,8 +612,10 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
             <button
               type="button"
               onClick={() => setShowOptions(!showOptions)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                showOptions ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border shadow-2xs transition-colors cursor-pointer ${
+                showOptions
+                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
               }`}
               title="Tùy chỉnh nội dung hiển thị"
             >
@@ -628,7 +628,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer ml-1"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer ml-1"
             >
               <X className="w-5 h-5" />
             </button>
@@ -647,7 +647,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                     type="button"
                     onClick={() => setTxLimit('all')}
                     className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer transition-colors ${
-                      txLimit === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                      txLimit === 'all' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     Tất cả ({statement.length})
@@ -657,7 +657,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                       type="button"
                       onClick={() => setTxLimit('10')}
                       className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer transition-colors ${
-                        txLimit === '10' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                        txLimit === '10' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       10 gần nhất
@@ -668,7 +668,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                       type="button"
                       onClick={() => setTxLimit('5')}
                       className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer transition-colors ${
-                        txLimit === '5' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                        txLimit === '5' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       5 gần nhất
@@ -681,7 +681,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                     type="button"
                     onClick={() => setTxSort('asc')}
                     className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer transition-colors flex items-center gap-1 ${
-                      txSort === 'asc' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                      txSort === 'asc' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                     title="Cũ trước mới sau"
                   >
@@ -692,7 +692,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                     type="button"
                     onClick={() => setTxSort('desc')}
                     className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer transition-colors flex items-center gap-1 ${
-                      txSort === 'desc' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                      txSort === 'desc' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                     title="Mới nhất lên đầu"
                   >
@@ -770,16 +770,21 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
           className="flex-1 overflow-y-auto overflow-x-auto p-3 bg-slate-200/60 flex flex-col items-center justify-start"
         >
           {viewMode === 'fit' && scaleFactor < 0.99 ? (
-            // Chế độ Fit: Scale theo tỷ lệ để nhìn thấy trọn vẹn bề ngang không bị cắt
+            // Chế độ Fit: Scale theo tỷ lệ để nhìn thấy trọn vẹn bề ngang không bị cắt, tự đo chiều cao chuẩn
             <div
               style={{
                 width: `${590 * scaleFactor}px`,
-                height: 'auto',
+                height: cardHeight > 0 ? `${Math.ceil(cardHeight * scaleFactor) + 16}px` : 'auto',
                 overflow: 'visible',
               }}
-              className="transition-all duration-200 my-auto"
+              className="transition-all duration-200 my-2 shrink-0"
             >
               <div
+                ref={(el) => {
+                  if (el && el.offsetHeight > 0 && Math.abs(el.offsetHeight - cardHeight) > 2) {
+                    setCardHeight(el.offsetHeight);
+                  }
+                }}
                 style={{
                   transform: `scale(${scaleFactor})`,
                   transformOrigin: 'top left',
@@ -791,28 +796,28 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
             </div>
           ) : (
             // Chế độ Actual: Kích thước 100% cuộn mượt mà
-            <div className="w-full flex justify-center py-2">
+            <div className="w-full flex justify-center py-2 shrink-0">
               {renderCardContent()}
             </div>
           )}
         </div>
 
         {/* Footer Action Buttons */}
-        <div className="p-3 sm:p-4 bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0 border-t border-slate-800">
-          <div className="text-xs text-slate-300 w-full sm:w-auto text-center sm:text-left">
+        <div className="p-3.5 sm:p-4 bg-white text-slate-900 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 border-t border-slate-200 shadow-xs">
+          <div className="text-xs text-slate-500 w-full sm:w-auto text-center sm:text-left">
             {copiedStatus === 'copied' ? (
-              <span className="text-emerald-400 font-bold flex items-center justify-center sm:justify-start gap-1">
-                <Check className="w-4 h-4" />
+              <span className="text-emerald-700 font-bold flex items-center justify-center sm:justify-start gap-1">
+                <Check className="w-4 h-4 text-emerald-600" />
                 Đã sao chép ảnh! Bạn có thể dán (Ctrl+V) ngay vào Zalo / Messenger.
               </span>
             ) : copiedStatus === 'downloaded' ? (
-              <span className="text-emerald-400 font-bold flex items-center justify-center sm:justify-start gap-1">
-                <Check className="w-4 h-4" />
+              <span className="text-emerald-700 font-bold flex items-center justify-center sm:justify-start gap-1">
+                <Check className="w-4 h-4 text-emerald-600" />
                 Đã tải ảnh về máy thành công!
               </span>
             ) : (
               <span className="text-[11px] sm:text-xs">
-                Nhấn <strong className="text-emerald-400">Sao Chép</strong> để Dán (Ctrl+V) ngay vào Zalo hoặc tải ảnh về máy
+                Nhấn <strong className="text-emerald-700 font-bold">Sao Chép</strong> để Dán (Ctrl+V) ngay vào Zalo hoặc tải ảnh về máy
               </span>
             )}
           </div>
@@ -823,7 +828,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
               type="button"
               onClick={handleCopyImage}
               disabled={isGenerating}
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50 whitespace-nowrap"
               title="Sao chép ảnh để dán (Ctrl+V) vào Zalo / Messenger"
             >
               <Copy className="w-4 h-4" />
@@ -835,7 +840,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
               type="button"
               onClick={handleDownloadImage}
               disabled={isGenerating}
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
               title="Tải tệp ảnh PNG về điện thoại / máy tính"
             >
               <Download className="w-4 h-4" />
@@ -848,7 +853,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                 type="button"
                 onClick={handleShareMobile}
                 disabled={isGenerating}
-                className="inline-flex sm:hidden items-center justify-center p-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold border border-slate-700 cursor-pointer"
+                className="inline-flex sm:hidden items-center justify-center p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 cursor-pointer"
                 title="Gửi trực tiếp qua Zalo/ứng dụng khác"
               >
                 <Share2 className="w-4 h-4" />

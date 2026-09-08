@@ -254,13 +254,6 @@ export function saveSettings(settings: AppSettings): void {
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
 }
 
-export function resetAllData(): void {
-  localStorage.removeItem(STORAGE_KEYS.DEBTORS);
-  localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
-  localStorage.removeItem(STORAGE_KEYS.PARTIES);
-  localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-}
-
 export function getDebtorBalance(debtorId: string, transactions: Transaction[]): number {
   return transactions
     .filter((tx) => tx.debtorId === debtorId)

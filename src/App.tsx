@@ -27,6 +27,7 @@ import {
   apiSyncAllNow,
   getStoredOwnerToken,
   removeStoredOwnerToken,
+  apiGuestLookup,
 } from './utils/api';
 import {
   loadDebtors,
@@ -42,7 +43,7 @@ import { subscribeToFirestoreData } from './services/firestoreClient';
 import { Header } from './components/Header';
 import { OwnerDashboard } from './components/OwnerDashboard';
 import { GuestPortal } from './components/GuestPortal';
-import { AdminLoginView } from './components/AdminLoginView';
+import { UnifiedLoginView } from './components/UnifiedLoginView';
 import { SettingsView } from './components/SettingsView';
 import { AddDebtorModal } from './components/AddDebtorModal';
 import { AddTransactionModal } from './components/AddTransactionModal';
@@ -50,7 +51,6 @@ import { EditTransactionModal } from './components/EditTransactionModal';
 import { SplitBillModal } from './components/SplitBillModal';
 import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
-import { ChangePinModal } from './components/ChangePinModal';
 
 export default function App() {
   // App Core State
@@ -80,7 +80,6 @@ export default function App() {
   // Operational Modals
   const [isAddDebtorOpen, setIsAddDebtorOpen] = useState(false);
   const [editingDebtor, setEditingDebtor] = useState<Debtor | null>(null);
-  const [changePinDebtor, setChangePinDebtor] = useState<Debtor | null>(null);
 
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [defaultTxDebtorId, setDefaultTxDebtorId] = useState<string | undefined>(undefined);
@@ -104,8 +103,7 @@ export default function App() {
     isAddTxOpen ||
     isSplitPartyOpen ||
     Boolean(editingTransaction) ||
-    Boolean(editingParty) ||
-    Boolean(changePinDebtor)
+    Boolean(editingParty)
   );
 
   // Load / Sync Data from Backend
@@ -194,10 +192,16 @@ export default function App() {
         setCurrentView('GUEST');
         const pinMatch = window.location.hash.match(/pin=([^&]+)/i);
         if (pinMatch && pinMatch[1]) {
-          setGuestInitialPin(pinMatch[1]);
+          const rawPin = decodeURIComponent(pinMatch[1]).trim();
+          setGuestInitialPin(rawPin);
+          apiGuestLookup(rawPin).then((res) => {
+            if (res.success && res.debtor) {
+              setGuestInitialDebtor(res.debtor);
+            }
+          });
         }
       } else {
-        // Default route: if authenticated, show owner, otherwise guest
+        // Default route: if authenticated, show owner, otherwise guest/login
         const token = getStoredOwnerToken();
         if (token) {
           setCurrentView('OWNER');
@@ -227,22 +231,24 @@ export default function App() {
     } else if (view === 'SETTINGS') {
       window.location.hash = 'settings';
     } else {
-      setGuestInitialPin(null);
-      setGuestInitialDebtor(null);
-      window.location.hash = 'guest';
+      window.location.hash = guestInitialDebtor ? `guest?pin=${guestInitialDebtor.pin}` : 'guest';
     }
   };
 
   const handleOwnerLoginSuccess = () => {
     setIsOwnerAuthenticated(true);
+    setCurrentView('OWNER');
+    window.location.hash = 'owner';
     refreshDataFromServer();
   };
 
   const handleOwnerLogout = () => {
     removeStoredOwnerToken();
     setIsOwnerAuthenticated(false);
+    setGuestInitialDebtor(null);
+    setGuestInitialPin(null);
     setCurrentView('GUEST');
-    window.location.hash = 'guest';
+    window.location.hash = '';
   };
 
   // --- Debtor Handlers (Synchronized) ---
@@ -407,41 +413,67 @@ export default function App() {
     window.location.hash = 'guest';
   };
 
-  const handleSaveDebtorPin = async (debtorId: string, newPin: string): Promise<boolean> => {
-    const target = debtors.find((d) => d.id === debtorId);
-    if (!target) return false;
-    const res = await handleSaveDebtor(
-      {
-        name: target.name,
-        pin: newPin,
-        note: target.note,
-      },
-      debtorId
-    );
-    if (res) {
-      if (selectedDetailDebtor && selectedDetailDebtor.id === debtorId) {
-        setSelectedDetailDebtor((prev) => (prev ? { ...prev, pin: newPin } : null));
-      }
-      return true;
-    }
-    return false;
-  };
-
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased">
-      {/* Top Navigation */}
+      {/* Top Navigation - Sáng sạch & Tối giản */}
       <Header
         currentView={currentView}
         isOwnerAuthenticated={isOwnerAuthenticated}
         onViewChange={handleViewChange}
         onOwnerLogout={handleOwnerLogout}
         settings={settings}
+        activeGuestDebtor={guestInitialDebtor}
+        onGuestLogout={() => {
+          setGuestInitialDebtor(null);
+          setGuestInitialPin(null);
+          window.location.hash = '';
+        }}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        {currentView === 'OWNER' ? (
-          isOwnerAuthenticated ? (
+        {!isOwnerAuthenticated && !guestInitialDebtor ? (
+          <UnifiedLoginView
+            settings={settings}
+            onLoginOwnerSuccess={handleOwnerLoginSuccess}
+            onLoginGuestSuccess={(debtor, txs, setts) => {
+              setGuestInitialDebtor(debtor);
+              setGuestInitialPin(debtor.pin);
+              if (txs && txs.length > 0) {
+                setTransactions((prev) => smartMergeTransactions(txs, prev));
+              }
+              if (setts) {
+                setSettings(setts);
+              }
+              setCurrentView('GUEST');
+              window.location.hash = `guest?pin=${debtor.pin}`;
+            }}
+          />
+        ) : isOwnerAuthenticated ? (
+          currentView === 'SETTINGS' ? (
+            <SettingsView
+              settings={settings}
+              debtors={debtors}
+              transactions={transactions}
+              parties={parties}
+              onSaveSettings={handleSaveSettings}
+              onDataReload={refreshDataFromServer}
+              onGoBack={() => handleViewChange('OWNER')}
+            />
+          ) : currentView === 'GUEST' && guestInitialDebtor ? (
+            <GuestPortal
+              onViewImage={handleViewImage}
+              onGoToOwnerLogin={() => handleViewChange('OWNER')}
+              initialPin={guestInitialPin}
+              initialDebtor={guestInitialDebtor}
+              isOwnerAuthenticated={isOwnerAuthenticated}
+              debtors={debtors}
+              allTransactions={transactions}
+              appSettings={settings}
+              onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
+              onDataReload={refreshDataFromServer}
+            />
+          ) : (
             <OwnerDashboard
               debtors={debtors}
               transactions={transactions}
@@ -456,7 +488,6 @@ export default function App() {
               onSelectDebtor={(d) => setSelectedDetailDebtor(d)}
               onViewImage={handleViewImage}
               onDeleteDebtor={handleDeleteDebtor}
-              onOpenChangePin={(debtor) => setChangePinDebtor(debtor)}
               onOpenSettings={() => handleViewChange('SETTINGS')}
               onDataReload={refreshDataFromServer}
               onEditTx={(tx) => setEditingTransaction(tx)}
@@ -464,41 +495,18 @@ export default function App() {
               onEditParty={(p) => setEditingParty(p)}
               onDeleteParty={handleDeletePartySplit}
             />
-          ) : (
-            <AdminLoginView
-              settings={settings}
-              onLoginSuccess={handleOwnerLoginSuccess}
-              onGoToGuest={() => handleViewChange('GUEST')}
-            />
-          )
-        ) : currentView === 'SETTINGS' ? (
-          isOwnerAuthenticated ? (
-            <SettingsView
-              settings={settings}
-              debtors={debtors}
-              transactions={transactions}
-              parties={parties}
-              onSaveSettings={handleSaveSettings}
-              onDataReload={refreshDataFromServer}
-              onGoBack={() => handleViewChange('OWNER')}
-            />
-          ) : (
-            <AdminLoginView
-              settings={settings}
-              onLoginSuccess={() => {
-                handleOwnerLoginSuccess();
-                setCurrentView('SETTINGS');
-              }}
-              onGoToGuest={() => handleViewChange('GUEST')}
-            />
           )
         ) : (
           <GuestPortal
             onViewImage={handleViewImage}
-            onGoToOwnerLogin={() => handleViewChange('OWNER')}
+            onGoToOwnerLogin={() => {
+              setGuestInitialDebtor(null);
+              setGuestInitialPin(null);
+              window.location.hash = '';
+            }}
             initialPin={guestInitialPin}
             initialDebtor={guestInitialDebtor}
-            isOwnerAuthenticated={isOwnerAuthenticated}
+            isOwnerAuthenticated={false}
             debtors={debtors}
             allTransactions={transactions}
             appSettings={settings}
@@ -523,7 +531,6 @@ export default function App() {
         onEditTx={handleUpdateTransaction}
         onViewImage={handleViewImage}
         onDirectGuestView={handleDirectGuestView}
-        onOpenChangePin={(debtor) => setChangePinDebtor(debtor)}
       />
 
       {/* Action Modals: Rendered on top of detail modal */}
@@ -578,15 +585,6 @@ export default function App() {
         onConfirmSplit={handleConfirmSplit}
         onUpdateSplit={handleUpdatePartySplit}
         onSaveDebtor={handleSaveDebtor}
-      />
-
-      {/* Admin Change Debtor PIN/Pass Modal */}
-      <ChangePinModal
-        isOpen={Boolean(changePinDebtor)}
-        onClose={() => setChangePinDebtor(null)}
-        debtor={changePinDebtor}
-        existingDebtors={debtors}
-        onSavePin={handleSaveDebtorPin}
       />
 
       {/* Full Size Image Viewer Modal */}

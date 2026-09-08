@@ -87,17 +87,17 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
         id="lookup-guide-modal-card"
         className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]"
       >
-        {/* Header */}
-        <div className="bg-slate-900 text-white px-5 sm:px-6 py-4 flex items-center justify-between shrink-0">
+        {/* Header - Sáng & Tinh tế */}
+        <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0 shadow-2xs">
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="font-bold text-sm sm:text-base leading-tight">
+              <h2 className="font-bold text-sm sm:text-base leading-tight text-slate-900">
                 Hướng Dẫn Cho {debtor.name}
               </h2>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-500">
                 Gửi thông tin này để con nợ tự tra cứu và chuyển khoản
               </p>
             </div>
@@ -105,7 +105,7 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

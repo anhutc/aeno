@@ -407,17 +407,17 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         id="split-bill-modal-card"
         className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
       >
-        {/* Unified Premium Dark Header */}
-        <div className="bg-slate-900 text-white px-5 sm:px-6 py-4 flex items-center justify-between shrink-0">
+        {/* Header - Sáng & Tinh tế */}
+        <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-amber-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
               <Sparkles className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate">
+              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate text-slate-900">
                 {initialParty ? 'Chỉnh Sửa Cuộc Vui Chia Tiền' : 'Chia Tiền Cuộc Ăn Chơi'}
               </h2>
-              <p className="text-xs text-slate-300 truncate mt-0.5">
+              <p className="text-xs text-slate-500 truncate mt-0.5">
                 {initialParty
                   ? 'Cập nhật thông tin & tự động tính toán lại phần chia'
                   : 'Nhập số người chia & chọn người nợ tôi hoặc tôi nợ họ'}
@@ -427,7 +427,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           <button
             id="close-split-bill-btn"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer shrink-0"
             title="Đóng"
           >
             <X className="w-5 h-5" />
@@ -707,28 +707,28 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           )}
 
           {/* Hộp tóm tắt tính toán */}
-          <div className="p-4 bg-slate-900 text-slate-100 rounded-2xl space-y-2 text-xs border border-slate-800">
-            <div className="flex items-center gap-1.5 font-bold text-amber-400 text-sm">
-              <Sparkles className="w-4 h-4" />
+          <div className="p-4 bg-amber-50/80 text-amber-950 rounded-2xl space-y-2 text-xs border border-amber-200/80 shadow-2xs">
+            <div className="flex items-center gap-1.5 font-bold text-amber-900 text-sm">
+              <Sparkles className="w-4 h-4 text-amber-600" />
               <span>KẾT QUẢ PHÂN CHIA HÓA ĐƠN:</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60">
               <div>
-                <span className="text-slate-400">• Số người chia:</span>{' '}
-                <strong className="text-white text-sm font-mono">{numberOfPeople} người</strong>
+                <span className="text-slate-500">• Số người chia:</span>{' '}
+                <strong className="text-slate-900 text-sm font-mono">{numberOfPeople} người</strong>
               </div>
               <div>
-                <span className="text-slate-400">• Tiền mỗi phần:</span>{' '}
-                <strong className="text-amber-300 text-sm font-mono">
+                <span className="text-slate-500">• Tiền mỗi phần:</span>{' '}
+                <strong className="text-amber-800 text-sm font-mono">
                   {formatVND(splitAmountPerPerson)}
                 </strong>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-800/80 text-slate-300 text-[11px] leading-relaxed">
+            <div className="pt-2 border-t border-amber-200/60 text-slate-700 text-[11px] leading-relaxed">
               {payerType === 'ME' ? (
                 <>
-                  <span className="text-emerald-400 font-semibold">• Sẽ ghi nhận nợ (+): </span>
+                  <span className="text-emerald-700 font-bold">• Sẽ ghi nhận nợ (+): </span>
                   {selectedDebtorIds.length > 0 ? (
                     selectedDebtorIds
                       .map((id) => {
@@ -742,10 +742,10 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                 </>
               ) : (
                 <>
-                  <span className="text-rose-400 font-semibold">• Tôi nợ (-): </span>
+                  <span className="text-rose-700 font-bold">• Tôi nợ (-): </span>
                   <span>
                     Ghi nhận Tôi nợ <strong>{payerDebtor?.name || 'người này'}</strong>{' '}
-                    <strong className="text-rose-400">-{formatVND(splitAmountPerPerson)}</strong>.
+                    <strong className="text-rose-600 font-mono">-{formatVND(splitAmountPerPerson)}</strong>.
                   </span>
                 </>
               )}

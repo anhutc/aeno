@@ -50,8 +50,7 @@ interface DebtorDetailModalProps {
   onDeleteTx: (txId: string) => void;
   onEditTx?: (updatedTx: Transaction) => Promise<void> | void;
   onViewImage: (url: string, title?: string) => void;
-  onDirectGuestView: (debtor: Debtor) => void;
-  onOpenChangePin?: (debtor: Debtor) => void;
+  onDirectGuestView?: (debtor: Debtor) => void;
 }
 
 export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
@@ -66,7 +65,6 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   onEditTx,
   onViewImage,
   onDirectGuestView,
-  onOpenChangePin,
 }) => {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isShareImageOpen, setIsShareImageOpen] = useState(false);
@@ -99,33 +97,33 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
     <>
       <div
         id="debtor-detail-modal-backdrop"
-        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150"
       >
         <div
           id="debtor-detail-modal-card"
-          className="bg-white w-full max-w-2xl rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
+          className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
         >
-          {/* Header */}
-          <div className="bg-slate-900 text-white px-5 sm:px-6 py-4 flex items-center justify-between shrink-0">
+          {/* Header - Sáng & Tinh tế */}
+          <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center font-bold text-emerald-400 text-lg">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100 border border-emerald-200 flex items-center justify-center font-bold text-emerald-800 text-lg shadow-2xs">
                 {debtor.name.charAt(0).toUpperCase()}
               </div>
               <div>
-                <h2 className="font-bold text-base sm:text-lg leading-tight flex items-center gap-2">
+                <h2 className="font-bold text-base sm:text-lg leading-tight flex items-center gap-2 text-slate-900">
                   {debtor.name}
                 </h2>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-0.5">
-                  <div className="inline-flex items-center gap-1.5 text-amber-300 bg-slate-800/80 px-2.5 py-1 rounded-lg font-mono text-xs font-semibold border border-amber-400/40">
-                    <KeyRound className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                  <div className="inline-flex items-center gap-1.5 text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl font-mono text-xs font-semibold border border-amber-200 shadow-2xs">
+                    <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>Pass: {debtor.pin}</span>
                     <button
                       type="button"
                       onClick={handleCopyPin}
-                      className="ml-0.5 p-1 hover:bg-slate-700 rounded text-amber-300 hover:text-white transition-colors cursor-pointer"
+                      className="ml-0.5 p-1 hover:bg-amber-100 rounded text-amber-700 hover:text-amber-900 transition-colors cursor-pointer"
                       title="Sao chép mật khẩu tra cứu"
                     >
-                      {copiedPin ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedPin ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
@@ -137,7 +135,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 type="button"
                 onClick={() => onEditDebtor(debtor)}
                 title="Chỉnh sửa thông tin"
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
               >
                 <Edit3 className="w-4 h-4" />
               </button>
@@ -145,7 +143,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 type="button"
                 onClick={() => setIsConfirmDeleteOpen(true)}
                 title="Xóa con nợ này"
-                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -153,7 +151,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 id="close-debtor-detail-btn"
                 type="button"
                 onClick={onClose}
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors ml-1 cursor-pointer"
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors ml-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -215,39 +213,26 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons Row: Equal 3-column grid, no crowding or overlapping */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3.5 mt-3.5 border-t border-black/5">
+              {/* Action Buttons Row: 2-column balanced grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3.5 mt-3.5 border-t border-black/5">
                 <button
                   type="button"
                   onClick={() => onOpenAddTx(debtor.id)}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   title="Ghi nợ hoặc thu tiền cho người này"
                 >
                   <Plus className="w-4 h-4 shrink-0" />
-                  <span>Tạo Giao Dịch</span>
+                  <span>Tạo Giao Dịch Mới</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setIsGuideModalOpen(true)}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
                   title="Xem và sao chép hướng dẫn tra cứu kèm mã PIN gửi con nợ"
                 >
                   <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>Gửi Link Tra Cứu</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onDirectGuestView(debtor);
-                  }}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-                  title="Chủ nợ xem trực tiếp giao diện tra cứu của con nợ này"
-                >
-                  <Eye className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Giao Diện Con Nợ</span>
+                  <span>Gửi Link & Mã PIN Tra Cứu</span>
                 </button>
               </div>
             </div>

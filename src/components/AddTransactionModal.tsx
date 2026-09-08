@@ -239,17 +239,17 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         id="add-transaction-modal-card"
         className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
       >
-        {/* Unified Premium Dark Header */}
-        <div className="bg-slate-900 text-white px-5 sm:px-6 py-4 flex items-center justify-between shrink-0">
+        {/* Header - Sáng & Tinh tế */}
+        <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-blue-100 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0 shadow-2xs">
               <PlusCircle className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate">
+              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate text-slate-900">
                 Tạo Giao Dịch Mới
               </h2>
-              <p className="text-xs text-slate-300 truncate mt-0.5">
+              <p className="text-xs text-slate-500 truncate mt-0.5">
                 Ghi nợ mới hoặc ghi nhận thanh toán tiền nợ
               </p>
             </div>
@@ -257,7 +257,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           <button
             id="close-add-transaction-btn"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer shrink-0"
             title="Đóng"
           >
             <X className="w-5 h-5" />

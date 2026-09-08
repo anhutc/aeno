@@ -131,17 +131,17 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
         className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Unified Premium Dark Header */}
-        <div className="bg-slate-900 text-white px-5 sm:px-6 py-4 flex items-center justify-between shrink-0">
+        {/* Header - Sáng & Tinh tế */}
+        <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0 shadow-2xs">
               {initialDebtor ? <Pencil className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
             </div>
             <div className="min-w-0">
-              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate">
+              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate text-slate-900">
                 {initialDebtor ? 'Chỉnh Sửa Người Nợ' : 'Thêm Người Nợ Mới'}
               </h2>
-              <p className="text-xs text-slate-300 truncate mt-0.5">
+              <p className="text-xs text-slate-500 truncate mt-0.5">
                 {initialDebtor
                   ? `Đang sửa thông tin: ${initialDebtor.name}`
                   : 'Cung cấp tên và mật khẩu tra cứu bảo mật'}
@@ -151,7 +151,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
           <button
             id="close-add-debtor-btn"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer shrink-0"
             title="Đóng"
           >
             <X className="w-5 h-5" />
