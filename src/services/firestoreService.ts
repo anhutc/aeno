@@ -595,33 +595,6 @@ export async function replaceFirestoreData(state: DatabaseState): Promise<void> 
 }
 
 /**
- * Load a dataset preset directly into Cloud Firestore
- */
-export async function loadPresetDataIntoFirestore(presetId: string): Promise<DatabaseState> {
-  const preset = DATASET_PRESETS.find((p) => p.id === presetId);
-  if (!preset) {
-    throw new Error(`Preset "${presetId}" không tồn tại.`);
-  }
-
-  const presetData = preset.getData();
-  const currentSettings = (await loadDataFromFirestore()).settings || DEFAULT_SETTINGS;
-  const mergedSettings = {
-    ...currentSettings,
-    ...(presetData.settings || {}),
-  };
-
-  const newState: DatabaseState = {
-    debtors: presetData.debtors,
-    transactions: presetData.transactions,
-    parties: presetData.parties,
-    settings: mergedSettings,
-  };
-
-  await replaceFirestoreData(newState);
-  return newState;
-}
-
-/**
  * Save or update a single debtor in Cloud Firestore
  */
 export async function saveDebtorToFirestore(debtor: Debtor): Promise<void> {

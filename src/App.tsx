@@ -24,7 +24,6 @@ import {
   apiUpdatePartySplit,
   apiDeletePartySplit,
   apiSaveSettings,
-  apiSyncAllNow,
   getStoredOwnerToken,
   removeStoredOwnerToken,
   apiGuestLookup,
@@ -180,6 +179,14 @@ export default function App() {
     };
   }, []);
 
+  // Khi tải hoặc tải lại trang: Xóa sạch phiên đăng nhập cũ & mã PIN khỏi URL để bắt buộc đăng nhập lại
+  useEffect(() => {
+    removeStoredOwnerToken();
+    if (window.location.hash.includes('pin=') || window.location.search.includes('pin=')) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
   // Handle URL hash changes
   useEffect(() => {
     const handleHash = () => {
@@ -188,26 +195,8 @@ export default function App() {
         setCurrentView('SETTINGS');
       } else if (hash.startsWith('#owner') || hash.startsWith('#admin')) {
         setCurrentView('OWNER');
-      } else if (hash.startsWith('#guest')) {
-        setCurrentView('GUEST');
-        const pinMatch = window.location.hash.match(/pin=([^&]+)/i);
-        if (pinMatch && pinMatch[1]) {
-          const rawPin = decodeURIComponent(pinMatch[1]).trim();
-          setGuestInitialPin(rawPin);
-          apiGuestLookup(rawPin).then((res) => {
-            if (res.success && res.debtor) {
-              setGuestInitialDebtor(res.debtor);
-            }
-          });
-        }
       } else {
-        // Default route: if authenticated, show owner, otherwise guest/login
-        const token = getStoredOwnerToken();
-        if (token) {
-          setCurrentView('OWNER');
-        } else {
-          setCurrentView('GUEST');
-        }
+        setCurrentView('GUEST');
       }
     };
 
@@ -231,7 +220,7 @@ export default function App() {
     } else if (view === 'SETTINGS') {
       window.location.hash = 'settings';
     } else {
-      window.location.hash = guestInitialDebtor ? `guest?pin=${guestInitialDebtor.pin}` : 'guest';
+      window.location.hash = 'guest';
     }
   };
 
@@ -446,7 +435,7 @@ export default function App() {
                 setSettings(setts);
               }
               setCurrentView('GUEST');
-              window.location.hash = `guest?pin=${debtor.pin}`;
+              window.location.hash = 'guest';
             }}
           />
         ) : isOwnerAuthenticated ? (

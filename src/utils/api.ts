@@ -50,7 +50,6 @@ import {
   setClientCustomDatabaseId,
   syncAllToFirestoreDirect,
   clearAllFirestoreDirect,
-  loadPresetDirect,
   subscribeToFirestoreData,
   subscribeToDebtorTransactions,
 } from '../services/firestoreClient';
@@ -1065,61 +1064,6 @@ export async function apiRestoreFirestoreBackup(filename: string): Promise<{
     // ignore
   }
   return { success: false, message: 'Không thể khôi phục từ bản sao lưu.' };
-}
-
-export async function apiLoadFirestoreDataset(preset: string): Promise<{
-  success: boolean;
-  message?: string;
-  debtors?: Debtor[];
-  transactions?: Transaction[];
-  parties?: PartySplit[];
-  settings?: AppSettings;
-}> {
-  try {
-    const res = await fetch('/api/firestore/load-dataset', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ preset }),
-    });
-    const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
-      const data = await res.json();
-      if (data.success && data.data) {
-        if (data.data.debtors) saveDebtors(data.data.debtors);
-        if (data.data.transactions) saveTransactions(data.data.transactions);
-        if (data.data.parties) saveParties(data.data.parties);
-        if (data.data.settings) saveSettings(data.data.settings);
-        return {
-          success: true,
-          message: data.message,
-          debtors: data.data.debtors,
-          transactions: data.data.transactions,
-          parties: data.data.parties,
-          settings: data.data.settings,
-        };
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    const fresh = await loadPresetDirect(preset);
-    saveDebtors(fresh.debtors);
-    saveTransactions(fresh.transactions);
-    saveParties(fresh.parties);
-    saveSettings(fresh.settings);
-    return {
-      success: true,
-      message: `Đã nạp gói dữ liệu mẫu trực tiếp lên Cloud Firestore thành công.`,
-      debtors: fresh.debtors,
-      transactions: fresh.transactions,
-      parties: fresh.parties,
-      settings: fresh.settings,
-    };
-  } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi khi nạp dữ liệu mẫu' };
-  }
 }
 
 export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 'merge' = 'replace'): Promise<{

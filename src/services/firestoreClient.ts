@@ -27,7 +27,6 @@ import {
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import {
   DEFAULT_SETTINGS,
-  DATASET_PRESETS,
 } from '../data/mockData';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
 
@@ -511,38 +510,6 @@ export async function clearAllFirestoreDirect(): Promise<void> {
     { isInitialized: true, lastClearedAt: new Date().toISOString() },
     { merge: true }
   );
-}
-
-/**
- * Load preset dataset directly
- */
-export async function loadPresetDirect(presetId: string): Promise<{
-  debtors: Debtor[];
-  transactions: Transaction[];
-  parties: PartySplit[];
-  settings: AppSettings;
-}> {
-  const preset = DATASET_PRESETS.find((p) => p.id === presetId) || DATASET_PRESETS[0];
-  const rawData = preset.getData();
-  const data: {
-    debtors: Debtor[];
-    transactions: Transaction[];
-    parties: PartySplit[];
-    settings: AppSettings;
-  } = {
-    debtors: rawData.debtors || [],
-    transactions: rawData.transactions || [],
-    parties: rawData.parties || [],
-    settings: {
-      ...DEFAULT_SETTINGS,
-      ...(rawData.settings || {}),
-    },
-  };
-
-  await clearAllFirestoreDirect();
-  await syncAllToFirestoreDirect(data);
-
-  return data;
 }
 
 /**

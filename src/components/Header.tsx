@@ -122,20 +122,28 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="relative inline-block shrink-0" ref={popoverRef} onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={() => setShowStatusPopover((prev) => !prev)}
+                    onClick={isOwnerAuthenticated ? () => setShowStatusPopover((prev) => !prev) : undefined}
                     title={
-                      isCheckingStatus
+                      !isOwnerAuthenticated
+                        ? firestoreStatus?.connected
+                          ? 'Đã kết nối trực tuyến an toàn'
+                          : 'Đang hoạt động ngoại tuyến'
+                        : isCheckingStatus
                         ? 'Đang kiểm tra kết nối Cloud Firestore...'
                         : firestoreStatus?.connected
-                        ? `Cloud Firestore: Đã kết nối (${firestoreStatus.databaseId || 'mặc định'}) • Độ trễ: ${firestoreStatus.latencyMs}ms • Bấm để xem chi tiết`
+                        ? `Cloud Firestore: Đã kết nối • Bấm để xem chi tiết`
                         : `Cloud Firestore: ${firestoreStatus?.error || 'Mất kết nối'} • Bấm để kiểm tra lại`
                     }
-                    className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold shrink-0 cursor-pointer transition-all border shadow-2xs select-none ${
+                    className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold shrink-0 transition-all border shadow-2xs select-none ${
+                      isOwnerAuthenticated ? 'cursor-pointer' : 'cursor-default'
+                    } ${
                       isCheckingStatus
                         ? 'bg-sky-50 text-sky-700 border-sky-200'
                         : firestoreStatus?.connected
-                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200/80 hover:border-emerald-300'
-                        : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 animate-pulse'
+                        ? isOwnerAuthenticated
+                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200/80 hover:border-emerald-300'
+                          : 'bg-emerald-50 text-emerald-800 border-emerald-200/80'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
                     }`}
                   >
                     <Cloud className="w-3 h-3 shrink-0 text-current opacity-90 hidden xs:inline" />
@@ -163,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
                         <>
                           <span className="hidden sm:inline">Cloud Live</span>
                           <span className="sm:hidden">Live</span>
-                          {firestoreStatus.latencyMs > 0 && (
+                          {isOwnerAuthenticated && firestoreStatus.latencyMs > 0 && (
                             <span className="hidden lg:inline text-[9px] font-mono opacity-80 ml-0.5">
                               ({firestoreStatus.latencyMs}ms)
                             </span>
@@ -178,8 +186,8 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                   </button>
 
-                  {/* Status Detail Popover / Modal (Tone sáng) */}
-                  {showStatusPopover && (
+                  {/* Status Detail Popover / Modal (Tone sáng) - CHỈ DÀNH CHO CHỦ NỢ ĐÃ XÁC THỰC */}
+                  {showStatusPopover && isOwnerAuthenticated && (
                     <div
                       className="absolute left-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 text-slate-800 z-50 animate-in fade-in zoom-in-95 duration-150"
                     >

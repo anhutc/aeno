@@ -26,7 +26,6 @@ import {
   resetToDefaultFirestoreConfig,
   migrateDataToDatabase,
   replaceFirestoreData,
-  loadPresetDataIntoFirestore,
   syncAllDataToFirestore,
   createSnapshotBackup,
   listSnapshotBackups,
@@ -811,11 +810,37 @@ app.use(async (req, _res, next) => {
   // --- CLOUD FIRESTORE MANAGEMENT APIS ---
 
   // Get live status, latency, connected database ID, and statistics
-  app.get('/api/firestore/status', async (_req, res) => {
+  app.get('/api/firestore/status', async (req, res) => {
     try {
       const config = getActiveFirestoreConfig();
       const testRes = await testFirestoreConnection();
       const currentDb = getDatabase();
+
+      // Kiểm tra quyền Chủ nợ: Tuyệt đối không để lộ Database ID hay số lượng người nợ/giao dịch cho người chưa đăng nhập hoặc con nợ
+      const authHeader = req.headers['authorization'] || req.headers['x-owner-token'];
+      const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/, '').trim() : '';
+      const currentOwnerPassword = (currentDb.settings.ownerPassword || '123456').trim();
+      const adminPasswordHeader = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'].trim() : '';
+
+      const isOwner = (
+        (typeof token === 'string' && token.startsWith(OWNER_TOKEN_PREFIX)) ||
+        token === 'local-owner-session' ||
+        token === currentOwnerPassword ||
+        adminPasswordHeader === currentOwnerPassword
+      );
+
+      // Nếu không phải Chủ nợ, chỉ trả về trạng thái kết nối mạng cơ bản
+      if (!isOwner) {
+        return res.json({
+          success: true,
+          connected: testRes.success,
+          latencyMs: testRes.latencyMs,
+          error: testRes.error || null,
+          lastChecked: new Date().toISOString(),
+        });
+      }
+
+      // Chỉ Chủ nợ mới được phép xem Database ID và số lượng người nợ / giao dịch
       res.json({
         success: true,
         connected: testRes.success,
@@ -1012,32 +1037,6 @@ app.use(async (req, _res, next) => {
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, message: err?.message });
-    }
-  });
-
-  // Load a dataset preset directly into Cloud Firestore
-  app.post('/api/firestore/load-dataset', authMiddleware, async (req, res) => {
-    const { preset } = req.body;
-    if (!preset || typeof preset !== 'string') {
-      return res.status(400).json({ success: false, message: 'Vui lòng chọn bộ dữ liệu mẫu hợp lệ!' });
-    }
-
-    try {
-      const updatedState = await loadPresetDataIntoFirestore(preset);
-      inMemoryDb = updatedState;
-      saveDatabaseLocal(updatedState);
-      isFirestoreActive = true;
-
-      return res.json({
-        success: true,
-        message: `Đã nạp bộ dữ liệu lên Cloud Firestore thành công!`,
-        data: updatedState,
-      });
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi khi nạp dữ liệu: ${err?.message}`,
-      });
     }
   });
 
