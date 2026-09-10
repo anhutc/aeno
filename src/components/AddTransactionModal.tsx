@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
 import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerator';
+import { ThousandAmountInput } from './ThousandAmountInput';
 
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
   // Transaction fields
   const [type, setType] = useState<TransactionType>('ADD');
-  const [amountInput, setAmountInput] = useState('100000');
+  const [amount, setAmount] = useState<number>(100000);
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [note, setNote] = useState('');
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
@@ -95,7 +96,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       setShowNewPin(true);
 
       setType('ADD');
-      setAmountInput('100000');
+      setAmount(100000);
       setDate(new Date().toISOString().split('T')[0]);
       setNote('');
       setBillImage(undefined);
@@ -125,10 +126,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       };
       reader.readAsDataURL(file);
     }
-  };
-
-  const handleQuickAmount = (val: number) => {
-    setAmountInput(val.toString());
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -191,8 +188,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       return;
     }
 
-    const numAmount = parseInt(amountInput.replace(/\D/g, ''), 10);
-    if (!numAmount || numAmount <= 0) {
+    if (!amount || amount <= 0) {
       setError('Vui lòng nhập số tiền hợp lệ (> 0)');
       setIsSubmitting(false);
       return;
@@ -207,7 +203,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       const payload: Omit<Transaction, 'id' | 'createdAt'> = {
         debtorId: targetDebtorId,
         type,
-        amount: numAmount,
+        amount,
         date,
         note: note.trim(),
         category: 'SINGLE',
@@ -221,10 +217,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       setIsSubmitting(false);
     }
   };
-
-  const formattedDisplay = amountInput
-    ? new Intl.NumberFormat('vi-VN').format(parseInt(amountInput.replace(/\D/g, '') || '0', 10))
-    : '0';
 
   return (
     <AnimatePresence>
@@ -479,51 +471,18 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             </div>
           </div>
 
-          {/* Số tiền */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                Số tiền (VNĐ) <span className="text-rose-500">*</span>
-              </label>
-              <span className="text-xs font-bold font-mono text-blue-600">{formattedDisplay} đ</span>
-            </div>
-            <div className="relative">
-              <input
-                id="input-tx-amount"
-                type="text"
-                inputMode="numeric"
-                value={amountInput ? Number(amountInput.replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
-                onChange={(e) => setAmountInput(e.target.value.replace(/\D/g, ''))}
-                placeholder="Nhập số tiền..."
-                className="w-full pl-3.5 pr-14 py-2.5 bg-slate-50 border border-slate-300 focus:border-blue-600 focus:bg-white rounded-xl text-base font-bold font-mono text-slate-900 outline-none transition-colors"
-                autoFocus
-              />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                VNĐ
-              </span>
-            </div>
-            {/* Quick amounts */}
-            <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-              <span className="text-[11px] text-slate-400 font-medium">Cộng nhanh:</span>
-              {[50000, 100000, 200000, 500000, 1000000].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => handleQuickAmount(preset)}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-medium rounded-lg text-[11px] transition-colors cursor-pointer"
-                >
-                  +{preset >= 1000000 ? `${preset / 1000000}Tr` : `${preset / 1000}k`}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setAmountInput('')}
-                className="px-2 py-1 text-slate-400 hover:text-rose-600 text-[11px] font-medium transition-colors cursor-pointer ml-auto"
-              >
-                Xóa
-              </button>
-            </div>
-          </div>
+          {/* Số tiền tối ưu theo đơn vị nghìn */}
+          <ThousandAmountInput
+            id="input-tx-amount"
+            value={amount}
+            onChange={(val) => {
+              setAmount(val);
+              setError('');
+            }}
+            label="Số tiền"
+            required
+            accentColor="blue"
+          />
 
           {/* Ghi chú */}
           <div>

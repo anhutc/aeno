@@ -53,10 +53,10 @@ import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 
 export default function App() {
-  // App Core State
-  const [debtors, setDebtors] = useState<Debtor[]>(() => loadDebtors());
-  const [transactions, setTransactions] = useState<Transaction[]>(() => loadTransactions());
-  const [parties, setParties] = useState<PartySplit[]>(() => loadParties());
+  // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
+  const [debtors, setDebtors] = useState<Debtor[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [parties, setParties] = useState<PartySplit[]>([]);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
 
   // View & Auth State (OWNER | GUEST | SETTINGS)
@@ -108,6 +108,23 @@ export default function App() {
 
   // Load / Sync Data from Backend
   const refreshDataFromServer = useCallback(async (force = false) => {
+    // Nếu chưa xác thực Chủ Nợ, chỉ cập nhật cấu hình công khai (Settings)
+    if (!getStoredOwnerToken()) {
+      try {
+        const sRes = await fetch('/api/settings');
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData.success && sData.settings) {
+            setSettings(sData.settings);
+            saveSettings(sData.settings);
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
     // If a user action happened in the last 4 seconds and this isn't a forced sync, skip to avoid race condition overwrite
     if (!force && Date.now() - lastActionTimeRef.current < 4000) {
       return;
@@ -136,13 +153,17 @@ export default function App() {
     }
   }, []);
 
-  // Initial hydrate on mount
+  // Initial hydrate on mount: đồng bộ cấu hình công khai
   useEffect(() => {
     refreshDataFromServer(true);
   }, [refreshDataFromServer]);
 
-  // Real-time synchronization across devices via Firestore listeners
+  // Real-time synchronization: CHỈ kích hoạt khi Chủ Nợ đã đăng nhập thành công
   useEffect(() => {
+    if (!isOwnerAuthenticated) {
+      return;
+    }
+
     let unsubscribe: (() => void) | null = null;
     try {
       unsubscribe = subscribeToFirestoreData({
@@ -178,7 +199,7 @@ export default function App() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [isOwnerAuthenticated]);
 
   // Khi tải hoặc tải lại trang: Xóa sạch phiên đăng nhập cũ & mã PIN khỏi URL để bắt buộc đăng nhập lại
   useEffect(() => {
@@ -186,6 +207,9 @@ export default function App() {
     if (window.location.hash.includes('pin=') || window.location.search.includes('pin=')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
+    setDebtors([]);
+    setTransactions([]);
+    setParties([]);
   }, []);
 
   // Handle URL hash changes
@@ -235,6 +259,9 @@ export default function App() {
   const handleOwnerLogout = () => {
     removeStoredOwnerToken();
     setIsOwnerAuthenticated(false);
+    setDebtors([]);
+    setTransactions([]);
+    setParties([]);
     setGuestInitialDebtor(null);
     setGuestInitialPin(null);
     setCurrentView('GUEST');
@@ -416,6 +443,7 @@ export default function App() {
         onGuestLogout={() => {
           setGuestInitialDebtor(null);
           setGuestInitialPin(null);
+          setTransactions([]);
           window.location.hash = '';
         }}
       />
@@ -438,7 +466,7 @@ export default function App() {
                   setGuestInitialDebtor(debtor);
                   setGuestInitialPin(debtor.pin);
                   if (txs && txs.length > 0) {
-                    setTransactions((prev) => smartMergeTransactions(txs, prev));
+                    setTransactions(txs);
                   }
                   if (setts) {
                     setSettings(setts);
@@ -532,12 +560,13 @@ export default function App() {
                 onGoToOwnerLogin={() => {
                   setGuestInitialDebtor(null);
                   setGuestInitialPin(null);
+                  setTransactions([]);
                   window.location.hash = '';
                 }}
                 initialPin={guestInitialPin}
                 initialDebtor={guestInitialDebtor}
                 isOwnerAuthenticated={false}
-                debtors={debtors}
+                debtors={guestInitialDebtor ? [guestInitialDebtor] : []}
                 allTransactions={transactions}
                 appSettings={settings}
                 onOpenAddDebtor={() => setIsAddDebtorOpen(true)}

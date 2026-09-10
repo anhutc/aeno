@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
 import { formatVND } from '../utils/vietqr';
+import { ThousandAmountInput } from './ThousandAmountInput';
 
 interface EditTransactionModalProps {
   isOpen: boolean;
@@ -33,7 +34,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 }) => {
   const [selectedDebtorId, setSelectedDebtorId] = useState('');
   const [type, setType] = useState<TransactionType>('ADD');
-  const [amountInput, setAmountInput] = useState('');
+  const [amount, setAmount] = useState<number>(() => transaction?.amount || 0);
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
@@ -44,7 +45,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (isOpen && transaction) {
       setSelectedDebtorId(transaction.debtorId || debtor?.id || '');
       setType(transaction.type);
-      setAmountInput(String(transaction.amount || ''));
+      setAmount(transaction.amount || 0);
       setDate(transaction.date || new Date().toISOString().split('T')[0]);
       setNote(transaction.note || '');
       setBillImage(transaction.billImage);
@@ -69,25 +70,9 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     }
   };
 
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawVal = e.target.value.replace(/\D/g, '');
-    setAmountInput(rawVal);
-    setError('');
-  };
-
-  const handleQuickAddAmount = (addAmount: number) => {
-    const current = Number(amountInput) || 0;
-    setAmountInput(String(current + addAmount));
-  };
-
-  const handleQuickSetAmount = (setVal: number) => {
-    setAmountInput(String(setVal));
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const numAmount = Number(amountInput);
-    if (!numAmount || numAmount <= 0) {
+    if (!amount || amount <= 0) {
       setError('Vui lòng nhập số tiền lớn hơn 0');
       return;
     }
@@ -103,7 +88,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         ...transaction,
         debtorId: selectedDebtorId || transaction.debtorId,
         type,
-        amount: numAmount,
+        amount,
         date: date || new Date().toISOString().split('T')[0],
         note: note.trim(),
       };
@@ -122,7 +107,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     }
   };
 
-  const numericAmount = Number(amountInput) || 0;
   const currentDebtorObj = debtors.find((d) => d.id === selectedDebtorId) || debtor;
 
   return (
@@ -267,57 +251,18 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </div>
           </div>
 
-          {/* 3. Số Tiền */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                Số tiền (VNĐ) <span className="text-rose-500">*</span>
-              </label>
-              {numericAmount > 0 && (
-                <span className="text-xs font-bold font-mono text-blue-600">
-                  {formatVND(numericAmount)}
-                </span>
-              )}
-            </div>
-
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="numeric"
-                id="edit-input-tx-amount"
-                value={numericAmount > 0 ? numericAmount.toLocaleString('vi-VN') : ''}
-                onChange={handleAmountChange}
-                placeholder="Nhập số tiền..."
-                className="w-full pl-3.5 pr-14 py-2.5 bg-slate-50 border border-slate-300 focus:border-blue-600 focus:bg-white rounded-xl text-base font-bold font-mono text-slate-900 outline-none transition-colors"
-                autoFocus
-              />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                VNĐ
-              </span>
-            </div>
-
-            {/* Quick chips (Cộng nhanh & Đặt nhanh) */}
-            <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-              <span className="text-[11px] text-slate-400 font-medium">Cộng nhanh:</span>
-              {[50000, 100000, 200000, 500000, 1000000].map((amt) => (
-                <button
-                  key={amt}
-                  type="button"
-                  onClick={() => handleQuickAddAmount(amt)}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-medium rounded-lg text-[11px] transition-colors cursor-pointer"
-                >
-                  +{amt >= 1000000 ? `${amt / 1000000}Tr` : `${amt / 1000}k`}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setAmountInput('')}
-                className="px-2 py-1 text-slate-400 hover:text-rose-600 text-[11px] font-medium transition-colors cursor-pointer ml-auto"
-              >
-                Xóa
-              </button>
-            </div>
-          </div>
+          {/* 3. Số Tiền tối ưu theo đơn vị nghìn */}
+          <ThousandAmountInput
+            id="edit-input-tx-amount"
+            value={amount}
+            onChange={(val) => {
+              setAmount(val);
+              setError('');
+            }}
+            label="Số tiền"
+            required
+            accentColor="blue"
+          />
 
           {/* 4. Nội Dung / Ghi Chú */}
           <div>

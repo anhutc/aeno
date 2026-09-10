@@ -150,7 +150,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
               </div>
               <div className="min-w-0">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Chủ Sổ / Người Quản Lý
+                  Liên hệ
                 </span>
                 <span className="text-sm font-black text-slate-900 truncate block">
                   {settings.ownerName || 'Chủ Sổ'}

@@ -25,6 +25,7 @@ import {
 import { Debtor, PartySplit, Transaction } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerator';
+import { ThousandAmountInput } from './ThousandAmountInput';
 
 interface SplitBillModalProps {
   isOpen: boolean;
@@ -57,7 +58,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
 }) => {
   const [name, setName] = useState('Đi ăn Lẩu Bò');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [totalAmountInput, setTotalAmountInput] = useState('1200000');
+  const [totalAmount, setTotalAmount] = useState<number>(1200000);
   const [peopleCountInput, setPeopleCountInput] = useState('4');
   const [payerType, setPayerType] = useState<'ME' | 'DEBTOR'>('ME');
   const [payerDebtorId, setPayerDebtorId] = useState<string>('');
@@ -82,7 +83,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       if (initialParty) {
         setName(initialParty.name || '');
         setDate(initialParty.date || new Date().toISOString().split('T')[0]);
-        setTotalAmountInput(String(initialParty.totalAmount || ''));
+        setTotalAmount(initialParty.totalAmount || 0);
         const participantCount = (initialParty.participantDebtorIds?.length || 0) + (initialParty.includeMe ? 1 : 0);
         setPeopleCountInput(String(participantCount || 2));
         setPayerType(initialParty.payerType || 'ME');
@@ -92,7 +93,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       } else {
         setName('');
         setDate(new Date().toISOString().split('T')[0]);
-        setTotalAmountInput('');
+        setTotalAmount(0);
         setPeopleCountInput('2');
         setPayerType('ME');
         // Do not auto-select arbitrary debtors
@@ -175,7 +176,6 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
     }
   };
 
-  const totalAmount = parseInt(totalAmountInput.replace(/\D/g, '') || '0', 10);
   const numberOfPeople = Math.max(1, parseInt(peopleCountInput.replace(/\D/g, '') || '1', 10));
   const rawPerPerson = numberOfPeople > 0 ? totalAmount / numberOfPeople : 0;
   const splitAmountPerPerson = Math.round(rawPerPerson / 1000) * 1000;
@@ -468,7 +468,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div>
               <label className="block font-semibold mb-1 text-slate-700 text-xs uppercase tracking-wider">
                 Ngày thực hiện:
@@ -485,19 +485,19 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block font-semibold mb-1 text-slate-700 text-xs uppercase tracking-wider">
-                Tổng tiền hóa đơn (VNĐ) <span className="text-red-500">(*)</span>:
-              </label>
-              <input
-                id="input-party-total"
-                type="text"
-                value={totalAmountInput}
-                onChange={(e) => setTotalAmountInput(e.target.value.replace(/\D/g, ''))}
-                placeholder="1,200,000"
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-slate-900 transition-all text-sm"
-              />
-            </div>
+            {/* Tổng tiền hóa đơn tối ưu theo đơn vị nghìn */}
+            <ThousandAmountInput
+              id="input-party-total"
+              value={totalAmount}
+              onChange={(val) => {
+                setTotalAmount(val);
+                setError('');
+              }}
+              label="Tổng tiền hóa đơn"
+              required
+              accentColor="amber"
+              placeholder="VD: 500k, 1200k, 1.5tr..."
+            />
           </div>
 
           {/* SỐ NGƯỜI CHIA TIỀN */}

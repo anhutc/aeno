@@ -154,6 +154,34 @@ export async function fetchOwnerData(): Promise<{
   parties: PartySplit[];
   settings: AppSettings;
 }> {
+  const token = getStoredOwnerToken();
+  if (!token) {
+    // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ danh sách con nợ / giao dịch
+    try {
+      const sRes = await fetch('/api/settings');
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (sData.success && sData.settings) {
+          saveSettings(sData.settings);
+          return {
+            debtors: [],
+            transactions: [],
+            parties: [],
+            settings: sData.settings,
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      debtors: [],
+      transactions: [],
+      parties: [],
+      settings: loadSettings(),
+    };
+  }
+
   // 1. Try server API
   try {
     const res = await fetch('/api/owner/data', {
