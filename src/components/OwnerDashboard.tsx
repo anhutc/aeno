@@ -146,7 +146,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const receivableDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) > 0);
   const payableDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) < 0);
   const settledDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) === 0);
-  const settledRate = debtors.length > 0 ? Math.round((settledDebtors.length / debtors.length) * 100) : 0;
 
   // Filter debtors by search and status
   const filteredDebtors = debtors
@@ -363,18 +362,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
           </div>
 
-          {/* 3 Chỉ Số Vi Mô Ở Chân Thẻ */}
-          <div className="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-slate-100 text-center">
+          {/* 2 Chỉ Số Vi Mô Ở Chân Thẻ */}
+          <div className="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-slate-100 text-center">
             <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
-              <div className="text-[10px] text-slate-500 uppercase font-bold">Con nợ</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold">Tổng con nợ</div>
               <div className="text-base font-black font-mono text-slate-900 mt-0.5">{debtors.length}</div>
             </div>
             <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
-              <div className="text-[10px] text-slate-500 uppercase font-bold">Tất toán</div>
-              <div className="text-base font-black font-mono text-emerald-600 mt-0.5">{settledRate}%</div>
-            </div>
-            <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
-              <div className="text-[10px] text-slate-500 uppercase font-bold">Giao dịch</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold">Tổng giao dịch</div>
               <div className="text-base font-black font-mono text-slate-900 mt-0.5">{transactions.length}</div>
             </div>
           </div>

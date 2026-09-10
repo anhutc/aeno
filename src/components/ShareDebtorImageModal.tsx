@@ -439,7 +439,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                         )}
                         {tx.category === 'PAYMENT_SETTLED' && (
                           <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 mt-0.5">
-                            Tất toán
+                            Đã thanh toán
                           </span>
                         )}
                       </td>
