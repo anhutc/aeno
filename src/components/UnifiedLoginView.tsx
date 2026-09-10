@@ -268,17 +268,17 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl text-[11px] text-emerald-900 space-y-1">
               <div className="font-extrabold flex items-center gap-1 text-emerald-800">
                 <User className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Con Nợ</span>
+                <span>Người xem</span>
               </div>
               <p className="text-emerald-700 leading-snug">
-                Nhập mã PIN cá nhân do chủ nợ cấp để xem sao kê và quét VietQR trả tiền.
+                Nhập mã PIN cá nhân do Quản lý cấp để xem chi tiết.
               </p>
             </div>
 
             <div className="p-3 bg-amber-50/70 border border-amber-100 rounded-2xl text-[11px] text-amber-900 space-y-1">
               <div className="font-extrabold flex items-center gap-1 text-amber-800">
                 <Crown className="w-3.5 h-3.5 text-amber-600" />
-                <span>Chủ Nợ</span>
+                <span>Quản lý</span>
               </div>
               <p className="text-amber-700 leading-snug">
                 Nhập mật khẩu quản lý để ghi nợ, tính toán và quản lý.
@@ -311,7 +311,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         {/* Footer Note */}
         <div className="p-3.5 bg-slate-50/90 border-t border-slate-100 text-center text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
           <KeyRound className="w-3.5 h-3.5 text-slate-400" />
-          <span>Quên mã PIN? Vui lòng liên hệ trực tiếp chủ nợ</span>
+          <span>Quên mã PIN? Vui lòng liên hệ trực tiếp quản lý</span>
         </div>
       </motion.div>
     </div>
