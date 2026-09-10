@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
   Plus,
@@ -91,18 +92,26 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
     return sortOrder === 'newest' ? [...statement].reverse() : statement;
   }, [statement, sortOrder]);
 
-  if (!debtor) return null;
-
   return (
     <>
-      <div
-        id="debtor-detail-modal-backdrop"
-        className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150"
-      >
-        <div
-          id="debtor-detail-modal-card"
-          className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
-        >
+      <AnimatePresence>
+        {debtor && (
+          <motion.div
+            id="debtor-detail-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-4"
+          >
+            <motion.div
+              id="debtor-detail-modal-card"
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden max-h-[92vh] flex flex-col"
+            >
           {/* Header - Sáng & Tinh tế */}
           <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
             <div className="flex items-center gap-3">
@@ -421,8 +430,10 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
               Đóng
             </button>
           </div>
-        </div>
-      </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Lookup Guide Modal */}
       <LookupGuideModal
@@ -448,47 +459,59 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
       />
 
       {/* In-App Confirm Delete Transaction Modal */}
-      {deletingTxId && (
-        <div
-          id="confirm-delete-tx-backdrop"
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-        >
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
-                <AlertTriangle className="w-5 h-5" />
+      <AnimatePresence>
+        {deletingTxId && (
+          <motion.div
+            id="confirm-delete-tx-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Xóa Giao Dịch</h3>
+                  <p className="text-xs text-slate-500">Hành động này không thể hoàn tác</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm">Xóa Giao Dịch</h3>
-                <p className="text-xs text-slate-500">Hành động này không thể hoàn tác</p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Bạn có chắc chắn muốn xóa giao dịch này không?
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeletingTxId(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteTx(deletingTxId);
+                    setDeletingTxId(null);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xác Nhận Xóa</span>
+                </button>
               </div>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Bạn có chắc chắn muốn xóa giao dịch này không?
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setDeletingTxId(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onDeleteTx(deletingTxId);
-                  setDeletingTxId(null);
-                }}
-                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Xác Nhận Xóa</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Modal Chỉnh Sửa Giao Dịch Của Con Nợ Này */}
       <EditTransactionModal
@@ -504,14 +527,16 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
         }}
       />
       {/* Modal Tạo Ảnh Gửi Nhanh Cho Con Nợ */}
-      {isShareImageOpen && debtor && (
-        <ShareDebtorImageModal
-          debtor={debtor}
-          transactions={transactions}
-          settings={settings}
-          onClose={() => setIsShareImageOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {isShareImageOpen && debtor && (
+          <ShareDebtorImageModal
+            debtor={debtor}
+            transactions={transactions}
+            settings={settings}
+            onClose={() => setIsShareImageOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 };

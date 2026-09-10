@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
   PlusCircle,
@@ -110,8 +111,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     const existingPins = debtors.map((d) => d.pin);
     setNewPin(createAlphanumericPin(existingPins, 4));
   };
-
-  if (!isOpen) return null;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -228,17 +227,27 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     : '0';
 
   return (
-    <div
-      id="add-transaction-modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-    >
-      <div
-        id="add-transaction-modal-card"
-        className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
-      >
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          id="add-transaction-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onClose();
+          }}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+        >
+          <motion.div
+            id="add-transaction-modal-card"
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col"
+          >
         {/* Header - Sáng & Tinh tế */}
         <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
@@ -610,7 +619,9 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

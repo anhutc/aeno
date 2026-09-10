@@ -7,6 +7,7 @@
  */
 
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, Copy, Check, QrCode, BookOpen } from 'lucide-react';
 import { Debtor, AppSettings } from '../types';
 import {
@@ -34,26 +35,28 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedPass, setCopiedPass] = useState(false);
 
-  if (!isOpen || !debtor) return null;
+  const vars = debtor
+    ? getDebtorTemplateVariables({
+        debtorName: debtor.name,
+        debtorPin: debtor.pin,
+        balance,
+        ownerName: settings.ownerName,
+        ownerPhone: settings.ownerPhone,
+        bankName: settings.bankName,
+        accountNumber: settings.accountNumber,
+        accountName: settings.accountName,
+      })
+    : null;
 
-  const vars = getDebtorTemplateVariables({
-    debtorName: debtor.name,
-    debtorPin: debtor.pin,
-    balance,
-    ownerName: settings.ownerName,
-    ownerPhone: settings.ownerPhone,
-    bankName: settings.bankName,
-    accountNumber: settings.accountNumber,
-    accountName: settings.accountName,
-  });
+  const guideText = vars
+    ? renderMessageTemplate(
+        settings.lookupGuideTemplate || settings.shareMessageTemplate,
+        vars,
+        DEFAULT_LOOKUP_GUIDE
+      )
+    : '';
 
-  const guideText = renderMessageTemplate(
-    settings.lookupGuideTemplate || settings.shareMessageTemplate,
-    vars,
-    DEFAULT_LOOKUP_GUIDE
-  );
-
-  const directLink = vars.url;
+  const directLink = vars?.url || '';
 
   const handleCopyAll = () => {
     navigator.clipboard.writeText(guideText);
@@ -79,14 +82,28 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
   )}`;
 
   return (
-    <div
-      id="lookup-guide-modal-backdrop"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-    >
-      <div
-        id="lookup-guide-modal-card"
-        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]"
-      >
+    <AnimatePresence>
+      {isOpen && debtor && (
+        <motion.div
+          id="lookup-guide-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onClose();
+          }}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+        >
+          <motion.div
+            id="lookup-guide-modal-card"
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
         {/* Header - Sáng & Tinh tế */}
         <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
@@ -202,7 +219,9 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
             <span>{copiedAll ? 'Đã Sao Chép Hướng Dẫn!' : 'Sao Chép Hướng Dẫn'}</span>
           </button>
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

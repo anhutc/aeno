@@ -9,6 +9,7 @@
  */
 
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   UserPlus,
   PlusCircle,
@@ -291,7 +292,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       {/* BỐ CỤC MỚI LẠ 1: BẢNG ĐIỀU KHIỂN TÀI CHÍNH BENTO BẤT ĐỐI XỨNG (EXECUTIVE BENTO COCKPIT - BRIGHT LIGHT THEME) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Card Trung Tâm Điều Hành Nợ Ròng (Executive Command Hub - Bright Light) */}
-        <div className="lg:col-span-7 bg-white text-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28 }}
+          className="lg:col-span-7 bg-white text-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between"
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
@@ -372,12 +378,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               <div className="text-base font-black font-mono text-slate-900 mt-0.5">{transactions.length}</div>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Hai Thẻ Vệ Tinh Phải Thu & Phải Trả (Satellite Financial Panels) */}
         <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
           {/* Card Phải Thu */}
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.05 }}
             onClick={() => setDebtorStatusFilter(debtorStatusFilter === 'RECEIVABLE' ? 'ALL' : 'RECEIVABLE')}
             className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between ${
               debtorStatusFilter === 'RECEIVABLE'
@@ -403,10 +412,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 {debtorStatusFilter === 'RECEIVABLE' ? 'Đang lọc' : 'Lọc ngay →'}
               </span>
             </div>
-          </div>
+          </motion.div>
 
           {/* Card Phải Trả */}
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.1 }}
             onClick={() => setDebtorStatusFilter(debtorStatusFilter === 'PAYABLE' ? 'ALL' : 'PAYABLE')}
             className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between ${
               debtorStatusFilter === 'PAYABLE'
@@ -432,13 +444,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 {debtorStatusFilter === 'PAYABLE' ? 'Đang lọc' : 'Lọc ngay →'}
               </span>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
 
       {/* DOCK HÀNH ĐỘNG CÔNG NGHỆ CAO (HIGH-PERFORMANCE ACTION DOCK) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <button
+        <motion.button
+          whileHover={{ scale: 1.015, y: -2 }}
+          whileTap={{ scale: 0.985 }}
           type="button"
           id="btn-open-form-2"
           onClick={() => onOpenAddTx()}
@@ -458,9 +472,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-emerald-200 group-hover:translate-x-1 transition-transform" />
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.015, y: -2 }}
+          whileTap={{ scale: 0.985 }}
           type="button"
           id="btn-open-form-1"
           onClick={onOpenAddDebtor}
@@ -480,9 +496,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-blue-200 group-hover:translate-x-1 transition-transform" />
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.015, y: -2 }}
+          whileTap={{ scale: 0.985 }}
           type="button"
           id="btn-open-form-3"
           onClick={onOpenSplitParty}
@@ -502,7 +520,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-amber-200 group-hover:translate-x-1 transition-transform" />
-        </button>
+        </motion.button>
       </div>
 
       {/* BỐ CỤC MỚI LẠ 2: THANH ĐIỀU KHIỂN ĐA CHIỀU (SMART MULTI-MODE TOOLBAR) */}
@@ -632,10 +650,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
       </div>
 
-      {/* --- TAB 1: DANH BẠ CON NỢ VỚI 2 CHẾ ĐỘ HIỂN THỊ (BENTO CARDS & PRO DATA TABLE) --- */}
-      {activeTab === 'DEBTORS' && (
-        <div className="space-y-4">
-          {/* Filter Pills for Quick Status Selection */}
+      {/* --- TAB CONTENT WITH ANIMATE PRESENCE --- */}
+      <AnimatePresence mode="wait">
+        {/* --- TAB 1: DANH BẠ CON NỢ VỚI 2 CHẾ ĐỘ HIỂN THỊ (BENTO CARDS & PRO DATA TABLE) --- */}
+        {activeTab === 'DEBTORS' && (
+          <motion.div
+            key="tab-debtors"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-4"
+          >
+            {/* Filter Pills for Quick Status Selection */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
             <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 pl-1 shrink-0">
               <Filter className="w-3 h-3" />
@@ -1069,12 +1096,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
             </div>
           )}
-        </div>
-      )}
+          </motion.div>
+        )}
 
-      {/* --- TAB 2: ALL TRANSACTIONS HISTORY (Mobile Optimized) --- */}
-      {activeTab === 'TRANSACTIONS' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+        {/* --- TAB 2: ALL TRANSACTIONS HISTORY (Mobile Optimized) --- */}
+        {activeTab === 'TRANSACTIONS' && (
+          <motion.div
+            key="tab-transactions"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs"
+          >
           <div className="p-3.5 sm:p-4 border-b border-slate-100 flex items-center justify-between">
             <h3 className="font-bold text-slate-800 text-xs sm:text-sm flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-500" />
@@ -1205,12 +1239,19 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               );
             })}
           </div>
-        </div>
-      )}
+          </motion.div>
+        )}
 
-      {/* --- TAB 3: PARTIES HISTORY (Mobile Optimized) --- */}
-      {activeTab === 'PARTIES' && (
-        <div className="space-y-3">
+        {/* --- TAB 3: PARTIES HISTORY (Mobile Optimized) --- */}
+        {activeTab === 'PARTIES' && (
+          <motion.div
+            key="tab-parties"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-3"
+          >
           {parties.length === 0 ? (
             <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
               Chưa có cuộc vui nào được chia tiền.
@@ -1298,8 +1339,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               );
             })
           )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Guide Modal when Owner clicks "Hướng dẫn tra cứu" */}
       {guideDebtor && (
@@ -1389,20 +1431,28 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       />
 
       {/* Toast Notification Banner */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
-          <div
-            className={`px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold flex items-center gap-2.5 ${
-              toast.type === 'success'
-                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/20'
-                : 'bg-slate-800 text-white border-slate-700 shadow-slate-900/30'
-            }`}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed bottom-6 right-6 z-50 pointer-events-none"
           >
-            <span>{toast.type === 'success' ? '✓' : 'ℹ'}</span>
-            <span>{toast.message}</span>
-          </div>
-        </div>
-      )}
+            <div
+              className={`px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold flex items-center gap-2.5 ${
+                toast.type === 'success'
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/20'
+                  : 'bg-slate-800 text-white border-slate-700 shadow-slate-900/30'
+              }`}
+            >
+              <span>{toast.type === 'success' ? '✓' : 'ℹ'}</span>
+              <span>{toast.message}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

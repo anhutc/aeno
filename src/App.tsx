@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Debtor, Transaction, PartySplit, AppSettings } from './types';
 import {
   fetchOwnerData,
@@ -421,88 +422,130 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        {!isOwnerAuthenticated && !guestInitialDebtor ? (
-          <UnifiedLoginView
-            settings={settings}
-            onLoginOwnerSuccess={handleOwnerLoginSuccess}
-            onLoginGuestSuccess={(debtor, txs, setts) => {
-              setGuestInitialDebtor(debtor);
-              setGuestInitialPin(debtor.pin);
-              if (txs && txs.length > 0) {
-                setTransactions((prev) => smartMergeTransactions(txs, prev));
-              }
-              if (setts) {
-                setSettings(setts);
-              }
-              setCurrentView('GUEST');
-              window.location.hash = 'guest';
-            }}
-          />
-        ) : isOwnerAuthenticated ? (
-          currentView === 'SETTINGS' ? (
-            <SettingsView
-              settings={settings}
-              debtors={debtors}
-              transactions={transactions}
-              parties={parties}
-              onSaveSettings={handleSaveSettings}
-              onDataReload={refreshDataFromServer}
-              onGoBack={() => handleViewChange('OWNER')}
-            />
-          ) : currentView === 'GUEST' && guestInitialDebtor ? (
-            <GuestPortal
-              onViewImage={handleViewImage}
-              onGoToOwnerLogin={() => handleViewChange('OWNER')}
-              initialPin={guestInitialPin}
-              initialDebtor={guestInitialDebtor}
-              isOwnerAuthenticated={isOwnerAuthenticated}
-              debtors={debtors}
-              allTransactions={transactions}
-              appSettings={settings}
-              onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
-              onDataReload={refreshDataFromServer}
-            />
+        <AnimatePresence mode="wait">
+          {!isOwnerAuthenticated && !guestInitialDebtor ? (
+            <motion.div
+              key="view-login"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <UnifiedLoginView
+                settings={settings}
+                onLoginOwnerSuccess={handleOwnerLoginSuccess}
+                onLoginGuestSuccess={(debtor, txs, setts) => {
+                  setGuestInitialDebtor(debtor);
+                  setGuestInitialPin(debtor.pin);
+                  if (txs && txs.length > 0) {
+                    setTransactions((prev) => smartMergeTransactions(txs, prev));
+                  }
+                  if (setts) {
+                    setSettings(setts);
+                  }
+                  setCurrentView('GUEST');
+                  window.location.hash = 'guest';
+                }}
+              />
+            </motion.div>
+          ) : isOwnerAuthenticated ? (
+            currentView === 'SETTINGS' ? (
+              <motion.div
+                key="view-settings"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <SettingsView
+                  settings={settings}
+                  debtors={debtors}
+                  transactions={transactions}
+                  parties={parties}
+                  onSaveSettings={handleSaveSettings}
+                  onDataReload={refreshDataFromServer}
+                  onGoBack={() => handleViewChange('OWNER')}
+                />
+              </motion.div>
+            ) : currentView === 'GUEST' && guestInitialDebtor ? (
+              <motion.div
+                key="view-guest-authed"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <GuestPortal
+                  onViewImage={handleViewImage}
+                  onGoToOwnerLogin={() => handleViewChange('OWNER')}
+                  initialPin={guestInitialPin}
+                  initialDebtor={guestInitialDebtor}
+                  isOwnerAuthenticated={isOwnerAuthenticated}
+                  debtors={debtors}
+                  allTransactions={transactions}
+                  appSettings={settings}
+                  onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
+                  onDataReload={refreshDataFromServer}
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="view-owner"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <OwnerDashboard
+                  debtors={debtors}
+                  transactions={transactions}
+                  parties={parties}
+                  settings={settings}
+                  onOpenAddDebtor={() => {
+                    setEditingDebtor(null);
+                    setIsAddDebtorOpen(true);
+                  }}
+                  onOpenAddTx={handleOpenAddTxForDebtor}
+                  onOpenSplitParty={() => setIsSplitPartyOpen(true)}
+                  onSelectDebtor={(d) => setSelectedDetailDebtor(d)}
+                  onViewImage={handleViewImage}
+                  onDeleteDebtor={handleDeleteDebtor}
+                  onOpenSettings={() => handleViewChange('SETTINGS')}
+                  onDataReload={refreshDataFromServer}
+                  onEditTx={(tx) => setEditingTransaction(tx)}
+                  onDeleteTx={handleDeleteTransaction}
+                  onEditParty={(p) => setEditingParty(p)}
+                  onDeleteParty={handleDeletePartySplit}
+                />
+              </motion.div>
+            )
           ) : (
-            <OwnerDashboard
-              debtors={debtors}
-              transactions={transactions}
-              parties={parties}
-              settings={settings}
-              onOpenAddDebtor={() => {
-                setEditingDebtor(null);
-                setIsAddDebtorOpen(true);
-              }}
-              onOpenAddTx={handleOpenAddTxForDebtor}
-              onOpenSplitParty={() => setIsSplitPartyOpen(true)}
-              onSelectDebtor={(d) => setSelectedDetailDebtor(d)}
-              onViewImage={handleViewImage}
-              onDeleteDebtor={handleDeleteDebtor}
-              onOpenSettings={() => handleViewChange('SETTINGS')}
-              onDataReload={refreshDataFromServer}
-              onEditTx={(tx) => setEditingTransaction(tx)}
-              onDeleteTx={handleDeleteTransaction}
-              onEditParty={(p) => setEditingParty(p)}
-              onDeleteParty={handleDeletePartySplit}
-            />
-          )
-        ) : (
-          <GuestPortal
-            onViewImage={handleViewImage}
-            onGoToOwnerLogin={() => {
-              setGuestInitialDebtor(null);
-              setGuestInitialPin(null);
-              window.location.hash = '';
-            }}
-            initialPin={guestInitialPin}
-            initialDebtor={guestInitialDebtor}
-            isOwnerAuthenticated={false}
-            debtors={debtors}
-            allTransactions={transactions}
-            appSettings={settings}
-            onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
-            onDataReload={refreshDataFromServer}
-          />
-        )}
+            <motion.div
+              key="view-guest-default"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <GuestPortal
+                onViewImage={handleViewImage}
+                onGoToOwnerLogin={() => {
+                  setGuestInitialDebtor(null);
+                  setGuestInitialPin(null);
+                  window.location.hash = '';
+                }}
+                initialPin={guestInitialPin}
+                initialDebtor={guestInitialDebtor}
+                isOwnerAuthenticated={false}
+                debtors={debtors}
+                allTransactions={transactions}
+                appSettings={settings}
+                onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
+                onDataReload={refreshDataFromServer}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Base Level Modal: Debtor Full Statement & Detail Modal */}

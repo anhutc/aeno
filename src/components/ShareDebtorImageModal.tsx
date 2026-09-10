@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { motion } from 'motion/react';
 import {
   X,
   Download,
@@ -547,9 +548,13 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
   );
 
   return (
-    <div
+    <motion.div
       id="share-debtor-image-modal-backdrop"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-150"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       {/* KHUNG CAPTURE CHUẨN XUẤT ẢNH: Kích thước 590px, nằm trong DOM hợp lệ nhưng vô hình để xuất ảnh nét 100% */}
@@ -570,7 +575,13 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
       </div>
 
       {/* MODAL GIAO DIỆN CHÍNH */}
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-auto flex flex-col max-h-[96vh] h-[92vh] sm:h-auto">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 12 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-auto flex flex-col max-h-[96vh] h-[92vh] sm:h-auto"
+      >
         {/* Header Modal Gọn Gàng - Sáng & Tinh tế */}
         <div className="px-4 py-3 bg-slate-50 text-slate-900 flex items-center justify-between shrink-0 border-b border-slate-200">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -861,7 +872,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

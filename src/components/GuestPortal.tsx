@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Lock,
   Unlock,
@@ -317,7 +318,12 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       : null;
 
   return (
-    <div className="max-w-xl w-full mx-auto space-y-4 sm:space-y-5 pb-12 animate-in fade-in duration-200">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      className="max-w-xl w-full mx-auto space-y-4 sm:space-y-5 pb-12"
+    >
       {/* Lời nhắn / Thông báo ghim của chủ sổ gửi khách */}
       {activeSettings.guestAnnouncement && (
         <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 text-blue-900 rounded-2xl text-xs flex items-start gap-3 shadow-2xs">
@@ -686,6 +692,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };

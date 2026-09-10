@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
   ZoomIn,
@@ -24,8 +25,6 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [rotation, setRotation] = useState<number>(0);
 
-  if (!imageUrl) return null;
-
   const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 0.3, 3));
   const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 0.3, 0.6));
   const handleResetZoom = () => {
@@ -44,16 +43,26 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   };
 
   return (
-    <div
-      id="image-viewer-modal-backdrop"
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-150"
-      onClick={onClose}
-    >
-      <div
-        id="image-viewer-modal-content"
-        className="relative max-w-4xl w-full max-h-[96vh] h-[92vh] bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatePresence>
+      {imageUrl && (
+        <motion.div
+          id="image-viewer-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-4"
+          onClick={onClose}
+        >
+          <motion.div
+            id="image-viewer-modal-content"
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="relative max-w-4xl w-full max-h-[96vh] h-[92vh] bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
         {/* Top Bar */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-slate-950/70 shrink-0 text-white">
           <div className="flex items-center gap-2 min-w-0 font-medium text-xs sm:text-sm">
@@ -164,7 +173,9 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
             Khung nhìn gốc
           </button>
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
