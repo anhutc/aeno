@@ -47,7 +47,7 @@ export const DEFAULT_SETTLED_NOTE =
   '🎉 Tuyệt vời! Bạn đã thanh toán xong toàn bộ các khoản nợ. Cảm ơn bạn nhiều!';
 
 export const DEFAULT_LOOKUP_INSTRUCTION =
-  'Nhập mật khẩu (pass) cá nhân được chủ sổ cung cấp để tra cứu lịch sử chi tiêu, sao kê nợ và quét mã VietQR chuyển khoản nhanh.';
+  'Nhập mật khẩu (pass) cá nhân được người quản lý cung cấp để tra cứu lịch sử chi tiêu, sao kê nợ và quét mã VietQR chuyển khoản nhanh.';
 
 export interface TemplateVariables {
   name: string;
@@ -83,8 +83,8 @@ export const TEMPLATE_TAG_DESCRIPTIONS: { tag: string; label: string; example: s
   { tag: '{account}', label: 'Số tài khoản ({SO_TK})', example: '0987654321' },
   { tag: '{accountName}', label: 'Chủ tài khoản ({CHU_TK})', example: 'NGUYEN VAN A' },
   { tag: '{memo}', label: 'Nội dung chuyển khoản QR ({NOI_DUNG_CK})', example: 'NAM TRA NO' },
-  { tag: '{owner}', label: 'Tên chủ sổ ({CHU_SO})', example: 'Anh Dũng' },
-  { tag: '{ownerPhone}', label: 'SĐT Chủ Nợ ({SDT_CHU_NO})', example: '0987654321' },
+  { tag: '{owner}', label: 'Tên quản lý ({CHU_SO})', example: 'Anh Dũng' },
+  { tag: '{ownerPhone}', label: 'SĐT quản lý ({SDT_CHU_NO})', example: '0987654321' },
 ];
 
 export function renderMessageTemplate(

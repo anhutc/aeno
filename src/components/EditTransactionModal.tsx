@@ -165,12 +165,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto flex-1">
-          {error && (
-            <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
-              {error}
-            </div>
-          )}
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto flex-1">
+            {error && (
+              <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
+                {error}
+              </div>
+            )}
 
           {/* 1. Người nợ (Cho phép đổi nếu chọn nhầm) */}
           {debtors.length > 1 ? (
@@ -336,28 +337,30 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             )}
           </div>
 
-          {/* Footer Actions */}
-          <div className="pt-3 sm:pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5 shrink-0">
-            <button
-              type="button"
-              id="btn-cancel-edit-tx"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              id="btn-submit-edit-tx"
-              disabled={isSubmitting}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-2"
-            >
-              <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
-              <span>{isSubmitting ? 'Đang lưu...' : 'Lưu Thay Đổi'}</span>
-            </button>
-          </div>
-        </form>
+            </div>
+
+            {/* Footer Actions - Cố định nút ở chân modal */}
+            <div className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                id="btn-cancel-edit-tx"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                id="btn-submit-edit-tx"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-2"
+              >
+                <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
+                <span>{isSubmitting ? 'Đang lưu...' : 'Lưu Thay Đổi'}</span>
+              </button>
+            </div>
+          </form>
           </motion.div>
         </motion.div>
       )}

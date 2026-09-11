@@ -506,14 +506,10 @@ export default function App() {
                 <GuestPortal
                   onViewImage={handleViewImage}
                   onGoToOwnerLogin={() => handleViewChange('OWNER')}
-                  initialPin={guestInitialPin}
                   initialDebtor={guestInitialDebtor}
                   isOwnerAuthenticated={isOwnerAuthenticated}
-                  debtors={debtors}
                   allTransactions={transactions}
                   appSettings={settings}
-                  onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
-                  onDataReload={refreshDataFromServer}
                 />
               </motion.div>
             ) : (
@@ -563,14 +559,10 @@ export default function App() {
                   setTransactions([]);
                   window.location.hash = '';
                 }}
-                initialPin={guestInitialPin}
                 initialDebtor={guestInitialDebtor}
                 isOwnerAuthenticated={false}
-                debtors={guestInitialDebtor ? [guestInitialDebtor] : []}
                 allTransactions={transactions}
                 appSettings={settings}
-                onOpenAddDebtor={() => setIsAddDebtorOpen(true)}
-                onDataReload={refreshDataFromServer}
               />
             </motion.div>
           )}

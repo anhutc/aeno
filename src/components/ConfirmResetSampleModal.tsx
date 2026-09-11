@@ -27,7 +27,7 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
 
     const passTrimmed = adminPassword.trim();
     if (!passTrimmed) {
-      setError('Chủ nợ vui lòng nhập mật để xác nhận.');
+      setError('Quản lý vui lòng nhập mật khẩu để xác nhận.');
       setIsLoading(false);
       return;
     }
@@ -39,7 +39,7 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
         onSuccess();
         onClose();
       } else {
-        setError(res.message || 'Mật khẩu chủ nợ không đúng. Không thể nạp dữ liệu mẫu!');
+        setError(res.message || 'Mật khẩu quản lý không đúng. Không thể nạp dữ liệu mẫu!');
       }
     } catch {
       setError('Lỗi kết nối máy chủ khi nạp lại dữ liệu');
@@ -112,7 +112,7 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
               htmlFor="reset-sample-admin-password"
               className="block text-xs font-bold text-slate-700 uppercase tracking-wider"
             >
-              Chủ Nợ Nhập Mật Khẩu Để Xác Nhận:
+              Quản Lý Nhập Mật Khẩu Để Xác Nhận:
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -124,7 +124,7 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
                 autoFocus
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="Nhập mật khẩu quản trị Chủ Sổ của bạn..."
+                placeholder="Nhập mật khẩu quản lý của bạn..."
                 className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white font-medium"
               />
               <button
@@ -137,7 +137,7 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
               </button>
             </div>
             <p className="text-[11px] text-slate-500 mt-2">
-              Chủ nợ vui lòng nhập chính xác mật khẩu để xác nhận.
+              Quản lý vui lòng nhập chính xác mật khẩu để xác nhận.
             </p>
           </div>
 

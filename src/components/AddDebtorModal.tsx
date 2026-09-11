@@ -167,91 +167,93 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
               </button>
             </div>
 
-            {/* Form Body */}
-            <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto flex-1">
-              {error && (
-                <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
-                  {error}
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto flex-1">
+                {error && (
+                  <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
+                    {error}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                    Tên người nợ <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="input-debtor-name"
+                    type="text"
+                    placeholder="Nhập tên, ví dụ: Nguyễn Văn Nam"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 font-medium transition-colors text-sm"
+                    autoFocus
+                  />
                 </div>
-              )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
-                  Tên người nợ <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  id="input-debtor-name"
-                  type="text"
-                  placeholder="Nhập tên, ví dụ: Nguyễn Văn Nam"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 font-medium transition-colors text-sm"
-                  autoFocus
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                    Mật khẩu tra cứu PIN <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        id="input-debtor-pin"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Ví dụ: nam123 hoặc 1234"
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value)}
+                        className="w-full pl-3.5 pr-10 py-2.5 text-sm sm:text-base font-bold font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                        title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-emerald-600" />}
+                      </button>
+                    </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
-                  Mật khẩu tra cứu PIN <span className="text-rose-500">*</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      id="input-debtor-pin"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Ví dụ: nam123 hoặc 1234"
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value)}
-                      className="w-full pl-3.5 pr-10 py-2.5 text-sm sm:text-base font-bold font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 transition-colors"
-                    />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
-                      title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      id="btn-random-pin"
+                      onClick={generateRandomPin}
+                      className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl border border-slate-200 transition-colors shrink-0 cursor-pointer"
+                      title="Tạo ngẫu nhiên mật khẩu dễ nhớ"
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-emerald-600" />}
+                      <Dices className="w-4 h-4 text-emerald-600" />
+                      <span>Ngẫu nhiên</span>
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    id="btn-random-pin"
-                    onClick={generateRandomPin}
-                    className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl border border-slate-200 transition-colors shrink-0 cursor-pointer"
-                    title="Tạo ngẫu nhiên mật khẩu dễ nhớ"
-                  >
-                    <Dices className="w-4 h-4 text-emerald-600" />
-                    <span>Ngẫu nhiên</span>
-                  </button>
+                  <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                    Bạn cấp mật khẩu này cho người đó để họ vào tra cứu sao kê riêng của mình (hỗ trợ cả chữ và số).
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                  Bạn cấp mật khẩu này cho người đó để họ vào tra cứu sao kê riêng của mình (hỗ trợ cả chữ và số).
-                </p>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                    Ghi chú cá nhân (Tùy chọn)
+                  </label>
+                  <input
+                    id="input-debtor-note"
+                    type="text"
+                    placeholder="Bạn cấp 3 / Đồng nghiệp / Nhóm đá banh..."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 transition-colors text-sm"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
-                  Ghi chú cá nhân (Tùy chọn)
-                </label>
-                <input
-                  id="input-debtor-note"
-                  type="text"
-                  placeholder="Bạn cấp 3 / Đồng nghiệp / Nhóm đá banh..."
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 transition-colors text-sm"
-                />
-              </div>
-
-              {/* Action buttons */}
-              <div className="pt-3 sm:pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5 shrink-0">
+              {/* Action buttons - Cố định ở đáy modal */}
+              <div className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
                 <button
                   type="button"
                   id="btn-cancel-debtor"
                   onClick={onClose}
                   disabled={isSubmitting}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
                 >
                   Hủy
                 </button>

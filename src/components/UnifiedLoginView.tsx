@@ -61,7 +61,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     e.preventDefault();
     const clean = passcode.trim();
     if (!clean) {
-      setError('Vui lòng nhập mã PIN con nợ hoặc mật khẩu chủ nợ');
+      setError('Vui lòng nhập mã PIN người xem hoặc mật khẩu quản lý');
       return;
     }
 
@@ -69,7 +69,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setError('');
 
     try {
-      // 1. Kiểm tra xem có phải mật khẩu Chủ nợ hay không
+      // 1. Kiểm tra xem có phải mật khẩu Quản lý hay không
       const ownerRes = await loginOwner(clean);
       if (ownerRes.success) {
         setPasscode('');
@@ -77,7 +77,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         return;
       }
 
-      // 2. Nếu không phải chủ nợ, kiểm tra xem có phải mã PIN của Con nợ hay không
+      // 2. Nếu không phải quản lý, kiểm tra xem có phải mã PIN của Người xem hay không
       const guestRes = await apiGuestLookup(clean);
       if (guestRes.success && guestRes.debtor) {
         setPasscode('');
@@ -103,7 +103,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
       }
 
       // 4. Nếu cả 2 đều không khớp
-      setError('Mật khẩu hoặc mã PIN không chính xác. Vui lòng kiểm tra lại hoặc liên hệ chủ nợ.');
+      setError('Mật khẩu hoặc mã PIN không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
     } catch {
       setError('Lỗi kết nối máy chủ. Vui lòng kiểm tra lại mạng.');
     } finally {
@@ -163,7 +163,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 <a
                   href={`tel:${settings.ownerPhone}`}
                   className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  title="Gọi điện cho chủ nợ"
+                  title="Gọi điện liên hệ"
                 >
                   <Phone className="w-3 h-3 text-emerald-600" />
                   <span className="font-mono">{settings.ownerPhone}</span>
@@ -250,15 +250,15 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 onChange={(e) => setPasscode(e.target.value)}
                 placeholder="Ví dụ: 1234, nam123..."
                 autoFocus
-                className="w-full px-5 py-3.5 text-center text-xl sm:text-2xl font-black font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-normal placeholder:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
+                className="w-full pl-12 pr-12 py-3.5 text-center text-xl sm:text-2xl font-black font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-normal placeholder:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
               />
               <button
                 type="button"
                 onClick={() => setShowPasscode(!showPasscode)}
-                className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 cursor-pointer p-1.5 rounded-xl hover:bg-slate-200/60 transition-colors"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1.5 rounded-xl hover:bg-slate-200/60 transition-colors"
                 title={showPasscode ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
               >
-                {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPasscode ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
           </div>

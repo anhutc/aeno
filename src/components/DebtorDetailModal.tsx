@@ -151,7 +151,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsConfirmDeleteOpen(true)}
-                title="Xóa con nợ này"
+                title="Xóa người nợ này"
                 className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
@@ -238,7 +238,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   type="button"
                   onClick={() => setIsGuideModalOpen(true)}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-                  title="Xem và sao chép hướng dẫn tra cứu kèm mã PIN gửi con nợ"
+                  title="Xem và sao chép hướng dẫn tra cứu kèm mã PIN gửi người nợ"
                 >
                   <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>Gửi Link & Mã PIN Tra Cứu</span>

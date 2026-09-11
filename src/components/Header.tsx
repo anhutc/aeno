@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Wallet,
   Settings,
-  Lock,
   LogOut,
   Share2,
   Check,
@@ -322,7 +321,7 @@ export const Header: React.FC<HeaderProps> = ({
                     : settings.appSubtitle || `Quản lý bởi: ${settings.ownerName}`
                   : activeGuestDebtor
                   ? `Đang xem sao kê cá nhân của ${activeGuestDebtor.name}`
-                  : 'Sổ ghi nợ bảo mật • Tra cứu cá nhân & Quản lý chủ nợ'}
+                  : 'Sổ ghi nợ bảo mật • Tra cứu cá nhân & Quản lý sổ'}
               </p>
             </div>
           </div>

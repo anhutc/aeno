@@ -561,7 +561,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Tên Chủ Sổ (Hiển thị cho con nợ):</span>
+                      <span>Tên Liên Hệ (Hiển thị cho người xem):</span>
                     </label>
                     <input
                       type="text"
@@ -575,7 +575,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <Phone className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Số Điện Thoại Chủ Nợ:</span>
+                      <span>Số Điện Thoại Liên Hệ:</span>
                     </label>
                     <input
                       type="tel"
@@ -751,7 +751,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span>Bảo Mật Tài Khoản &amp; Quản Trị Dữ Liệu</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Mật khẩu quản lý chủ nợ, thông tin thương hiệu và các thao tác sao lưu, khôi phục dữ liệu.
+                Mật khẩu quản lý, thông tin thương hiệu và các thao tác sao lưu, khôi phục dữ liệu.
               </p>
             </div>
 
@@ -760,19 +760,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
                 <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
                   <Lock className="w-4 h-4 text-emerald-600" />
-                  <span>Mật Khẩu Đăng Nhập Chủ Nợ</span>
+                  <span>Mật Khẩu Đăng Nhập Quản Lý</span>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Mật khẩu quản trị chủ sổ:
+                    Mật khẩu quản lý:
                   </label>
                   <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={formData.ownerPassword}
                       onChange={(e) => setFormData({ ...formData, ownerPassword: e.target.value })}
-                      placeholder="Nhập mật khẩu chủ nợ..."
+                      placeholder="Nhập mật khẩu quản lý..."
                       className="w-full px-3.5 py-2.5 pr-10 bg-white border border-slate-300 rounded-2xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
                     />
                     <button

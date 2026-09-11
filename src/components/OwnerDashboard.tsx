@@ -365,7 +365,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           {/* 2 Chỉ Số Vi Mô Ở Chân Thẻ */}
           <div className="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-slate-100 text-center">
             <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
-              <div className="text-[10px] text-slate-500 uppercase font-bold">Tổng con nợ</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold">Tổng người nợ</div>
               <div className="text-base font-black font-mono text-slate-900 mt-0.5">{debtors.length}</div>
             </div>
             <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
@@ -402,7 +402,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               +{formatVND(totalReceivable)}
             </div>
             <div className="flex items-center justify-between text-[11px] font-medium text-emerald-800/80 pt-2 border-t border-emerald-100">
-              <span>{receivableDebtors.length} con nợ chưa thanh toán</span>
+              <span>{receivableDebtors.length} người nợ chưa thanh toán</span>
               <span className="font-bold underline text-emerald-700 hover:text-emerald-900">
                 {debtorStatusFilter === 'RECEIVABLE' ? 'Đang lọc' : 'Lọc ngay →'}
               </span>
@@ -486,7 +486,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 Thêm danh bạ
               </div>
               <div className="font-extrabold text-sm sm:text-base leading-tight">
-                Tạo Con Nợ Mới
+                Thêm Người Nợ Mới
               </div>
             </div>
           </div>
@@ -914,7 +914,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             type="button"
                             onClick={() => setDebtorToDelete(debtor)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl text-[11px] font-semibold transition-colors cursor-pointer"
-                            title="Xóa con nợ này"
+                            title="Xóa người nợ này"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -941,7 +941,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                      <th className="py-3.5 px-4">Con Nợ</th>
+                      <th className="py-3.5 px-4">Người Nợ</th>
                       <th className="py-3.5 px-3">Mã PIN</th>
                       <th className="py-3.5 px-3 text-right">Tổng Nợ (+)</th>
                       <th className="py-3.5 px-3 text-right">Đã Trả (-)</th>
@@ -1067,7 +1067,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                   type="button"
                                   onClick={() => setDebtorToDelete(debtor)}
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                  title="Xóa con nợ này"
+                                  title="Xóa người nợ này"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>

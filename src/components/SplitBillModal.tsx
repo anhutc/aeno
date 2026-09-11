@@ -249,7 +249,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           type: 'ADD',
           amount: splitAmountPerPerson,
           date,
-          note: `Chia tiền cuộc ăn chơi: ${name.trim()} (${numberOfPeople} người chia)`,
+          note: `Ăn Chia: ${name.trim()} (${numberOfPeople} người chia)`,
           category: 'PARTY_SPLIT',
           ...(billImage ? { billImage } : {}),
         });
@@ -446,13 +446,14 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         {/* Content */}
         <form
           onSubmit={handleSubmit}
-          className="p-4 sm:p-6 space-y-4 text-slate-800 text-sm overflow-y-auto flex-1"
+          className="flex flex-col flex-1 min-h-0 overflow-hidden"
         >
-          {error && (
-            <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold">
-              {error}
-            </div>
-          )}
+          <div className="p-4 sm:p-6 space-y-4 text-slate-800 text-sm overflow-y-auto flex-1">
+            {error && (
+              <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold">
+                {error}
+              </div>
+            )}
 
           <div>
             <label className="block font-semibold mb-1 text-slate-700 text-xs uppercase tracking-wider">
@@ -794,26 +795,28 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             )}
           </div>
 
-          {/* Action Buttons */}
-          <div className="pt-3 sm:pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5 shrink-0">
-            <button
-              type="button"
-              id="btn-cancel-split"
-              onClick={onClose}
-              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              id="btn-confirm-split"
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
-            >
-              <Rocket className="w-4 h-4" />
-              <span>{initialParty ? 'Lưu Thay Đổi' : 'Xác Nhận Chia Tiền'}</span>
-            </button>
-          </div>
-        </form>
+            </div>
+
+            {/* Sticky Action Footer */}
+            <div className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                id="btn-cancel-split"
+                onClick={onClose}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                id="btn-confirm-split"
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+              >
+                <Rocket className="w-4 h-4" />
+                <span>{initialParty ? 'Lưu Thay Đổi' : 'Xác Nhận Chia Tiền'}</span>
+              </button>
+            </div>
+          </form>
           </motion.div>
         </motion.div>
       )}

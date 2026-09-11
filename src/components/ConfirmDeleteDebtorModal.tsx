@@ -58,7 +58,7 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
                 </div>
                 <div>
                   <h2 className="font-bold text-base tracking-wide uppercase">
-                    Xác Nhận Xóa Con Nợ
+                    Xác Nhận Xóa Người Nợ
                   </h2>
                   <p className="text-[11px] text-rose-100">
                     Hành động này không thể hoàn tác
@@ -78,7 +78,7 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
             <div className="p-5 sm:p-6 space-y-4 text-xs text-slate-600 leading-relaxed">
               <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl space-y-1.5 text-rose-950">
                 <div className="font-bold flex items-center gap-1.5 text-rose-900 text-sm">
-                  <span>Bạn có chắc chắn muốn xóa con nợ:</span>
+                  <span>Bạn có chắc chắn muốn xóa người nợ:</span>
                   <span className="underline underline-offset-2">{debtor.name}</span>?
                 </div>
                 <p className="text-rose-800 text-[11px]">
@@ -110,7 +110,7 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
               </div>
 
               <p className="text-slate-500 text-[11px]">
-                ⚠️ Toàn bộ lịch sử ghi nợ, trả nợ và chứng từ liên quan của con nợ này sẽ bị xóa vĩnh viễn khỏi sổ và đồng bộ tức thì lên hệ thống.
+                ⚠️ Toàn bộ lịch sử ghi nợ, trả nợ và chứng từ liên quan của người này sẽ bị xóa vĩnh viễn khỏi sổ và đồng bộ tức thì lên hệ thống.
               </p>
 
               {/* Action buttons */}
@@ -131,7 +131,7 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
                   className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
-                  <span>Xác Nhận Xóa Con Nợ</span>
+                  <span>Xác Nhận Xóa Người Nợ</span>
                 </button>
               </div>
             </div>

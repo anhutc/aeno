@@ -23,7 +23,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminPassword.trim()) {
-      setError('Chủ nợ vui lòng nhập mật khẩu để xác nhận');
+      setError('Quản lý vui lòng nhập mật khẩu để xác nhận');
       return;
     }
 
@@ -37,7 +37,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
         onSuccess();
         onClose();
       } else {
-        setError(res.message || 'Mật khẩu chủ nợ không chính xác. Không thể xóa dữ liệu!');
+        setError(res.message || 'Mật khẩu quản lý không chính xác. Không thể xóa dữ liệu!');
       }
     } catch {
       setError('Lỗi kết nối máy chủ khi thực hiện xóa dữ liệu');
@@ -92,10 +92,10 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
               <span>⚠️ Lưu ý quan trọng:</span>
             </div>
             <p>
-              Toàn bộ danh sách con nợ và lịch sử giao dịch mẫu (Bình, Cường, Dũng...) sẽ được xóa hoàn toàn và trở về trạng thái trống ban đầu.
+              Toàn bộ danh sách người nợ và lịch sử giao dịch mẫu (Bình, Cường, Dũng...) sẽ được xóa hoàn toàn và trở về trạng thái trống ban đầu.
             </p>
             <p className="font-semibold text-emerald-800 pt-0.5">
-              ✓ Thông tin ngân hàng VietQR và mật khẩu quản trị của bạn được giữ nguyên 100%.
+              ✓ Thông tin ngân hàng VietQR và mật khẩu quản lý của bạn được giữ nguyên 100%.
             </p>
           </div>
 
@@ -110,7 +110,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
               htmlFor="confirm-clear-admin-password"
               className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 text-center"
             >
-              Chủ Nợ Nhập Mật Khẩu Để Xác Nhận:
+              Quản Lý Nhập Mật Khẩu Để Xác Nhận:
             </label>
             <div className="relative">
               <input
@@ -118,7 +118,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
                 type={showPassword ? 'text' : 'password'}
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="Nhập mật khẩu chủ nợ..."
+                placeholder="Nhập mật khẩu quản lý..."
                 autoFocus
                 className="w-full px-4 py-3.5 text-center text-lg sm:text-xl font-bold font-mono tracking-wider bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent transition-all shadow-inner"
               />
@@ -132,7 +132,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
               </button>
             </div>
             <p className="text-[11px] text-slate-500 text-center mt-2">
-              Chủ nợ vui lòng nhập chính xác mật khẩu để xác nhận.
+              Quản lý vui lòng nhập chính xác mật khẩu để xác nhận.
             </p>
           </div>
 

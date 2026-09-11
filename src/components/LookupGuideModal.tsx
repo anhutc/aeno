@@ -115,7 +115,7 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
                 Hướng Dẫn Cho {debtor.name}
               </h2>
               <p className="text-[11px] text-slate-500">
-                Gửi thông tin này để con nợ tự tra cứu và chuyển khoản
+                Gửi thông tin này để người nợ tự tra cứu và chuyển khoản
               </p>
             </div>
           </div>

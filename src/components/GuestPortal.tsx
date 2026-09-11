@@ -9,17 +9,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import {
-  Lock,
-  Unlock,
   Calendar,
   CreditCard,
   Copy,
   Check,
   Receipt,
-  ArrowLeft,
-  RefreshCw,
   Eye,
   EyeOff,
   QrCode,
@@ -27,53 +23,41 @@ import {
   Phone,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
-  Image as ImageIcon,
-  AlertCircle,
-  KeyRound,
+  User,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
-import { apiGuestLookup, subscribeToDebtorTransactions } from '../utils/api';
-import { DEFAULT_SETTLED_NOTE, DEFAULT_LOOKUP_INSTRUCTION } from '../utils/textTemplate';
+import { subscribeToDebtorTransactions } from '../utils/api';
+import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
 
 interface GuestPortalProps {
-  onViewImage: (url: string, title?: string) => void;
-  onGoToOwnerLogin: () => void;
-  initialPin?: string | null;
+  debtor?: Debtor | null;
   initialDebtor?: Debtor | null;
+  onViewImage: (url: string, title?: string) => void;
+  onGoToOwnerLogin?: () => void;
   isOwnerAuthenticated?: boolean;
-  debtors?: Debtor[];
   allTransactions?: Transaction[];
   appSettings?: AppSettings;
 }
 
 export const GuestPortal: React.FC<GuestPortalProps> = ({
+  debtor: propDebtor,
+  initialDebtor,
   onViewImage,
   onGoToOwnerLogin,
-  initialPin,
-  initialDebtor,
   isOwnerAuthenticated = false,
-  debtors = [],
   allTransactions = [],
   appSettings,
 }) => {
-  const [pin, setPin] = useState(initialPin || '');
-  const [isLoading, setIsLoading] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [showInputPass, setShowInputPass] = useState(false);
-
-  // Loaded once PIN/Pass is successfully verified or directly selected by Owner
-  const [debtor, setDebtor] = useState<Debtor | null>(initialDebtor || null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [settings, setSettings] = useState<AppSettings | null>(appSettings || null);
-
-  // Sync settings when appSettings changes from parent
-  useEffect(() => {
-    if (appSettings) {
-      setSettings(appSettings);
+  const currentDebtor = propDebtor || initialDebtor || null;
+  const [debtor, setDebtor] = useState<Debtor | null>(currentDebtor);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    if (currentDebtor) {
+      return allTransactions.filter((t) => t.debtorId === currentDebtor.id);
     }
-  }, [appSettings]);
+    return [];
+  });
 
   // Privacy: Hide debtor PIN/Pass by default on screen
   const [showPin, setShowPin] = useState(false);
@@ -83,37 +67,14 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [copiedMemo, setCopiedMemo] = useState(false);
 
-  // Direct debtor selection without requiring Pass (for authenticated Admin/Owner)
-  const handleDirectSelectDebtor = (selected: Debtor) => {
-    setDebtor(selected);
-    const debtorTxs = allTransactions.filter((t) => t.debtorId === selected.id);
-    setTransactions(debtorTxs);
-    if (appSettings) setSettings(appSettings);
-  };
-
-  // Sync initialDebtor if passed
+  // Sync if prop changes
   useEffect(() => {
-    if (initialDebtor) {
-      handleDirectSelectDebtor(initialDebtor);
+    const active = propDebtor || initialDebtor || null;
+    setDebtor(active);
+    if (active) {
+      setTransactions(allTransactions.filter((t) => t.debtorId === active.id));
     }
-  }, [initialDebtor]);
-
-  // Auto-login if initialPin is provided
-  useEffect(() => {
-    if (initialPin && initialPin.trim().length >= 2) {
-      // If admin is logged in, find in local memory first
-      if (isOwnerAuthenticated && debtors.length > 0) {
-        const found = debtors.find(
-          (d) => d.pin.toLowerCase().trim() === initialPin.toLowerCase().trim()
-        );
-        if (found) {
-          handleDirectSelectDebtor(found);
-          return;
-        }
-      }
-      handleLookupByPin(initialPin);
-    }
-  }, [initialPin, isOwnerAuthenticated, debtors]);
+  }, [propDebtor, initialDebtor, allTransactions]);
 
   // Real-time listener: When debtor is viewing statement on mobile, auto-update when owner records changes
   useEffect(() => {
@@ -126,46 +87,8 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     };
   }, [debtor?.id, isOwnerAuthenticated]);
 
-  const handleLookupByPin = async (inputPass: string) => {
-    const clean = inputPass.trim();
-    if (!clean || clean.length < 2) {
-      setAuthError('Con nợ vui lòng nhập mật khẩu tra cứu hợp lệ.');
-      return;
-    }
-
-    setIsLoading(true);
-    setAuthError('');
-
-    try {
-      const res = await apiGuestLookup(clean);
-      if (res.success && res.debtor && res.transactions && res.settings) {
-        setDebtor(res.debtor);
-        setTransactions(res.transactions);
-        setSettings(res.settings);
-
-        // Privacy: Clean PIN from URL address bar so it's not stored in browser history
-        if (window.location.hash.includes('pin=')) {
-          window.history.replaceState(null, '', window.location.pathname + '#guest');
-        }
-      } else {
-        setAuthError(
-          res.message || 'Mật khẩu không chính xác hoặc không tồn tại. Vui lòng liên hệ chủ nợ.'
-        );
-      }
-    } catch {
-      setAuthError('Có lỗi xảy ra khi kết nối máy chủ. Vui lòng thử lại sau.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    handleLookupByPin(pin);
-  };
-
   const copyAccountNumber = () => {
-    const acc = settings?.accountNumber || appSettings?.accountNumber;
+    const acc = appSettings?.accountNumber;
     if (acc) {
       navigator.clipboard.writeText(acc);
       setCopiedAcc(true);
@@ -173,115 +96,31 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     }
   };
 
-  // --- 1. NOT LOGGED IN AS A DEBTOR YET ---
   if (!debtor) {
-    const currentSettings = settings || appSettings;
-
     return (
-      <div className="min-h-[72vh] flex items-center justify-center p-3 sm:p-4 w-full animate-in fade-in duration-200">
-          <div
-            id="guest-pin-card"
-            className="w-full max-w-lg bg-white/95 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden relative"
-          >
-            {/* Top Header Card - Bright Light Theme */}
-            <div className="bg-gradient-to-b from-slate-50 to-white text-slate-900 p-6 sm:p-8 text-center relative border-b border-slate-200/80">
-              <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center mb-3 shadow-xs border border-emerald-200/80 ring-2 ring-emerald-100">
-                <Lock className="w-8 h-8" />
-              </div>
-
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 mb-2 font-mono">
-                👤 TRA CỨU CON NỢ
-              </div>
-
-              <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 font-display">
-                {currentSettings?.appTitle || 'Tra Cứu Sổ Nợ Cá Nhân'}
-              </h1>
-              <p className="text-xs text-slate-500 mt-2 max-w-sm mx-auto leading-relaxed">
-                {currentSettings?.lookupInstructionText || DEFAULT_LOOKUP_INSTRUCTION}
-              </p>
-            </div>
-
-            {/* Login Form */}
-            <form onSubmit={handleFormSubmit} className="p-6 sm:p-8 space-y-5">
-              {authError && (
-                <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-semibold leading-relaxed animate-in fade-in flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <span>{authError}</span>
-                </div>
-              )}
-
-              <div>
-                <label
-                  htmlFor="guest-pin-input"
-                  className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 text-center"
-                >
-                  Nhập Mật Khẩu Tra Cứu:
-                </label>
-                <div className="relative">
-                  <input
-                    id="guest-pin-input"
-                    type={showInputPass ? 'text' : 'password'}
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    placeholder="Ví dụ: 1234 hoặc nam123"
-                    autoFocus
-                    className="w-full px-5 py-4 text-center text-xl sm:text-2xl font-black font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowInputPass(!showInputPass)}
-                    className="absolute right-4 top-4.5 text-slate-400 hover:text-slate-600 cursor-pointer p-1.5 rounded-xl hover:bg-slate-200/50 transition-colors"
-                    title={showInputPass ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                  >
-                    {showInputPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500 text-center mt-2.5 leading-relaxed">
-                  <KeyRound className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>Mật khẩu do ({currentSettings?.ownerName || 'Chủ nợ'}) cấp riêng để bảo vệ quyền riêng tư cá nhân.</span>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                id="submit-guest-pin-btn"
-                disabled={isLoading || pin.trim().length < 2}
-                className="w-full py-4 px-5 bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.99] disabled:opacity-50 text-white font-extrabold text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2.5 cursor-pointer shadow-emerald-900/20"
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Đang kiểm tra mật khẩu...</span>
-                  </>
-                ) : (
-                  <>
-                    <Unlock className="w-4 h-4" />
-                    <span>Xem Sao Kê Cá Nhân</span>
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Footer Navigation Switcher */}
-            <div className="p-4.5 bg-slate-50 border-t border-slate-100 text-center">
-              <button
-                type="button"
-                onClick={onGoToOwnerLogin}
-                className="text-xs text-slate-600 hover:text-slate-900 font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <span>Bạn là Chủ nợ muốn vào quản lý sổ?</span>
-                <span className="font-bold text-amber-700 hover:underline inline-flex items-center gap-1">
-                  Đăng nhập tại đây <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
-                </span>
-              </button>
-            </div>
-          </div>
+      <div className="min-h-[50vh] flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-14 h-14 rounded-3xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
+          <User className="w-7 h-7" />
         </div>
-      );
+        <h3 className="text-base font-bold text-slate-800">Không tìm thấy thông tin</h3>
+        <p className="text-xs text-slate-500 mt-1 max-w-xs">
+          Vui lòng nhập lại mã PIN hoặc mật khẩu tại màn hình chính.
+        </p>
+        {onGoToOwnerLogin && (
+          <button
+            type="button"
+            onClick={onGoToOwnerLogin}
+            className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+          >
+            Quay lại đăng nhập
+          </button>
+        )}
+      </div>
+    );
   }
 
   // --- 2. DEBTOR STATEMENT VIEW (ONLY THIS GUEST'S TRANSACTIONS) ---
-  const activeSettings = appSettings || settings || {
+  const activeSettings = appSettings || {
     ownerName: 'Chủ Sổ',
     appTitle: 'Sổ Ghi Nợ',
     defaultMemoPrefix: 'TRA NO',
@@ -332,7 +171,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           </div>
           <div className="flex-1">
             <div className="font-bold uppercase tracking-wider text-[11px] text-blue-800">
-              Lời nhắn từ chủ nợ {activeSettings.ownerName}:
+              Lời nhắn từ {activeSettings.ownerName}:
             </div>
             <div className="mt-1 text-slate-700 leading-relaxed font-normal whitespace-pre-line">
               {activeSettings.guestAnnouncement}
@@ -349,10 +188,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-widest text-emerald-700 font-extrabold font-mono">
                 👤 SAO KÊ CÁ NHÂN
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Trực tiếp
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black mt-1 text-slate-900 tracking-tight">
@@ -402,7 +237,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     : 'bg-slate-200 text-slate-700'
                 }`}
               >
-                {currentBalance > 0 ? 'Cần thanh toán' : currentBalance < 0 ? 'Chủ nợ trả lại' : 'Hoàn tất'}
+                {currentBalance > 0 ? 'Cần thanh toán' : currentBalance < 0 ? 'Quản lý hoàn trả' : 'Hoàn tất'}
               </span>
             </div>
 
@@ -443,7 +278,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
                   Thông Tin Chuyển Khoản Trả Nợ
                 </h2>
-                <p className="text-[11px] text-slate-500">Chuyển trực tiếp qua số tài khoản hoặc quét mã QR tiện lợi</p>
+                <p className="text-[11px] text-slate-500">Chuyển trực tiếp qua số tài khoản hoặc quét mã QR</p>
               </div>
             </div>
 
@@ -487,11 +322,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
                   {activeSettings.ownerPhone && (
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                      <span className="text-slate-500 font-medium">SĐT Chủ Nợ:</span>
+                      <span className="text-slate-500 font-medium">SĐT Liên hệ:</span>
                       <a
                         href={`tel:${activeSettings.ownerPhone}`}
                         className="text-emerald-700 font-bold font-mono hover:underline inline-flex items-center gap-1.5"
-                        title="Bấm để gọi điện cho Chủ Nợ"
+                        title="Bấm để gọi điện liên hệ"
                       >
                         <Phone className="w-3.5 h-3.5" />
                         <span>{activeSettings.ownerPhone}</span>
@@ -538,7 +373,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                       <span>Mã QR</span>
                     </div>
                     <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">
-                      247
+                      {activeSettings.ownerName}
                     </span>
                   </div>
 
@@ -603,7 +438,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 title="Sắp xếp mới nhất lên đầu"
               >
                 <ArrowDownWideNarrow className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Mới nhất trước</span>
+                <span>Mới nhất</span>
               </button>
               <button
                 type="button"
@@ -616,7 +451,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 title="Sắp xếp cũ nhất lên đầu"
               >
                 <ArrowUpNarrowWide className="w-3.5 h-3.5 text-slate-400" />
-                <span>Cũ nhất trước</span>
+                <span>Cũ nhất</span>
               </button>
             </div>
           </div>
