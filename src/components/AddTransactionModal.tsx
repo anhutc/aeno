@@ -67,6 +67,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const prevIsOpenRef = useRef(false);
   const prevDefaultDebtorIdRef = useRef<string | undefined>(undefined);
@@ -130,14 +131,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     setError('');
 
     let targetDebtorId = debtorId;
 
-    // If in CREATE_NEW mode, create debtor first
+    // Validate inputs
     if (debtorMode === 'CREATE_NEW') {
       if (!newName.trim()) {
-        setError('Vui lòng nhập tên con nợ');
+        setError('Vui lòng nhập tên người nợ');
         return;
       }
       const cleanPass = newPin.trim();
@@ -153,9 +155,29 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         );
         return;
       }
+    } else {
+      if (!targetDebtorId) {
+        setError('Vui lòng chọn người nợ');
+        return;
+      }
+    }
 
-      setIsSubmitting(true);
-      try {
+    if (!amount || amount <= 0) {
+      setError('Vui lòng nhập số tiền hợp lệ (> 0)');
+      return;
+    }
+    if (!date) {
+      setError('Vui lòng chọn ngày giao dịch');
+      return;
+    }
+
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      // If in CREATE_NEW mode, create debtor first
+      if (debtorMode === 'CREATE_NEW') {
+        const cleanPass = newPin.trim();
         if (onSaveDebtor) {
           const created = await onSaveDebtor({
             name: newName.trim(),
@@ -166,40 +188,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           if (created && created.id) {
             targetDebtorId = created.id;
           } else {
-            setError('Không thể tạo con nợ. Vui lòng thử lại.');
-            setIsSubmitting(false);
+            setError('Không thể tạo người nợ. Vui lòng thử lại.');
             return;
           }
         } else {
-          setError('Hệ thống chưa hỗ trợ tạo con nợ tại đây');
-          setIsSubmitting(false);
+          setError('Hệ thống chưa hỗ trợ tạo người nợ tại đây');
           return;
         }
-      } catch {
-        setError('Lỗi kết nối khi tạo con nợ mới.');
-        setIsSubmitting(false);
-        return;
       }
-    }
 
-    if (!targetDebtorId) {
-      setError('Vui lòng chọn hoặc nhập con nợ');
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!amount || amount <= 0) {
-      setError('Vui lòng nhập số tiền hợp lệ (> 0)');
-      setIsSubmitting(false);
-      return;
-    }
-    if (!date) {
-      setError('Vui lòng chọn ngày giao dịch');
-      setIsSubmitting(false);
-      return;
-    }
-
-    try {
       const payload: Omit<Transaction, 'id' | 'createdAt'> = {
         debtorId: targetDebtorId,
         type,
@@ -210,10 +207,11 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         ...(billImage ? { billImage } : {}),
       };
       await onSave(payload);
-      setIsSubmitting(false);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Có lỗi xảy ra khi lưu giao dịch');
+    } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -566,7 +564,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 id="btn-cancel-transaction"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Hủy
               </button>
@@ -574,7 +572,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 type="submit"
                 id="btn-save-transaction"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer flex items-center gap-2"
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
               >
                 <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
                 <span>{isSubmitting ? 'Đang lưu...' : 'Tạo Giao Dịch'}</span>

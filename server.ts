@@ -458,22 +458,35 @@ app.use(async (req, _res, next) => {
     }
 
     const db = getDatabase();
-    const partyId = `party-${Date.now()}`;
+    const partyId = party.id || `party-${Date.now()}`;
+    
+    // Check if party with partyId already exists (intercepts duplicate rapid submission)
+    const existingIndex = db.parties.findIndex((p) => p.id === partyId);
+    if (existingIndex >= 0) {
+      return res.json({
+        success: true,
+        party: db.parties[existingIndex],
+        parties: db.parties,
+        transactions: db.transactions,
+      });
+    }
+
     const savedParty: PartySplit = {
       ...party,
       id: partyId,
-      createdAt: new Date().toISOString(),
+      createdAt: party.createdAt || new Date().toISOString(),
     };
 
     const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
       ...tx,
-      id: `tx-${Date.now()}-${idx}`,
+      id: tx.id || `tx-party-${partyId}-${tx.debtorId || idx}`,
       partyId,
-      createdAt: new Date().toISOString(),
+      createdAt: tx.createdAt || new Date().toISOString(),
     }));
 
     db.parties.unshift(savedParty);
-    db.transactions = [...savedTransactions, ...db.transactions];
+    const existingTxIds = new Set(savedTransactions.map((t) => t.id));
+    db.transactions = [...savedTransactions, ...db.transactions.filter((t) => !existingTxIds.has(t.id))];
     saveDatabase(db);
     try {
       await savePartySplitToFirestore(savedParty, savedTransactions);
@@ -540,7 +553,7 @@ app.use(async (req, _res, next) => {
     const filteredTxs = db.transactions.filter((t) => t.partyId !== id);
     const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
       ...tx,
-      id: tx.id || `tx-${Date.now()}-${idx}`,
+      id: tx.id || `tx-party-${id}-${tx.debtorId || idx}`,
       partyId: id,
       createdAt: tx.createdAt || new Date().toISOString(),
     }));

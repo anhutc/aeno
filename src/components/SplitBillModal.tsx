@@ -75,6 +75,10 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
   const [isAddingDebtor, setIsAddingDebtor] = useState(false);
   const [addDebtorError, setAddDebtorError] = useState('');
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const isAddingDebtorRef = useRef(false);
+
   const prevIsOpenRef = useRef(false);
 
   useEffect(() => {
@@ -131,6 +135,8 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
 
   const handleSaveNewDebtor = async (e: React.MouseEvent) => {
     e.preventDefault();
+    if (isAddingDebtorRef.current) return;
+
     if (!newDebtorName.trim()) {
       setAddDebtorError('Vui lòng nhập tên người nợ / bạn bè');
       return;
@@ -148,6 +154,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
 
     if (!onSaveDebtor) return;
 
+    isAddingDebtorRef.current = true;
     setIsAddingDebtor(true);
     setAddDebtorError('');
 
@@ -172,6 +179,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
     } catch {
       setAddDebtorError('Không thể tạo người mới. Vui lòng thử lại.');
     } finally {
+      isAddingDebtorRef.current = false;
       setIsAddingDebtor(false);
     }
   };
@@ -205,6 +213,8 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+
     if (!name.trim()) {
       setError('Vui lòng nhập tên cuộc vui (ví dụ: Đi ăn Lẩu Bò)');
       return;
@@ -228,8 +238,13 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       return;
     }
 
-    const generatedTransactions: Omit<Transaction, 'id' | 'createdAt'>[] = [];
-    const partyData: Omit<PartySplit, 'id' | 'createdAt'> = {
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    setError('');
+
+    const targetPartyId = initialParty?.id || `party-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const partyData: PartySplit = {
+      id: targetPartyId,
       name: name.trim(),
       date,
       totalAmount,
@@ -239,12 +254,16 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       includeMe: true,
       splitAmountPerPerson,
       ...(billImage ? { billImage } : {}),
+      createdAt: initialParty?.createdAt || new Date().toISOString(),
     };
 
+    const generatedTransactions: Transaction[] = [];
     if (payerType === 'ME') {
       // "Người nợ tôi": Each selected debtor owes Me (+)
       selectedDebtorIds.forEach((debtorId) => {
         generatedTransactions.push({
+          id: `tx-party-${targetPartyId}-${debtorId}`,
+          partyId: targetPartyId,
           debtorId,
           type: 'ADD',
           amount: splitAmountPerPerson,
@@ -252,6 +271,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           note: `Ăn Chia: ${name.trim()} (${numberOfPeople} người chia)`,
           category: 'PARTY_SPLIT',
           ...(billImage ? { billImage } : {}),
+          createdAt: new Date().toISOString(),
         });
       });
     } else {
@@ -260,6 +280,8 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       const payerName = payerObj?.name || 'Người này';
 
       generatedTransactions.push({
+        id: `tx-party-${targetPartyId}-${payerDebtorId}`,
+        partyId: targetPartyId,
         debtorId: payerDebtorId,
         type: 'SUB',
         amount: splitAmountPerPerson,
@@ -269,18 +291,22 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         )})`,
         category: 'PARTY_SPLIT',
         ...(billImage ? { billImage } : {}),
+        createdAt: new Date().toISOString(),
       });
     }
 
     try {
       if (initialParty && onUpdateSplit) {
-        await onUpdateSplit(initialParty.id, partyData, generatedTransactions);
+        await onUpdateSplit(targetPartyId, partyData, generatedTransactions);
       } else {
         await onConfirmSplit(partyData, generatedTransactions);
       }
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Có lỗi xảy ra khi lưu cuộc chia tiền');
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -803,17 +829,27 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                 type="button"
                 id="btn-cancel-split"
                 onClick={onClose}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                disabled={isSubmitting}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Hủy
               </button>
               <button
                 type="submit"
                 id="btn-confirm-split"
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                disabled={isSubmitting}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
               >
-                <Rocket className="w-4 h-4" />
-                <span>{initialParty ? 'Lưu Thay Đổi' : 'Xác Nhận Chia Tiền'}</span>
+                <Rocket className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
+                <span>
+                  {isSubmitting
+                    ? initialParty
+                      ? 'Đang lưu...'
+                      : 'Đang chia tiền...'
+                    : initialParty
+                    ? 'Lưu Thay Đổi'
+                    : 'Xác Nhận Chia Tiền'}
+                </span>
               </button>
             </div>
           </form>

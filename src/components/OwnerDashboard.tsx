@@ -233,14 +233,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
       )}
 
-      {/* Profile Capsule Chủ Sổ & Ngân Hàng */}
+      {/* Profile Capsule Quản lý & Ngân Hàng */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-xs text-xs">
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <div className="flex items-center gap-2 font-bold text-slate-800">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/20 text-amber-900 text-[11px] font-extrabold border border-amber-300/80 shadow-2xs">
-              👑 Chủ Nợ
+              👑 Quản lý
             </span>
-            <span className="text-slate-900 text-sm font-black tracking-tight">{settings.ownerName || 'Chủ Nợ'}</span>
+            <span className="text-slate-900 text-sm font-black tracking-tight">{settings.ownerName || 'Quản lý'}</span>
           </div>
 
           {settings.ownerPhone && (
@@ -252,7 +252,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 <a
                   href={`tel:${settings.ownerPhone}`}
                   className="font-mono font-bold text-emerald-800 hover:text-emerald-950 hover:underline"
-                  title="Bấm để gọi điện cho Chủ Nợ"
+                  title="Bấm để gọi điện cho Quản lý"
                 >
                   {settings.ownerPhone}
                 </a>

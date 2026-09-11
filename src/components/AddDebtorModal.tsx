@@ -35,6 +35,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const prevIsOpenRef = useRef(false);
   const prevDebtorIdRef = useRef<string | undefined>(undefined);
@@ -76,6 +77,8 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+
     if (!name.trim()) {
       setError('Vui lòng nhập tên người nợ');
       return;
@@ -99,6 +102,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       await onSave(
@@ -113,6 +117,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
     } catch (err: any) {
       setError(err?.message || 'Có lỗi xảy ra khi lưu thông tin');
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -253,7 +258,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                   id="btn-cancel-debtor"
                   onClick={onClose}
                   disabled={isSubmitting}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Hủy
                 </button>
@@ -261,7 +266,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                   type="submit"
                   id="btn-save-debtor"
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
                 >
                   <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
                   <span>{isSubmitting ? 'Đang lưu...' : initialDebtor ? 'Lưu Thay Đổi' : 'Tạo Người Nợ'}</span>

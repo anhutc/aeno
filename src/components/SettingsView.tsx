@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Save,
   Check,
@@ -114,6 +114,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [savedSnapshot, setSavedSnapshot] = useState<AppSettings>(() => normalizeSettings(settings));
   const [formData, setFormData] = useState<AppSettings>(() => normalizeSettings(settings));
   const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
 
   // Derive dirty state
   const isDirty = useMemo(() => {
@@ -186,6 +187,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Centralized Save Handler: Saves to parent, syncs snapshot, and clears dirty status immediately
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setIsSaving(true);
     try {
       await onSaveSettings(formData);
@@ -196,6 +199,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     } catch {
       showToast('Lỗi khi lưu cài đặt! Vui lòng thử lại.', 'error');
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   };

@@ -133,19 +133,52 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
 }
 
 export function smartMergeTransactions(remoteTxs: Transaction[], _localTxs?: Transaction[]): Transaction[] {
-  // Remote is the authoritative list when connected to server/Firestore
-  return [...remoteTxs].sort(
+  const map = new Map<string, Transaction>();
+  if (Array.isArray(_localTxs)) {
+    for (const t of _localTxs) {
+      if (t && t.id) map.set(t.id, t);
+    }
+  }
+  if (Array.isArray(remoteTxs)) {
+    for (const t of remoteTxs) {
+      if (t && t.id) map.set(t.id, t);
+    }
+  }
+  return Array.from(map.values()).sort(
     (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
   );
 }
 
 export function smartMergeDebtors(remoteDebtors: Debtor[], _localDebtors?: Debtor[]): Debtor[] {
-  // Remote is the authoritative list when connected to server/Firestore
-  return [...remoteDebtors];
+  const map = new Map<string, Debtor>();
+  if (Array.isArray(_localDebtors)) {
+    for (const d of _localDebtors) {
+      if (d && d.id) map.set(d.id, d);
+    }
+  }
+  if (Array.isArray(remoteDebtors)) {
+    for (const d of remoteDebtors) {
+      if (d && d.id) map.set(d.id, d);
+    }
+  }
+  return Array.from(map.values());
 }
 
 export function smartMergeParties(remoteParties: PartySplit[], _localParties?: PartySplit[]): PartySplit[] {
-  return [...remoteParties];
+  const map = new Map<string, PartySplit>();
+  if (Array.isArray(_localParties)) {
+    for (const p of _localParties) {
+      if (p && p.id) map.set(p.id, p);
+    }
+  }
+  if (Array.isArray(remoteParties)) {
+    for (const p of remoteParties) {
+      if (p && p.id) map.set(p.id, p);
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+  );
 }
 
 export async function fetchOwnerData(): Promise<{
@@ -478,32 +511,40 @@ export async function apiDeleteTransaction(
 }
 
 export async function apiSavePartySplit(
-  party: Omit<PartySplit, 'id' | 'createdAt'>,
+  party: Omit<PartySplit, 'id' | 'createdAt'> & { id?: string },
   transactions: Omit<Transaction, 'id' | 'createdAt'>[]
 ): Promise<{ success: boolean; parties?: PartySplit[]; transactions?: Transaction[]; message?: string }> {
-  const partyId = `party-${Date.now()}`;
+  const partyId = party.id || `party-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   unmarkPartyDeleted(partyId);
 
   const createdTxs: Transaction[] = transactions.map((t, idx) => {
-    const txId = `tx-party-${Date.now()}-${idx}`;
+    const txId = (t as any).id || `tx-party-${partyId}-${t.debtorId || idx}`;
     unmarkTxDeleted(txId);
     return {
       ...t,
       id: txId,
       partyId,
-      createdAt: new Date().toISOString(),
+      createdAt: (t as any).createdAt || new Date().toISOString(),
     };
   });
 
   const newParty: PartySplit = {
     ...party,
     id: partyId,
-    createdAt: new Date().toISOString(),
+    createdAt: (party as any).createdAt || new Date().toISOString(),
   };
 
   const allParties = loadParties();
-  allParties.unshift(newParty);
-  const updatedTxs = [...createdTxs, ...loadTransactions()];
+  const existingPartyIdx = allParties.findIndex((p) => p.id === partyId);
+  if (existingPartyIdx >= 0) {
+    allParties[existingPartyIdx] = newParty;
+  } else {
+    allParties.unshift(newParty);
+  }
+
+  // Remove any stale or duplicate transactions for this party before merging
+  const oldTxs = loadTransactions().filter((t) => t.partyId !== partyId);
+  const updatedTxs = smartMergeTransactions(createdTxs, oldTxs);
   saveParties(allParties);
   saveTransactions(updatedTxs);
 
@@ -517,7 +558,7 @@ export async function apiSavePartySplit(
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success) {
-        const mergedParties = data.parties || allParties;
+        const mergedParties = smartMergeParties(data.parties || allParties);
         const mergedTxs = smartMergeTransactions(data.transactions || updatedTxs);
         saveParties(mergedParties);
         saveTransactions(mergedTxs);
@@ -603,18 +644,18 @@ export async function apiUpdatePartySplit(
   }
 
   const createdTxs: Transaction[] = transactions.map((t, idx) => {
-    const txId = `tx-party-${Date.now()}-${idx}`;
+    const txId = (t as any).id || `tx-party-${partyId}-${t.debtorId || idx}`;
     unmarkTxDeleted(txId);
     return {
       ...t,
       id: txId,
       partyId,
-      createdAt: new Date().toISOString(),
+      createdAt: (t as any).createdAt || new Date().toISOString(),
     };
   });
 
   const baseTxs = loadTransactions().filter((t) => t.partyId !== partyId);
-  const updatedTxs = [...createdTxs, ...baseTxs];
+  const updatedTxs = smartMergeTransactions(createdTxs, baseTxs);
   saveParties(allParties);
   saveTransactions(updatedTxs);
 

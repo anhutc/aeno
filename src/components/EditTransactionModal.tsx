@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -40,6 +40,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     if (isOpen && transaction) {
@@ -51,6 +52,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       setBillImage(transaction.billImage);
       setError('');
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   }, [isOpen, transaction, debtor]);
 
@@ -72,6 +74,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+
     if (!amount || amount <= 0) {
       setError('Vui lòng nhập số tiền lớn hơn 0');
       return;
@@ -82,6 +86,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       const updated: Transaction = {
@@ -103,6 +108,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     } catch (err: any) {
       setError(err?.message || 'Có lỗi xảy ra khi lưu giao dịch');
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -346,7 +352,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 id="btn-cancel-edit-tx"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Hủy
               </button>
@@ -354,7 +360,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 type="submit"
                 id="btn-submit-edit-tx"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-2"
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
               >
                 <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
                 <span>{isSubmitting ? 'Đang lưu...' : 'Lưu Thay Đổi'}</span>
