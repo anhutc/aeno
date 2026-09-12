@@ -101,7 +101,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [sortBy, setSortBy] = useState<'BALANCE_DESC' | 'BALANCE_ASC' | 'NAME' | 'RECENT'>('BALANCE_DESC');
   const [debtorStatusFilter, setDebtorStatusFilter] = useState<'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'SETTLED'>('ALL');
   const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
-  const [copiedStk, setCopiedStk] = useState(false);
   const [guideDebtor, setGuideDebtor] = useState<Debtor | null>(null);
   const [debtorToDelete, setDebtorToDelete] = useState<Debtor | null>(null);
   const [partyToDelete, setPartyToDelete] = useState<PartySplit | null>(null);
@@ -187,15 +186,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     setTimeout(() => setCopiedPinId(null), 2000);
   };
 
-  const handleCopyStk = () => {
-    if (settings.accountNumber) {
-      navigator.clipboard.writeText(settings.accountNumber);
-      setCopiedStk(true);
-      showToast(`Đã sao chép STK: ${settings.accountNumber}`, 'success');
-      setTimeout(() => setCopiedStk(false), 2000);
-    }
-  };
-
   // Recent transactions sorted descending
   const recentTransactions = [...transactions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -232,61 +222,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           </div>
         </div>
       )}
-
-      {/* Profile Capsule Quản lý & Ngân Hàng */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-xs text-xs">
-        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-          <div className="flex items-center gap-2 font-bold text-slate-800">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/20 text-amber-900 text-[11px] font-extrabold border border-amber-300/80 shadow-2xs">
-              👑 Quản lý
-            </span>
-            <span className="text-slate-900 text-sm font-black tracking-tight">{settings.ownerName || 'Quản lý'}</span>
-          </div>
-
-          {settings.ownerPhone && (
-            <>
-              <span className="text-slate-300 hidden sm:inline">•</span>
-              <div className="flex items-center gap-1.5 text-slate-700 bg-emerald-50/90 px-2.5 py-1 rounded-xl border border-emerald-200/80">
-                <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="text-[11px] text-slate-500 font-medium">Hotline/Zalo:</span>
-                <a
-                  href={`tel:${settings.ownerPhone}`}
-                  className="font-mono font-bold text-emerald-800 hover:text-emerald-950 hover:underline"
-                  title="Bấm để gọi điện cho Quản lý"
-                >
-                  {settings.ownerPhone}
-                </a>
-              </div>
-            </>
-          )}
-
-          {settings.accountNumber && (
-            <>
-              <span className="text-slate-300 hidden sm:inline">•</span>
-              <div className="flex items-center gap-1.5 text-slate-700 bg-slate-50/90 px-3 py-1 rounded-xl border border-slate-200/80">
-                <CreditCard className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <span className="text-[11px] text-slate-500 font-medium">STK:</span>
-                <span className="font-mono font-bold text-slate-900">
-                  {settings.bankName || 'Ngân hàng'} - {settings.accountNumber}
-                </span>
-                {settings.accountName && (
-                  <span className="text-slate-500 text-[11px] font-semibold hidden md:inline">
-                    ({settings.accountName})
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={handleCopyStk}
-                  className="ml-1 p-1 hover:bg-slate-200/70 rounded-lg text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-                  title="Sao chép số tài khoản"
-                >
-                  {copiedStk ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
 
       {/* BỐ CỤC MỚI LẠ 1: BẢNG ĐIỀU KHIỂN TÀI CHÍNH BENTO BẤT ĐỐI XỨNG (EXECUTIVE BENTO COCKPIT - BRIGHT LIGHT THEME) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

@@ -77,7 +77,7 @@ export interface TemplateVariables {
 export const TEMPLATE_TAG_DESCRIPTIONS: { tag: string; label: string; example: string }[] = [
   { tag: '{name}', label: 'Tên người nợ ({TEN_KHACH})', example: 'Nguyễn Văn Nam' },
   { tag: '{pass}', label: 'Mật khẩu / Pass ({PASS})', example: 'nam123' },
-  { tag: '{url}', label: 'Link tra cứu chung ({LINK})', example: 'https://.../#guest' },
+  { tag: '{url}', label: 'Link tra cứu chung ({LINK})', example: 'https://...' },
   { tag: '{balance}', label: 'Số tiền dư nợ ({SO_TIEN})', example: '250.000 đ' },
   { tag: '{bank}', label: 'Tên ngân hàng ({NGAN_HANG})', example: 'MB Bank' },
   { tag: '{account}', label: 'Số tài khoản ({SO_TK})', example: '0987654321' },
@@ -119,7 +119,7 @@ export function getDebtorTemplateVariables(params: {
   accountName: string;
   defaultMemoPrefix?: string;
 }): TemplateVariables {
-  const url = `${window.location.origin}${window.location.pathname}#guest`;
+  const url = `${window.location.origin}${window.location.pathname}`;
   const formattedBalance =
     params.balance > 0
       ? `+${formatVND(params.balance)}`
@@ -138,13 +138,22 @@ export function getDebtorTemplateVariables(params: {
     pin: pass,
     pass,
     url,
+    link_tra_cuu: url,
     balance: formattedBalance,
+    so_du: formattedBalance,
+    so_du_so: String(params.balance),
     owner: params.ownerName,
+    ten_chu_so: params.ownerName,
     ownerPhone: params.ownerPhone || '',
+    sdt_chu_no: params.ownerPhone || '',
     bank: params.bankName,
+    ten_ngan_hang: params.bankName,
     account: params.accountNumber,
+    stk: params.accountNumber,
     accountName: params.accountName,
+    ten_chu_tk: params.accountName,
     memo: cleanMemo,
     noi_dung_ck: cleanMemo,
+    ten_nguoi_no: params.debtorName,
   };
 }

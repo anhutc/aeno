@@ -39,10 +39,12 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedAcc, setCopiedAcc] = useState(false);
 
+  const displayPhone = (settings.ownerPhone || '0987654321').trim();
+
   const handleCopyPhone = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (settings.ownerPhone) {
-      navigator.clipboard.writeText(settings.ownerPhone);
+    if (displayPhone) {
+      navigator.clipboard.writeText(displayPhone);
       setCopiedPhone(true);
       setTimeout(() => setCopiedPhone(false), 2000);
     }
@@ -61,7 +63,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     e.preventDefault();
     const clean = passcode.trim();
     if (!clean) {
-      setError('Vui lòng nhập mã PIN người xem hoặc mật khẩu quản lý');
+      setError('Vui lòng nhập mã PIN người xem hoặc mật khẩu/SĐT quản lý');
       return;
     }
 
@@ -69,7 +71,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setError('');
 
     try {
-      // 1. Kiểm tra xem có phải mật khẩu Quản lý hay không
+      // 1. Kiểm tra xem có phải mật khẩu hoặc SĐT Quản lý hay không
       const ownerRes = await loginOwner(clean);
       if (ownerRes.success) {
         setPasscode('');
@@ -90,20 +92,31 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
       }
 
       // 3. Dự phòng tra cứu danh bạ bộ nhớ cục bộ (offline cache)
+      const localSettings = loadSettings();
+      const localOwnerPass = (localSettings?.ownerPassword || '123456').trim();
+      const localOwnerPhone = (localSettings?.ownerPhone || '').trim();
+      if (
+        clean === localOwnerPass ||
+        (localOwnerPhone && clean.replace(/\s+/g, '') === localOwnerPhone.replace(/\s+/g, ''))
+      ) {
+        setPasscode('');
+        onLoginOwnerSuccess();
+        return;
+      }
+
       const localDebtors = loadDebtors();
       const localFound = localDebtors.find(
         (d) => d.pin.trim().toLowerCase() === clean.toLowerCase()
       );
       if (localFound) {
         const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
-        const localSettings = loadSettings();
         setPasscode('');
-        onLoginGuestSuccess(localFound, localTxs, localSettings);
+        onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
         return;
       }
 
       // 4. Nếu cả 2 đều không khớp
-      setError('Mật khẩu hoặc mã PIN không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
+      setError('Mật khẩu, mã PIN hoặc SĐT không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
     } catch {
       setError('Lỗi kết nối máy chủ. Vui lòng kiểm tra lại mạng.');
     } finally {
@@ -141,9 +154,9 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           </h1>
         </div>
 
-        {/* Khối Thông Tin Chủ Nợ (Creditor Info) */}
+        {/* Khối Thông Tin Liên Hệ & Chuyển Khoản */}
         <div className="mx-5 sm:mx-6 mt-5 p-3.5 sm:p-4 bg-slate-50/90 border border-slate-200/90 rounded-2xl shadow-2xs space-y-3">
-          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/80">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200/80">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 text-amber-800 flex items-center justify-center shrink-0 shadow-2xs">
                 <Crown className="w-4 h-4" />
@@ -153,35 +166,34 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                   Liên hệ
                 </span>
                 <span className="text-sm font-black text-slate-900 truncate block">
-                  {settings.ownerName || 'Chủ Sổ'}
+                  {settings.ownerName || 'Quản lý'}
                 </span>
               </div>
             </div>
 
-            {settings.ownerPhone && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <a
-                  href={`tel:${settings.ownerPhone}`}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  title="Gọi điện liên hệ"
-                >
-                  <Phone className="w-3 h-3 text-emerald-600" />
-                  <span className="font-mono">{settings.ownerPhone}</span>
-                </a>
-                <button
-                  type="button"
-                  onClick={handleCopyPhone}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-lg transition-colors cursor-pointer"
-                  title="Sao chép số điện thoại"
-                >
-                  {copiedPhone ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5" />
-                  )}
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <a
+                href={`tel:${displayPhone}`}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                title="Gọi điện liên hệ"
+              >
+                <Phone className="w-3 h-3 text-emerald-600" />
+                <span className="text-[11px] text-slate-500 font-medium mr-0.5">SĐT:</span>
+                <span className="font-mono">{displayPhone}</span>
+              </a>
+              <button
+                type="button"
+                onClick={handleCopyPhone}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-lg transition-colors cursor-pointer"
+                title="Sao chép số điện thoại"
+              >
+                {copiedPhone ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Tài khoản ngân hàng nhận chuyển khoản của Quản lý */}
@@ -253,7 +265,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
               htmlFor="unified-passcode-input"
               className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 text-center"
             >
-              Nhập Mã PIN hoặc Mật Khẩu:
+              Nhập Mã PIN hoặc Mật Khẩu / SĐT:
             </label>
             <div className="relative">
               <input
@@ -261,7 +273,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 type={showPasscode ? 'text' : 'password'}
                 value={passcode}
                 onChange={(e) => setPasscode(e.target.value)}
-                placeholder="Ví dụ: 1234, nam123..."
+                placeholder="Ví dụ: 1234, nam123 hoặc SĐT..."
                 autoFocus
                 className="w-full pl-12 pr-12 py-3.5 text-center text-xl sm:text-2xl font-black font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-normal placeholder:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
               />

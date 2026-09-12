@@ -201,10 +201,14 @@ export default function App() {
     };
   }, [isOwnerAuthenticated]);
 
-  // Khi tải hoặc tải lại trang: Xóa sạch phiên đăng nhập cũ & mã PIN khỏi URL để bắt buộc đăng nhập lại
+  // Khi tải hoặc tải lại trang: Xóa sạch phiên đăng nhập cũ & mã PIN hoặc hash guest khỏi URL
   useEffect(() => {
     removeStoredOwnerToken();
-    if (window.location.hash.includes('pin=') || window.location.search.includes('pin=')) {
+    if (
+      window.location.hash.includes('pin=') ||
+      window.location.search.includes('pin=') ||
+      window.location.hash.toLowerCase().includes('guest')
+    ) {
       window.history.replaceState(null, '', window.location.pathname);
     }
     setDebtors([]);
@@ -245,7 +249,9 @@ export default function App() {
     } else if (view === 'SETTINGS') {
       window.location.hash = 'settings';
     } else {
-      window.location.hash = 'guest';
+      if (window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
     }
   };
 
@@ -427,7 +433,9 @@ export default function App() {
     setGuestInitialPin(debtor.pin);
     setGuestInitialDebtor(debtor);
     setCurrentView('GUEST');
-    window.location.hash = 'guest';
+    if (window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
   };
 
   return (
@@ -472,7 +480,9 @@ export default function App() {
                     setSettings(setts);
                   }
                   setCurrentView('GUEST');
-                  window.location.hash = 'guest';
+                  if (window.location.hash) {
+                    window.history.replaceState(null, '', window.location.pathname);
+                  }
                 }}
               />
             </motion.div>

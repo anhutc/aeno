@@ -4,6 +4,7 @@ import {
   Settings,
   LogOut,
   Share2,
+  Copy,
   Check,
   Cloud,
   RefreshCw,
@@ -88,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [showStatusPopover]);
 
   const copyGuestLink = () => {
-    const url = `${window.location.origin}${window.location.pathname}#guest`;
+    const url = `${window.location.origin}${window.location.pathname}`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -382,22 +383,25 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* Quick link sharing button (Only for Owner / not shown to guests viewing personal statement) */}
-            {isOwnerAuthenticated && (
-              <button
-                type="button"
-                onClick={copyGuestLink}
-                title="Sao chép đường dẫn tra cứu gửi cho bạn bè"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-all shadow-2xs cursor-pointer"
-              >
-                {copiedLink ? (
+            {/* Nút sao chép link tra cứu ở Header */}
+            <button
+              type="button"
+              onClick={copyGuestLink}
+              title="Sao chép đường dẫn tra cứu gửi cho bạn bè"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-all shadow-2xs cursor-pointer"
+            >
+              {copiedLink ? (
+                <>
                   <Check className="w-3.5 h-3.5 text-emerald-600" />
-                ) : (
-                  <Share2 className="w-3.5 h-3.5 text-slate-500" />
-                )}
-                <span className="hidden md:inline">{copiedLink ? 'Đã chép link' : 'Chia sẻ sổ'}</span>
-              </button>
-            )}
+                  <span className="text-emerald-700 font-bold">Đã chép link</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="hidden xs:inline">Sao chép link</span>
+                </>
+              )}
+            </button>
 
             {/* Owner Logout Button */}
             {isOwnerAuthenticated && (

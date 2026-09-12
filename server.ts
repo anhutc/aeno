@@ -233,9 +233,15 @@ app.use(async (req, _res, next) => {
   app.post('/api/auth/login', (req, res) => {
     const { password } = req.body;
     const db = getDatabase();
-    const correctPassword = db.settings.ownerPassword || '123456';
+    const correctPassword = (db.settings.ownerPassword || '123456').trim();
+    const ownerPhone = (db.settings.ownerPhone || '').trim();
+    const inputPass = String(password || '').trim();
 
-    if (password && password.trim() === correctPassword.trim()) {
+    if (
+      inputPass &&
+      (inputPass === correctPassword ||
+        (ownerPhone && inputPass.replace(/\s+/g, '') === ownerPhone.replace(/\s+/g, '')))
+    ) {
       return res.json({
         success: true,
         token: OWNER_TOKEN,
@@ -245,7 +251,7 @@ app.use(async (req, _res, next) => {
 
     return res.status(401).json({
       success: false,
-      message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng thử lại.',
+      message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
     });
   });
 
