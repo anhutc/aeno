@@ -14,7 +14,6 @@ import {
   ArrowLeft,
   Download,
   Upload,
-  FileJson,
   RotateCcw,
   Trash2,
   Phone,

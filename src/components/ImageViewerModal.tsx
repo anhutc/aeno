@@ -6,8 +6,6 @@ import {
   ZoomOut,
   RotateCw,
   Download,
-  Maximize2,
-  Minimize2,
   ExternalLink,
 } from 'lucide-react';
 

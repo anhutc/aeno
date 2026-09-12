@@ -12,7 +12,6 @@ import {
   Users,
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
-import { formatVND } from '../utils/vietqr';
 import { ThousandAmountInput } from './ThousandAmountInput';
 
 interface EditTransactionModalProps {

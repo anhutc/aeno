@@ -21,7 +21,6 @@ import {
   QrCode,
   Megaphone,
   Phone,
-  MessageCircle,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   User,
@@ -67,7 +66,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   // Copy state
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [copiedMemo, setCopiedMemo] = useState(false);
-  const [copiedPhone, setCopiedPhone] = useState(false);
 
   // Sync if prop changes
   useEffect(() => {

@@ -65,7 +65,6 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   onDeleteTx,
   onEditTx,
   onViewImage,
-  onDirectGuestView,
 }) => {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isShareImageOpen, setIsShareImageOpen] = useState(false);
