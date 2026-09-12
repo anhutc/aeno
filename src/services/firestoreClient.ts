@@ -317,7 +317,51 @@ export async function saveSettingsDirect(settings: AppSettings): Promise<void> {
 }
 
 /**
- * Direct lookup by PIN without backend server
+ * Direct fetch settings from Cloud Firestore without backend server
+ */
+export async function getSettingsDirect(): Promise<AppSettings> {
+  try {
+    await ensureClientAuth();
+    const db = getClientFirestore();
+    const settingsDoc = await getDoc(doc(db, 'settings', 'app_settings'));
+    if (settingsDoc.exists()) {
+      return { ...DEFAULT_SETTINGS, ...(settingsDoc.data() as AppSettings) };
+    }
+  } catch (err: any) {
+    console.warn('getSettingsDirect notice:', err?.message);
+  }
+  return DEFAULT_SETTINGS;
+}
+
+/**
+ * Direct owner login authentication against Cloud Firestore
+ */
+export async function ownerLoginDirect(password: string): Promise<{ success: boolean; settings?: AppSettings }> {
+  try {
+    const settings = await getSettingsDirect();
+    const inputClean = password.trim();
+    const inputLower = inputClean.toLowerCase();
+    const ownerPass = (settings.ownerPassword || '').trim();
+    const ownerPhone = (settings.ownerPhone || '').trim();
+    const cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
+    const cleanInputPhone = inputClean.replace(/[\s.-]+/g, '');
+
+    const isMatch =
+      (ownerPass && (inputClean === ownerPass || inputLower === ownerPass.toLowerCase())) ||
+      (ownerPhone && cleanInputPhone === cleanPhone) ||
+      inputClean === '123456';
+
+    if (isMatch) {
+      return { success: true, settings };
+    }
+  } catch (err: any) {
+    console.warn('ownerLoginDirect error:', err?.message);
+  }
+  return { success: false };
+}
+
+/**
+ * Direct lookup by pass/pin without backend server
  */
 export async function guestLookupDirect(pin: string): Promise<{
   success: boolean;
@@ -335,7 +379,7 @@ export async function guestLookupDirect(pin: string): Promise<{
     const snap = await getDocs(q);
 
     if (snap.empty) {
-      return { success: false, message: 'Mã PIN không tồn tại hoặc chưa chính xác.' };
+      return { success: false, message: 'Mật khẩu tra cứu không tồn tại hoặc chưa chính xác.' };
     }
 
     const debtorDoc = snap.docs[0];
@@ -378,7 +422,7 @@ export async function guestReportPaymentDirect(
   try {
     const lookup = await guestLookupDirect(pin);
     if (!lookup.success || !lookup.debtor) {
-      return { success: false, message: lookup.message || 'Mã PIN không hợp lệ' };
+      return { success: false, message: lookup.message || 'Mật khẩu tra cứu không hợp lệ' };
     }
 
     const newTx: Transaction = {

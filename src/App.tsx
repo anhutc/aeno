@@ -29,6 +29,7 @@ import {
   removeStoredOwnerToken,
   apiGuestLookup,
 } from './utils/api';
+import { getSettingsDirect } from './services/firestoreClient';
 import {
   loadDebtors,
   loadTransactions,
@@ -117,7 +118,19 @@ export default function App() {
           if (sData.success && sData.settings) {
             setSettings(sData.settings);
             saveSettings(sData.settings);
+            return;
           }
+        }
+      } catch {
+        // ignore
+      }
+
+      // Direct Firestore settings hydration fallback (essential for InPrivate mode)
+      try {
+        const directSettings = await getSettingsDirect();
+        if (directSettings) {
+          setSettings(directSettings);
+          saveSettings(directSettings);
         }
       } catch {
         // ignore

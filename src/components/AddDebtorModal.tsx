@@ -198,7 +198,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
-                    Mật khẩu tra cứu PIN <span className="text-rose-500">*</span>
+                    Mật khẩu tra cứu<span className="text-rose-500">*</span>
                   </label>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">

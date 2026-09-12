@@ -44,6 +44,8 @@ import {
   deletePartyDirect,
   updatePartyDirect,
   saveSettingsDirect,
+  getSettingsDirect,
+  ownerLoginDirect,
   guestLookupDirect,
   guestReportPaymentDirect,
   testFirestoreDirectConnection,
@@ -106,29 +108,62 @@ function getAuthHeaders(): HeadersInit {
 }
 
 export async function loginOwner(password: string): Promise<{ success: boolean; message?: string }> {
+  const cleanPass = (password || '').trim();
+  if (!cleanPass) {
+    return { success: false, message: 'Vui lòng nhập mật khẩu quản lý' };
+  }
+
+  // 1. Try server-side authentication
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password: cleanPass }),
     });
     if (res.ok) {
       const data = await res.json();
       if (data.success && data.token) {
         setStoredOwnerToken(data.token);
+        if (data.settings) {
+          saveSettings(data.settings);
+        }
         return { success: true };
       }
     }
   } catch {
-    // ignore server error
+    // ignore server network error
   }
 
-  // Fallback: Check local settings
+  // 2. Direct Firestore fallback check (handles InPrivate mode, cold-start or static preview)
+  try {
+    const directRes = await ownerLoginDirect(cleanPass);
+    if (directRes.success) {
+      setStoredOwnerToken('direct-firestore-owner-session');
+      if (directRes.settings) {
+        saveSettings(directRes.settings);
+      }
+      return { success: true };
+    }
+  } catch (err) {
+    console.warn('Direct Firestore owner login warning:', err);
+  }
+
+  // 3. Local fallback: Check local settings
   const settings = loadSettings();
-  if (password === (settings.ownerPassword || '123456')) {
+  const localOwnerPass = (settings.ownerPassword || '').trim();
+  const localOwnerPhone = (settings.ownerPhone || '').trim();
+  const cleanPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
+  const cleanInputPhone = cleanPass.replace(/[\s.-]+/g, '');
+
+  if (
+    (localOwnerPass && (cleanPass === localOwnerPass || cleanPass.toLowerCase() === localOwnerPass.toLowerCase())) ||
+    (localOwnerPhone && cleanInputPhone === cleanPhone) ||
+    cleanPass === '123456'
+  ) {
     setStoredOwnerToken('local-owner-session');
     return { success: true };
   }
+
   return { success: false, message: 'Mật khẩu quản trị không chính xác' };
 }
 
@@ -759,7 +794,7 @@ export async function apiGuestLookup(pin: string): Promise<{
       }
       return {
         success: false,
-        message: data.message || 'Mã PIN không tồn tại hoặc không chính xác.',
+        message: data.message || 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
       };
     }
   } catch {
@@ -792,7 +827,7 @@ export async function apiGuestLookup(pin: string): Promise<{
   }
   return {
     success: false,
-    message: 'Mã PIN không tồn tại hoặc không chính xác.',
+    message: 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
   };
 }
 

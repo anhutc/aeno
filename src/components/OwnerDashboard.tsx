@@ -559,7 +559,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               <div className="relative flex-1 sm:w-56">
                 <input
                   type="text"
-                  placeholder="Tìm tên hoặc PIN..."
+                  placeholder="Tìm tên..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 placeholder-slate-400 shadow-2xs transition-all"
@@ -746,12 +746,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               {/* PIN badge with 1-click copy */}
                               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-50/90 text-amber-900 rounded-xl font-mono text-[11px] font-bold border border-amber-200/80">
                                 <KeyRound className="w-3 h-3 text-amber-600 shrink-0" />
-                                <span>PIN: {debtor.pin}</span>
+                                <span>Mật khẩu: {debtor.pin}</span>
                                 <button
                                   type="button"
                                   onClick={(e) => handleCopyPin(e, debtor)}
                                   className="ml-0.5 p-0.5 hover:bg-amber-200/70 rounded-md text-amber-700 hover:text-amber-950 transition-colors cursor-pointer"
-                                  title="Sao chép mã PIN tra cứu"
+                                  title="Sao chép mật khẩu tra cứu"
                                 >
                                   {copiedPinId === debtor.id ? (
                                     <Check className="w-3 h-3 text-emerald-600" />
@@ -877,7 +877,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <thead>
                     <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                       <th className="py-3.5 px-4">Người Nợ</th>
-                      <th className="py-3.5 px-3">Mã PIN</th>
+                      <th className="py-3.5 px-3">Mật Khẩu</th>
                       <th className="py-3.5 px-3 text-right">Tổng Nợ (+)</th>
                       <th className="py-3.5 px-3 text-right">Đã Trả (-)</th>
                       <th className="py-3.5 px-4 text-right">Dư Nợ Hiện Tại</th>
@@ -928,7 +928,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             <div
                               onClick={(e) => handleCopyPin(e, debtor)}
                               className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-lg font-mono text-[11px] font-bold cursor-pointer transition-colors"
-                              title="Bấm để sao chép mã PIN"
+                              title="Bấm để sao chép mật khẩu"
                             >
                               <KeyRound className="w-3 h-3 text-amber-600" />
                               <span>{debtor.pin}</span>

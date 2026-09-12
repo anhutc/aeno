@@ -3,7 +3,6 @@ import {
   Wallet,
   Settings,
   LogOut,
-  Share2,
   Copy,
   Check,
   Cloud,

@@ -143,7 +143,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
     }
     const cleanPin = newDebtorPin.trim();
     if (!cleanPin || cleanPin.length < 2) {
-      setAddDebtorError('Mật khẩu (Pass) phải có ít nhất 2 ký tự (chữ hoặc số)');
+      setAddDebtorError('Mật khẩu phải có ít nhất 2 ký tự (chữ hoặc số)');
       return;
     }
     // Check duplicate PIN (case-insensitive)

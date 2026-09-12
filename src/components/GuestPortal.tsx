@@ -106,7 +106,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
         </div>
         <h3 className="text-base font-bold text-slate-800">Không tìm thấy thông tin</h3>
         <p className="text-xs text-slate-500 mt-1 max-w-xs">
-          Vui lòng nhập lại mã PIN hoặc mật khẩu tại màn hình chính.
+          Vui lòng nhập lại mật khẩu tại màn hình chính.
         </p>
         {onGoToOwnerLogin && (
           <button
@@ -211,7 +211,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           <div className="text-left sm:text-right text-xs text-slate-500">
             {/* Ẩn/Hiện Pass */}
             <div className="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 font-mono shadow-2xs">
-              <span className="text-slate-500 text-[11px]">Mật khẩu PIN:</span>
+              <span className="text-slate-500 text-[11px]">Mật khẩu tra cứu:</span>
               <span className="text-slate-900 font-extrabold text-xs">
                 {showPin ? debtor.pin : '••••'}
               </span>
