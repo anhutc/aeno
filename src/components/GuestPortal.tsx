@@ -133,15 +133,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   };
 
   const contactPhone = (activeSettings.ownerPhone || '0987654321').trim();
-  const contactName = (activeSettings.ownerName || 'Quản lý').trim();
-
-  const copyPhone = () => {
-    if (contactPhone) {
-      navigator.clipboard.writeText(contactPhone);
-      setCopiedPhone(true);
-      setTimeout(() => setCopiedPhone(false), 2000);
-    }
-  };
 
   const currentBalance = getDebtorBalance(debtor.id, transactions);
   const statement = getDebtorStatement(debtor.id, transactions);
@@ -278,66 +269,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   Đã thanh toán hết, đôi bên không còn dư nợ
                 </span>
               )}
-            </div>
-          </div>
-        </div>
-
-        {/* KHỐI LIÊN HỆ QUẢN LÝ (DÀNH CHO SAO KÊ CÁ NHÂN) */}
-        <div className="px-5 sm:px-7 py-3.5 bg-slate-50/90 border-b border-slate-200/80">
-          <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-800 flex items-center justify-center shrink-0 shadow-2xs">
-                <Phone className="w-4 h-4 text-emerald-700" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Liên hệ Quản lý
-                </div>
-                <div className="text-sm font-black text-slate-900 truncate">
-                  {contactName}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-              <a
-                href={`tel:${contactPhone}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
-                title="Bấm để gọi điện"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span className="font-mono">{contactPhone}</span>
-              </a>
-
-              <a
-                href={`https://zalo.me/${contactPhone.replace(/\s+/g, '')}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                title="Nhắn tin Zalo"
-              >
-                <MessageCircle className="w-3.5 h-3.5 text-blue-600" />
-                <span>Zalo</span>
-              </a>
-
-              <button
-                type="button"
-                onClick={copyPhone}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-200/80"
-                title="Sao chép số điện thoại"
-              >
-                {copiedPhone ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="text-emerald-700 font-bold">Đã chép</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Sao chép</span>
-                  </>
-                )}
-              </button>
             </div>
           </div>
         </div>

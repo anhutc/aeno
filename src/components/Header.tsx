@@ -328,6 +328,27 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Navigation Controls: Only Shown when Authenticated (Eliminates the duplicate 2 menus!) */}
           <div className="flex items-center gap-2 shrink-0">
+          
+            {/* Nút sao chép link tra cứu ở Header */}
+            <button
+              type="button"
+              onClick={copyGuestLink}
+              title="Sao chép đường dẫn tra cứu gửi cho bạn bè"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-all shadow-2xs cursor-pointer"
+            >
+              {copiedLink ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">Đã chép link</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="hidden xs:inline">Sao chép link</span>
+                </>
+              )}
+            </button>
+            
             {/* Owner Navigation Mode (Only active after Owner logs in) */}
             {isOwnerAuthenticated && (
               <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200/80 shrink-0">
@@ -381,26 +402,6 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
             )}
-
-            {/* Nút sao chép link tra cứu ở Header */}
-            <button
-              type="button"
-              onClick={copyGuestLink}
-              title="Sao chép đường dẫn tra cứu gửi cho bạn bè"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-all shadow-2xs cursor-pointer"
-            >
-              {copiedLink ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-700 font-bold">Đã chép link</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="hidden xs:inline">Sao chép link</span>
-                </>
-              )}
-            </button>
 
             {/* Owner Logout Button */}
             {isOwnerAuthenticated && (
