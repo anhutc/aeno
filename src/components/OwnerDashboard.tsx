@@ -408,7 +408,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 Thêm danh bạ
               </div>
               <div className="font-extrabold text-sm sm:text-base leading-tight">
-                Thêm Người Nợ Mới
+                Thêm Người Mới
               </div>
             </div>
           </div>
@@ -733,7 +733,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               {/* PIN badge with 1-click copy */}
                               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-50/90 text-amber-900 rounded-xl font-mono text-[11px] font-bold border border-amber-200/80">
                                 <KeyRound className="w-3 h-3 text-amber-600 shrink-0" />
-                                <span>Mật khẩu: {debtor.pin}</span>
+                                <span>{debtor.pin}</span>
                                 <button
                                   type="button"
                                   onClick={(e) => handleCopyPin(e, debtor)}

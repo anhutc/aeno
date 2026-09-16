@@ -12,6 +12,27 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        var isIgnored = function(err) {
+          if (!err) return false;
+          var str = typeof err === 'string' ? err : (err.message || err.reason || (typeof err === 'object' ? JSON.stringify(err) : ''));
+          return str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1 || str.indexOf('BloomFilter') !== -1;
+        };
+        window.addEventListener('unhandledrejection', function(e) {
+          if (isIgnored(e.reason)) {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          }
+        }, true);
+        window.addEventListener('error', function(e) {
+          if (isIgnored(e.message) || isIgnored(e.error)) {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

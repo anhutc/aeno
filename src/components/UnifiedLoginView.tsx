@@ -196,7 +196,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 title="Gọi điện liên hệ"
               >
                 <Phone className="w-3 h-3 text-emerald-600" />
-                <span className="text-[11px] text-slate-500 font-medium mr-0.5">SĐT:</span>
                 <span className="font-mono">{displayPhone}</span>
               </a>
               <button

@@ -322,7 +322,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               </div>
               <div>
                 <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
-                  Thông Tin Chuyển Khoản Trả Nợ
+                  Thông Tin Chuyển Khoản
                 </h2>
                 <p className="text-[11px] text-slate-500">Chuyển trực tiếp qua số tài khoản hoặc quét mã QR</p>
               </div>
