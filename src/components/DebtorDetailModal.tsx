@@ -1,0 +1,540 @@
+/**
+ * ============================================================================
+ * GHI CHÚ CHỈNH SỬA / CHANGELOG:
+ * - Khắc phục lỗi chức năng xóa không hoạt động: Thay thế hoàn toàn hàm confirm()
+ *   của trình duyệt (vốn bị sandbox iframe chặn không mở được) bằng hộp thoại
+ *   xác nhận xóa nội bộ ConfirmDeleteDebtorModal và modal xác nhận xóa giao dịch.
+ * - Xóa bỏ hiển thị số điện thoại của con nợ trong tiêu đề modal thông tin chi tiết.
+ * - Hộp thoại chi tiết & sao kê của con nợ / người nợ (DebtorDetailModal, z-50).
+ * ============================================================================
+ */
+
+import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  X,
+  Plus,
+  KeyRound,
+  Calendar,
+  Trash2,
+  Edit3,
+  Pencil,
+  Receipt,
+  ArrowUpRight,
+  ArrowDownLeft,
+  BookOpen,
+  AlertTriangle,
+  Lock,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  Copy,
+  Check,
+  Image as ImageIcon,
+} from 'lucide-react';
+import { Debtor, Transaction, AppSettings } from '../types';
+import { formatVND } from '../utils/vietqr';
+import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
+import { LookupGuideModal } from './LookupGuideModal';
+import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
+import { EditTransactionModal } from './EditTransactionModal';
+import { ShareDebtorImageModal } from './ShareDebtorImageModal';
+
+interface DebtorDetailModalProps {
+  debtor: Debtor | null;
+  transactions: Transaction[];
+  settings: AppSettings;
+  onClose: () => void;
+  onOpenAddTx: (debtorId: string) => void;
+  onEditDebtor: (debtor: Debtor) => void;
+  onDeleteDebtor: (debtorId: string) => void;
+  onDeleteTx: (txId: string) => void;
+  onEditTx?: (updatedTx: Transaction) => Promise<void> | void;
+  onViewImage: (url: string, title?: string) => void;
+  onDirectGuestView?: (debtor: Debtor) => void;
+}
+
+export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
+  debtor,
+  transactions,
+  settings,
+  onClose,
+  onOpenAddTx,
+  onEditDebtor,
+  onDeleteDebtor,
+  onDeleteTx,
+  onEditTx,
+  onViewImage,
+}) => {
+  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+  const [isShareImageOpen, setIsShareImageOpen] = useState(false);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
+  const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [copiedPin, setCopiedPin] = useState(false);
+
+  const handleCopyPin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!debtor) return;
+    navigator.clipboard.writeText(debtor.pin);
+    setCopiedPin(true);
+    setTimeout(() => setCopiedPin(false), 2000);
+  };
+
+  const currentBalance = debtor ? getDebtorBalance(debtor.id, transactions) : 0;
+  const statement = useMemo(() => {
+    return debtor ? getDebtorStatement(debtor.id, transactions) : [];
+  }, [debtor, transactions]);
+
+  const displayedStatement = useMemo(() => {
+    return sortOrder === 'newest' ? [...statement].reverse() : statement;
+  }, [statement, sortOrder]);
+
+  return (
+    <>
+      <AnimatePresence>
+        {debtor && (
+          <motion.div
+            id="debtor-detail-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-4"
+          >
+            <motion.div
+              id="debtor-detail-modal-card"
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden max-h-[92vh] flex flex-col"
+            >
+          {/* Header - Sáng & Tinh tế */}
+          <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100 border border-emerald-200 flex items-center justify-center font-bold text-emerald-800 text-lg shadow-2xs">
+                {debtor.name.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h2 className="font-bold text-base sm:text-lg leading-tight flex items-center gap-2 text-slate-900">
+                  {debtor.name}
+                </h2>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                  <div className="inline-flex items-center gap-1.5 text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl font-mono text-xs font-semibold border border-amber-200 shadow-2xs">
+                    <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Pass: {debtor.pin}</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyPin}
+                      className="ml-0.5 p-1 hover:bg-amber-100 rounded text-amber-700 hover:text-amber-900 transition-colors cursor-pointer"
+                      title="Sao chép mật khẩu tra cứu"
+                    >
+                      {copiedPin ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onEditDebtor(debtor)}
+                title="Chỉnh sửa thông tin"
+                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteOpen(true)}
+                title="Xóa người nợ này"
+                className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button
+                id="close-debtor-detail-btn"
+                type="button"
+                onClick={onClose}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors ml-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Content Body */}
+          <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+            {/* Balance card */}
+            <div
+              className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+                currentBalance > 0
+                  ? 'bg-rose-50/70 border-rose-200/80 text-rose-950'
+                  : currentBalance < 0
+                  ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
+                  : 'bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+            >
+              {/* Top: Số nợ & Trạng thái */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider font-bold opacity-70">
+                    Số Nợ Hiện Tại
+                  </span>
+                  <div className="flex items-baseline gap-2 font-mono mt-0.5">
+                    <span className="text-3xl sm:text-4xl font-black tracking-tight">
+                      {currentBalance > 0
+                        ? `+${formatVND(currentBalance).replace(' VNĐ', '')}`
+                        : formatVND(currentBalance).replace(' VNĐ', '')}
+                    </span>
+                    <span className="text-sm font-bold opacity-75">VNĐ</span>
+                  </div>
+                </div>
+
+                <div className="self-start sm:self-center">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                      currentBalance > 0
+                        ? 'bg-rose-100/90 text-rose-800 border-rose-200'
+                        : currentBalance < 0
+                        ? 'bg-emerald-100/90 text-emerald-800 border-emerald-200'
+                        : 'bg-white text-slate-600 border-slate-200 shadow-2xs'
+                    }`}
+                  >
+                    {currentBalance > 0 ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                        <span>{debtor.name} đang nợ bạn</span>
+                      </>
+                    ) : currentBalance < 0 ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Bạn đang nợ {debtor.name}</span>
+                      </>
+                    ) : (
+                      <span>Đã thanh toán hết (Không ai nợ ai)</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons Row: 2-column balanced grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3.5 mt-3.5 border-t border-black/5">
+                <button
+                  type="button"
+                  onClick={() => onOpenAddTx(debtor.id)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  title="Ghi nợ hoặc thu tiền cho người này"
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span>Tạo Giao Dịch Mới</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsGuideModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                  title="Xem và sao chép hướng dẫn tra cứu kèm mật khẩu"
+                >
+                  <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Gửi Đường Dẫn Tra Cứu</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Statement History */}
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                <h3 className="font-bold text-slate-800 text-xs sm:text-sm flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-500" />
+                  <span>Lịch sử biến động ({statement.length} giao dịch)</span>
+                </h3>
+                <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder('newest')}
+                      className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                        sortOrder === 'newest'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'hover:text-slate-900 text-slate-500'
+                      }`}
+                      title="Sắp xếp giao dịch mới nhất lên đầu"
+                    >
+                      <ArrowDownWideNarrow className="w-3 h-3 text-emerald-600" />
+                      <span>Mới nhất trước</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder('oldest')}
+                      className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                        sortOrder === 'oldest'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'hover:text-slate-900 text-slate-500'
+                      }`}
+                      title="Sắp xếp giao dịch cũ nhất lên đầu"
+                    >
+                      <ArrowUpNarrowWide className="w-3 h-3 text-slate-400" />
+                      <span>Cũ nhất trước</span>
+                    </button>
+                  </div>
+
+                  {statement.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsShareImageOpen(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 border border-emerald-200/80 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                      title="Tạo ảnh bảng kê các giao dịch để gửi cho người này"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Xuất ảnh giao dịch</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {displayedStatement.length === 0 ? (
+                <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
+                  Chưa có giao dịch nào cho người này.
+                </div>
+              ) : (
+                <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white">
+                  {displayedStatement.map(({ transaction: tx, runningBalance }) => {
+                    const isAdd = tx.type === 'ADD';
+                    return (
+                      <div
+                        key={tx.id}
+                        className="p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                              isAdd
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {isAdd ? (
+                              <ArrowUpRight className="w-4 h-4" />
+                            ) : (
+                              <ArrowDownLeft className="w-4 h-4" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 text-sm break-words">
+                              {tx.note}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                              <span>📅 {tx.date}</span>
+                              {tx.category === 'PARTY_SPLIT' && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                                  Chia tiền
+                                </span>
+                              )}
+                              {tx.category === 'PAYMENT_SETTLED' && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                                  Trả nợ
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                          <div className="text-left sm:text-right">
+                            <div
+                              className={`font-bold font-mono text-sm ${
+                                isAdd ? 'text-rose-600' : 'text-emerald-600'
+                              }`}
+                            >
+                              {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              Số dư: {formatVND(runningBalance)}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {tx.billImage && (
+                              <button
+                                type="button"
+                                onClick={() => onViewImage(tx.billImage!, tx.note)}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                title="Xem ảnh chứng từ"
+                              >
+                                <Receipt className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {tx.partyId || tx.category === 'PARTY_SPLIT' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-[10px] font-semibold cursor-help"
+                                title="Giao dịch từ cuộc vui chia tiền: Không thể sửa hoặc xóa lẻ từng người. Vui lòng sang tab 'Chia đầu người' ở ngoài trang chủ để chỉnh sửa hoặc xóa cuộc vui, hệ thống sẽ tự động đồng bộ lại cho từng người."
+                              >
+                                <Lock className="w-3 h-3 text-amber-600" />
+                                <span>Chia đầu người</span>
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingTx(tx)}
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Chỉnh sửa giao dịch này"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingTxId(tx.id)}
+                                  className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Xóa giao dịch"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 sm:px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+            <div className="truncate max-w-md text-slate-600">
+              {debtor.note ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span>📝 Ghi chú:</span>
+                  <strong className="text-slate-800 font-medium">{debtor.note}</strong>
+                </span>
+              ) : (
+                <span className="text-slate-400 italic">Không có ghi chú thêm</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-700 font-semibold transition-colors cursor-pointer shadow-2xs"
+            >
+              Đóng
+            </button>
+          </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Lookup Guide Modal */}
+      <LookupGuideModal
+        isOpen={isGuideModalOpen}
+        onClose={() => setIsGuideModalOpen(false)}
+        debtor={debtor}
+        balance={currentBalance}
+        settings={settings}
+      />
+
+      {/* In-App Confirm Delete Debtor Modal */}
+      <ConfirmDeleteDebtorModal
+        isOpen={isConfirmDeleteOpen}
+        onClose={() => setIsConfirmDeleteOpen(false)}
+        debtor={debtor}
+        balance={currentBalance}
+        transactionCount={statement.length}
+        onConfirm={() => {
+          onDeleteDebtor(debtor.id);
+          setIsConfirmDeleteOpen(false);
+          onClose();
+        }}
+      />
+
+      {/* In-App Confirm Delete Transaction Modal */}
+      <AnimatePresence>
+        {deletingTxId && (
+          <motion.div
+            id="confirm-delete-tx-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Xóa Giao Dịch</h3>
+                  <p className="text-xs text-slate-500">Hành động này không thể hoàn tác</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Bạn có chắc chắn muốn xóa giao dịch này không?
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeletingTxId(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteTx(deletingTxId);
+                    setDeletingTxId(null);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xác Nhận Xóa</span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Chỉnh Sửa Giao Dịch Của Con Nợ Này */}
+      <EditTransactionModal
+        isOpen={Boolean(editingTx)}
+        onClose={() => setEditingTx(null)}
+        transaction={editingTx}
+        debtor={debtor}
+        onSave={async (updatedTx) => {
+          if (onEditTx) {
+            await onEditTx(updatedTx);
+          }
+          setEditingTx(null);
+        }}
+      />
+      {/* Modal Tạo Ảnh Gửi Nhanh Cho Con Nợ */}
+      <AnimatePresence>
+        {isShareImageOpen && debtor && (
+          <ShareDebtorImageModal
+            debtor={debtor}
+            transactions={transactions}
+            settings={settings}
+            onClose={() => setIsShareImageOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  );
+};
