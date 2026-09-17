@@ -443,20 +443,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       {/* BỐ CỤC MỚI LẠ 2: THANH ĐIỀU KHIỂN ĐA CHIỀU (SMART MULTI-MODE TOOLBAR) */}
       <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Tabs Chính */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80 overflow-x-auto scrollbar-none">
+          {/* Tabs Chính: Trên mobile chia đều 3 cột vừa vặn, trên desktop flex tự nhiên */}
+          <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center gap-1 sm:gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
             <button
               type="button"
               onClick={() => setActiveTab('DEBTORS')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'DEBTORS'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
+              <Users className="w-3.5 h-3.5 shrink-0" />
               <span>Danh Bạ</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${activeTab === 'DEBTORS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'DEBTORS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {debtors.length}
               </span>
             </button>
@@ -464,15 +464,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('TRANSACTIONS')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'TRANSACTIONS'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5" />
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
               <span>Giao Dịch</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${activeTab === 'TRANSACTIONS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'TRANSACTIONS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {transactions.length}
               </span>
             </button>
@@ -480,15 +480,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('PARTIES')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'PARTIES'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
-              <PartyPopper className="w-3.5 h-3.5" />
+              <PartyPopper className="w-3.5 h-3.5 shrink-0" />
               <span>Cuộc Vui</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${activeTab === 'PARTIES' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'PARTIES' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {parties.length}
               </span>
             </button>
@@ -496,54 +496,56 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
           {/* Công cụ tìm kiếm & Chuyển đổi Bố cục (Chỉ hiển thị ở tab Danh bạ) */}
           {activeTab === 'DEBTORS' && (
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Chuyển đổi Bố Cục Thẻ Bento vs Bảng Kế Toán Pro */}
-              <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('GRID')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    viewMode === 'GRID'
-                      ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                  title="Xem dạng Thẻ Bento 3D"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Thẻ Bento</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('TABLE')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    viewMode === 'TABLE'
-                      ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                  title="Xem dạng Bảng Kế Toán Pro"
-                >
-                  <TableIcon className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Bảng Kế Toán</span>
-                </button>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:w-auto">
+              <div className="flex items-center gap-2">
+                {/* Chuyển đổi Bố Cục Thẻ Bento vs Bảng Kế Toán Pro */}
+                <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('GRID')}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      viewMode === 'GRID'
+                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Xem dạng Thẻ Bento 3D"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Thẻ Bento</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('TABLE')}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      viewMode === 'TABLE'
+                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Xem dạng Bảng Kế Toán Pro"
+                  >
+                    <TableIcon className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Bảng Kế Toán</span>
+                  </button>
+                </div>
+
+                {/* Sắp Xếp */}
+                <div className="relative flex-1 sm:flex-initial">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="w-full sm:w-auto appearance-none bg-white border border-slate-300 text-slate-700 text-xs font-semibold py-1.5 pl-2.5 pr-7 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-2xs"
+                  >
+                    <option value="BALANCE_DESC">Dư nợ cao nhất</option>
+                    <option value="BALANCE_ASC">Dư nợ thấp nhất</option>
+                    <option value="NAME">Tên A-Z</option>
+                    <option value="RECENT">Giao dịch gần nhất</option>
+                  </select>
+                  <ArrowUpDown className="w-3 h-3 text-slate-400 absolute right-2 top-2.5 pointer-events-none" />
+                </div>
               </div>
 
-              {/* Sắp Xếp */}
-              <div className="relative">
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="appearance-none bg-white border border-slate-300 text-slate-700 text-xs font-semibold py-1.5 pl-2.5 pr-7 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-2xs"
-                >
-                  <option value="BALANCE_DESC">Dư nợ cao nhất</option>
-                  <option value="BALANCE_ASC">Dư nợ thấp nhất</option>
-                  <option value="NAME">Tên A-Z</option>
-                  <option value="RECENT">Giao dịch gần nhất</option>
-                </select>
-                <ArrowUpDown className="w-3 h-3 text-slate-400 absolute right-2 top-2.5 pointer-events-none" />
-              </div>
-
-              {/* Thanh Tìm Kiếm */}
-              <div className="relative flex-1 sm:w-56">
+              {/* Thanh Tìm Kiếm: Rộng rãi trên Mobile, cố định gọn gàng trên Desktop */}
+              <div className="relative w-full sm:w-56">
                 <input
                   type="text"
                   placeholder="Tìm tên..."
@@ -556,7 +558,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => setSearchTerm('')}
-                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 p-0.5"
+                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -1207,12 +1209,24 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <div>
-                      Tham gia:{' '}
-                      {party.includeMe && <span className="font-semibold text-slate-700">{settings.ownerName}, </span>}
-                      {party.participantDebtorIds
-                        .map((id) => debtors.find((d) => d.id === id)?.name || id)
-                        .join(', ')}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-slate-500 font-medium">Tham gia:</span>
+                      {party.includeMe && (
+                        <span className="font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300/80 text-[11px]">
+                          {settings.ownerName}
+                        </span>
+                      )}
+                      {party.participantDebtorIds.map((id) => {
+                        const personName = debtors.find((d) => d.id === id)?.name || id;
+                        return (
+                          <span
+                            key={id}
+                            className="font-semibold text-amber-900 bg-amber-50/90 px-2 py-0.5 rounded-md border border-amber-200 text-[11px]"
+                          >
+                            {personName}
+                          </span>
+                        );
+                      })}
                     </div>
 
                     <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">

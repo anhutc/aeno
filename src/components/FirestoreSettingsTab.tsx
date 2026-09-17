@@ -3,18 +3,18 @@ import {
   Cloud,
   Database,
   CheckCircle2,
-  Upload,
   Zap,
   Key,
   X,
   ShieldCheck,
+  FileText,
+  ArrowRight,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import {
   apiGetFirestoreStatus,
   apiTestFirestoreConnection,
   apiChangeFirestoreDatabase,
-  apiUploadJsonToFirestore,
   apiGetFirestoreBackups,
   apiCreateFirestoreBackup,
   apiRestoreFirestoreBackup,
@@ -23,7 +23,6 @@ import {
 } from '../utils/api';
 import { pingClientFirestore, reconfigureClientFirestore, getClientFirebaseConfig } from '../firebase';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
-import { ConfirmRestoreModal, RestorePayloadPreview } from './ConfirmRestoreModal';
 
 export interface FirestoreSettingsTabProps {
   debtors: Debtor[];
@@ -32,6 +31,7 @@ export interface FirestoreSettingsTabProps {
   parties?: PartySplit[];
   onDataReload: () => void;
   showToast: (msg: string, type?: 'success' | 'error') => void;
+  onSwitchToSecurityTab?: () => void;
 }
 
 export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
@@ -40,17 +40,13 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   settings,
   onDataReload,
   showToast,
+  onSwitchToSecurityTab,
 }) => {
   // Live Status State
   const [status, setStatus] = useState<FirestoreStatusInfo | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [clientPing, setClientPing] = useState<{ success: boolean; latencyMs: number } | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(() => new Date());
-
-  // Restore Modal State
-  const [restorePreview, setRestorePreview] = useState<RestorePayloadPreview | null>(null);
-  const [isConfirmRestoreOpen, setIsConfirmRestoreOpen] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
 
   // Modals
   const [isCloudSourceModalOpen, setIsCloudSourceModalOpen] = useState(false);
@@ -142,82 +138,6 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
       showToast('Không thể kết nối máy chủ để kiểm tra ping.', 'error');
     } finally {
       setIsCheckingStatus(false);
-    }
-  };
-
-  // JSON File upload & inspection
-  const handleUploadJsonToFirestore = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        let rawJson = JSON.parse(event.target?.result as string);
-        if (rawJson && rawJson.data && (Array.isArray(rawJson.data.debtors) || Array.isArray(rawJson.data))) {
-          rawJson = rawJson.data;
-        }
-
-        let debtorsFound: any[] = [];
-        let transactionsFound: any[] = [];
-        let partiesFound: any[] = [];
-        let hasSettingsFound = false;
-
-        if (Array.isArray(rawJson)) {
-          if (rawJson.length > 0 && rawJson[0].debtorId !== undefined && rawJson[0].amount !== undefined) {
-            transactionsFound = rawJson;
-          } else {
-            debtorsFound = rawJson;
-          }
-        } else if (rawJson && typeof rawJson === 'object') {
-          if (Array.isArray(rawJson.debtors)) debtorsFound = rawJson.debtors;
-          if (Array.isArray(rawJson.transactions)) transactionsFound = rawJson.transactions;
-          if (Array.isArray(rawJson.parties)) partiesFound = rawJson.parties;
-          if (rawJson.settings && typeof rawJson.settings === 'object') hasSettingsFound = true;
-        }
-
-        if (debtorsFound.length === 0 && transactionsFound.length === 0 && partiesFound.length === 0) {
-          showToast('Tệp JSON không chứa dữ liệu sổ nợ hợp lệ!', 'error');
-          return;
-        }
-
-        setRestorePreview({
-          fileName: file.name,
-          fileSize: file.size,
-          debtorsCount: debtorsFound.length,
-          transactionsCount: transactionsFound.length,
-          partiesCount: partiesFound.length,
-          hasSettings: hasSettingsFound,
-          rawPayload: rawJson,
-        });
-        setIsConfirmRestoreOpen(true);
-      } catch {
-        showToast('Tệp JSON bị lỗi hoặc sai cú pháp!', 'error');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
-  const handleExecuteRestore = async (mode: 'replace' | 'merge') => {
-    if (!restorePreview) return;
-    setIsRestoring(true);
-    try {
-      const res = await apiUploadJsonToFirestore(restorePreview.rawPayload, mode);
-      if (res.success) {
-        showToast(res.message || 'Đã tải và khôi phục dữ liệu lên Cloud Firestore thành công!', 'success');
-        setIsConfirmRestoreOpen(false);
-        setRestorePreview(null);
-        setLastSyncTime(new Date());
-        await checkStatus();
-        onDataReload();
-      } else {
-        showToast(res.message || 'Lỗi nhập dữ liệu lên Firestore', 'error');
-      }
-    } catch (err: any) {
-      showToast(`Lỗi nhập dữ liệu: ${err?.message}`, 'error');
-    } finally {
-      setIsRestoring(false);
     }
   };
 
@@ -532,32 +452,34 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           </div>
         </div>
 
-        {/* Row 2: Action Card (Đồng bộ tệp JSON lên Cloud) */}
-        <div>
-          {/* Card E: Nhập dữ liệu từ tệp lên Cloud */}
-          <div className="border border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 rounded-2xl p-4 sm:p-5 transition-all">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                  <Upload className="w-4 h-4 text-blue-600" />
-                  <span>Đồng bộ dữ liệu từ tệp JSON lên Cloud</span>
-                </div>
-                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Tải tệp JSON sao lưu máy tính lên thẳng cơ sở dữ liệu Cloud Firestore để đồng bộ tức thì cho tất cả thiết bị.
-                </p>
+        {/* Row 2: Hướng dẫn quản lý tệp JSON tập trung */}
+        <div className="border border-slate-200/90 bg-slate-50/70 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-800 flex items-center gap-2">
+                <span>Sao Lưu &amp; Khôi Phục File JSON</span>
+                <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                  Đã quy về 1 nơi
+                </span>
               </div>
-              <label className="shrink-0 border-2 border-dashed border-blue-400/80 bg-blue-50/60 hover:bg-blue-100/70 text-blue-700 font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer">
-                <Upload className="w-3.5 h-3.5" />
-                <span>Chọn file JSON đồng bộ lên Cloud</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleUploadJsonToFirestore}
-                  className="hidden"
-                />
-              </label>
+              <p className="text-slate-500 text-[11px] mt-0.5">
+                Tính năng tải file sao lưu và khôi phục từ file JSON được quản lý tập trung tại tab <strong>Bảo Mật &amp; Dữ Liệu</strong> (tự động đồng bộ lên Cloud).
+              </p>
             </div>
           </div>
+          {onSwitchToSecurityTab && (
+            <button
+              type="button"
+              onClick={onSwitchToSecurityTab}
+              className="shrink-0 px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Mở Tab Bảo Mật &amp; Dữ Liệu</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
       {/* =========================================================================
@@ -814,18 +736,6 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           </div>
         </div>
       )}
-
-      {/* Confirm Restore Modal */}
-      <ConfirmRestoreModal
-        isOpen={isConfirmRestoreOpen}
-        preview={restorePreview}
-        onClose={() => {
-          setIsConfirmRestoreOpen(false);
-          setRestorePreview(null);
-        }}
-        onConfirm={handleExecuteRestore}
-        isRestoring={isRestoring}
-      />
     </div>
   );
 };

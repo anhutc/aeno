@@ -74,6 +74,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
   const [showNewPin, setShowNewPin] = useState(true);
   const [isAddingDebtor, setIsAddingDebtor] = useState(false);
   const [addDebtorError, setAddDebtorError] = useState('');
+  const [newlyCreatedDebtorIds, setNewlyCreatedDebtorIds] = useState<string[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -107,6 +108,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       }
       setError('');
       setShowAddDebtorForm(false);
+      setNewlyCreatedDebtorIds([]);
       resetNewDebtorForm();
     }
     prevIsOpenRef.current = isOpen;
@@ -166,6 +168,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       });
 
       if (created && created.id) {
+        setNewlyCreatedDebtorIds((prev) => [...prev, created.id]);
         if (payerType === 'ME') {
           // Add to selected list
           setSelectedDebtorIds((prev) => [...prev, created.id]);
@@ -313,16 +316,16 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
   const payerDebtor = debtors.find((d) => d.id === payerDebtorId);
 
   const renderAddDebtorForm = () => (
-    <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in">
+    <div className="p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl space-y-3 animate-in fade-in shadow-2xs">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-bold text-blue-900 uppercase flex items-center gap-1.5">
-          <UserPlus className="w-4 h-4 text-blue-600" />
+        <span className="font-bold text-amber-950 uppercase flex items-center gap-1.5">
+          <UserPlus className="w-4 h-4 text-amber-600" />
           Thêm Người Mới &amp; Cấp Pass:
         </span>
         <button
           type="button"
           onClick={() => setShowAddDebtorForm(false)}
-          className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+          className="text-amber-700 hover:text-amber-900 p-1 cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -336,15 +339,15 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
 
       <div className="space-y-2.5">
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Tên người nợ / Bạn bè <span className="text-red-500">(*)</span>:
+          <label className="block text-xs font-bold text-amber-950 mb-1">
+            Tên người mới <span className="text-amber-700 font-normal">/ Bạn bè (*)</span>:
           </label>
           <input
             type="text"
             value={newDebtorName}
             onChange={(e) => setNewDebtorName(e.target.value)}
             placeholder="VD: Nguyễn Văn Nam, Bạn Linh..."
-            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+            className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-amber-800/35 transition-all"
           />
         </div>
       </div>
@@ -352,13 +355,13 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-semibold text-slate-700">
-              Mật khẩu tra cứu (Pass) <span className="text-red-500">(*)</span>:
+            <label className="text-xs font-bold text-amber-950">
+              Mật khẩu tra cứu (Pass) <span className="text-amber-700 font-normal">(*)</span>:
             </label>
             <button
               type="button"
               onClick={handleGenerateNewPin}
-              className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
+              className="text-[11px] text-amber-700 hover:text-amber-900 font-bold flex items-center gap-1 cursor-pointer"
             >
               <Dices className="w-3 h-3" />
               <span>Ngẫu nhiên</span>
@@ -370,7 +373,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
               value={newDebtorPin}
               onChange={(e) => setNewDebtorPin(e.target.value)}
               placeholder="VD: 7k9a..."
-              className="w-full pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-wider transition-all"
+              className="w-full pl-3 pr-8 py-2 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 tracking-wider transition-all"
             />
             <button
               type="button"
@@ -383,7 +386,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
+          <label className="block text-xs font-bold text-amber-950 mb-1">
             Ghi chú cá nhân (tùy chọn):
           </label>
           <input
@@ -391,20 +394,20 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             value={newDebtorNote}
             onChange={(e) => setNewDebtorNote(e.target.value)}
             placeholder="Bạn cấp 3 / Đồng nghiệp..."
-            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+            className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all"
           />
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500 leading-tight">
+      <p className="text-[11px] text-amber-800/80 leading-tight">
         Bạn cấp mật khẩu này cho người đó để họ tự vào tra cứu sao kê riêng (hỗ trợ cả chữ và số).
       </p>
 
-      <div className="flex justify-end gap-2 pt-1 border-t border-blue-100">
+      <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 pt-1 border-t border-amber-200/70">
         <button
           type="button"
           onClick={() => setShowAddDebtorForm(false)}
-          className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-semibold cursor-pointer"
+          className="px-3 py-1.5 text-xs text-amber-800 hover:text-amber-950 font-semibold cursor-pointer whitespace-nowrap"
         >
           Hủy
         </button>
@@ -412,7 +415,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           type="button"
           onClick={handleSaveNewDebtor}
           disabled={isAddingDebtor || !newDebtorName.trim()}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+          className="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 active:from-amber-700 active:to-orange-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
         >
           {isAddingDebtor ? 'Đang thêm...' : 'Lưu Người Này & Chọn Ngay'}
         </button>
@@ -529,16 +532,16 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
 
           {/* SỐ NGƯỜI CHIA TIỀN */}
           <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-1 flex-wrap sm:flex-nowrap">
               <label
                 htmlFor="input-party-people-count"
-                className="font-bold text-xs uppercase tracking-wider text-amber-950 flex items-center gap-1.5"
+                className="font-bold text-xs uppercase tracking-wider text-amber-950 flex items-center gap-1.5 shrink-0"
               >
-                <Users className="w-4 h-4 text-amber-700" />
-                <span>Số Người Tham Gia Chia Tiền (*):</span>
+                <Users className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>Số Người Chia Tiền (*):</span>
               </label>
-              <span className="text-[11px] text-amber-800 font-medium">
-                (Tự động chia đều cho mỗi người)
+              <span className="text-[11px] text-amber-800 font-medium whitespace-nowrap">
+                (Tự động chia đều)
               </span>
             </div>
 
@@ -612,33 +615,46 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           {/* TRƯỜNG HỢP 1: NGƯỜI NỢ TÔI */}
           {payerType === 'ME' && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="font-semibold text-slate-700 text-xs uppercase tracking-wider">
-                  Chọn Người Nợ Tôi ({selectedDebtorIds.length} người được chọn):
-                </label>
-                <div className="flex items-center gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={handleSelectAll}
-                    className="text-amber-700 hover:text-amber-900 font-semibold cursor-pointer"
-                  >
-                    Chọn tất cả
-                  </button>
-                  <span className="text-slate-300">|</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDebtorIds([])}
-                    className="text-slate-500 hover:text-slate-700 font-medium cursor-pointer"
-                  >
-                    Bỏ chọn
-                  </button>
-                  <span className="text-slate-300">|</span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <label className="font-bold text-slate-800 text-xs uppercase tracking-wider truncate">
+                    Người nợ tôi ({selectedDebtorIds.length}/{debtors.length})
+                  </label>
                   <button
                     type="button"
                     onClick={handleToggleAddDebtor}
-                    className="text-blue-600 hover:text-blue-800 font-bold inline-flex items-center gap-1 cursor-pointer"
+                    className="sm:hidden text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
                   >
-                    <UserPlus className="w-3.5 h-3.5" />
+                    <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>{showAddDebtorForm ? 'Đóng' : '+ Thêm mới'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-2 text-xs">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={handleSelectAll}
+                      className="text-amber-700 hover:text-amber-900 font-semibold cursor-pointer whitespace-nowrap px-1.5 py-0.5 rounded hover:bg-amber-50 active:bg-amber-100"
+                    >
+                      Chọn tất cả
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDebtorIds([])}
+                      className="text-slate-500 hover:text-slate-700 font-medium cursor-pointer whitespace-nowrap px-1.5 py-0.5 rounded hover:bg-slate-100 active:bg-slate-200"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleAddDebtor}
+                    className="hidden sm:inline-flex text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>{showAddDebtorForm ? 'Đóng' : '+ Thêm người mới'}</span>
                   </button>
                 </div>
@@ -656,12 +672,15 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                 ) : (
                   debtors.map((d) => {
                     const isSelected = selectedDebtorIds.includes(d.id);
+                    const isNewlyCreated = newlyCreatedDebtorIds.includes(d.id);
                     return (
                       <label
                         key={d.id}
                         className={`flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer border ${
-                          isSelected
-                            ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                          isNewlyCreated
+                            ? 'bg-amber-100/80 border-amber-400 ring-1 ring-amber-300/80 shadow-2xs'
+                            : isSelected
+                            ? 'bg-amber-50/90 border-amber-300 shadow-2xs'
                             : 'hover:bg-white border-transparent'
                         }`}
                       >
@@ -670,18 +689,33 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleToggleDebtor(d.id)}
-                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 shrink-0"
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 accent-amber-600 shrink-0"
                           />
                           <div className="truncate">
-                            <span className="font-bold text-xs text-slate-900 block truncate">
-                              {d.name}
-                            </span>
+                            <div className="flex items-center gap-1.5 truncate">
+                              <span
+                                className={`text-xs block truncate ${
+                                  isNewlyCreated
+                                    ? 'font-black text-amber-900'
+                                    : isSelected
+                                    ? 'font-bold text-amber-950'
+                                    : 'font-semibold text-slate-800'
+                                }`}
+                              >
+                                {d.name}
+                              </span>
+                              {isNewlyCreated && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-500 to-orange-500 text-white font-extrabold text-[10px] leading-none shrink-0 shadow-2xs whitespace-nowrap">
+                                  Người mới
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[11px] text-slate-400 font-mono">
                               Pass: {d.pin}
                             </span>
                           </div>
                         </div>
-                        <span className="text-xs font-bold text-emerald-700 shrink-0 font-mono">
+                        <span className="text-xs font-bold text-amber-700 shrink-0 font-mono">
                           +{formatVND(splitAmountPerPerson)}
                         </span>
                       </label>
@@ -696,16 +730,16 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           {payerType === 'DEBTOR' && (
             <div className="space-y-2 p-3.5 bg-rose-50/60 border border-rose-200 rounded-2xl">
               <div className="flex items-center justify-between gap-2">
-                <label className="block font-bold text-xs text-rose-950 uppercase tracking-wider">
-                  Chọn Người Bạn Đã Thanh Toán Thay (*):
+                <label className="block font-bold text-xs text-rose-950 uppercase tracking-wider truncate">
+                  Người đã trả thay (*):
                 </label>
                 <button
                   type="button"
                   onClick={handleToggleAddDebtor}
-                  className="text-blue-600 hover:text-blue-800 font-bold text-xs inline-flex items-center gap-1 cursor-pointer"
+                  className="text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
                 >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>{showAddDebtorForm ? 'Đóng' : '+ Thêm người mới'}</span>
+                  <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>{showAddDebtorForm ? 'Đóng' : '+ Thêm mới'}</span>
                 </button>
               </div>
 

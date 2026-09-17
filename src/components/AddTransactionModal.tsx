@@ -274,38 +274,38 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
           {/* Người nợ: Tùy biến chọn có sẵn hoặc tạo ngay tại chỗ */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="font-semibold text-slate-700">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <label className="font-semibold text-slate-700 text-xs sm:text-sm">
                 Người nợ <span className="text-red-500">(*)</span>:
               </label>
 
-              <div className="inline-flex p-0.5 bg-slate-100 rounded-lg border border-slate-200 text-xs">
+              <div className="inline-flex p-0.5 bg-slate-100 rounded-lg border border-slate-200 text-xs shrink-0">
                 <button
                   type="button"
                   id="btn-switch-select-debtor"
                   onClick={() => setDebtorMode('SELECT')}
                   disabled={debtors.length === 0}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-all ${
+                  className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-md font-semibold transition-all whitespace-nowrap ${
                     debtorMode === 'SELECT'
                       ? 'bg-white text-emerald-700 shadow-2xs'
                       : 'text-slate-500 hover:text-slate-800 disabled:opacity-40'
                   }`}
                 >
-                  <Users className="w-3 h-3" />
-                  <span>Người nợ cũ ({debtors.length})</span>
+                  <Users className="w-3 h-3 shrink-0" />
+                  <span>Có sẵn ({debtors.length})</span>
                 </button>
                 <button
                   type="button"
                   id="btn-switch-create-debtor"
                   onClick={() => setDebtorMode('CREATE_NEW')}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-all ${
+                  className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-md font-semibold transition-all whitespace-nowrap ${
                     debtorMode === 'CREATE_NEW'
                       ? 'bg-emerald-600 text-white shadow-2xs'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  <UserPlus className="w-3 h-3" />
-                  <span>Người nợ mới</span>
+                  <UserPlus className="w-3 h-3 shrink-0" />
+                  <span>Tạo mới</span>
                 </button>
               </div>
             </div>

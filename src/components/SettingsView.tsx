@@ -37,6 +37,7 @@ import {
   saveSettings,
 } from '../utils/storage';
 import { apiUploadJsonToFirestore } from '../utils/api';
+import { ConfirmRestoreModal, RestorePayloadPreview } from './ConfirmRestoreModal';
 import {
   DEFAULT_APP_TITLE,
   DEFAULT_APP_SUBTITLE,
@@ -167,6 +168,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<RestorePayloadPreview | null>(null);
+  const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [activeTemplateTab, setActiveTemplateTab] = useState<'LOOKUP' | 'REMINDER'>('LOOKUP');
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
@@ -265,16 +269,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         let rawJson = JSON.parse(event.target?.result as string);
         if (rawJson && rawJson.data && (Array.isArray(rawJson.data.debtors) || Array.isArray(rawJson.data))) {
           rawJson = rawJson.data;
         }
 
-        let debtorsFound: Debtor[] = [];
-        let transactionsFound: Transaction[] = [];
-        let partiesFound: PartySplit[] = [];
+        let debtorsFound: any[] = [];
+        let transactionsFound: any[] = [];
+        let partiesFound: any[] = [];
+        let hasSettingsFound = false;
 
         if (Array.isArray(rawJson)) {
           if (rawJson.length > 0 && rawJson[0].debtorId !== undefined && rawJson[0].amount !== undefined) {
@@ -286,41 +291,106 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           if (Array.isArray(rawJson.debtors)) debtorsFound = rawJson.debtors;
           if (Array.isArray(rawJson.transactions)) transactionsFound = rawJson.transactions;
           if (Array.isArray(rawJson.parties)) partiesFound = rawJson.parties;
-          if (rawJson.settings && typeof rawJson.settings === 'object') {
-            const mergedSettings = { ...formData, ...rawJson.settings };
-            setFormData(mergedSettings);
-            saveSettings(mergedSettings);
-            onSaveSettings(mergedSettings);
-          }
+          if (rawJson.settings && typeof rawJson.settings === 'object') hasSettingsFound = true;
         }
 
-        if (debtorsFound.length === 0 && transactionsFound.length === 0) {
+        if (debtorsFound.length === 0 && transactionsFound.length === 0 && partiesFound.length === 0) {
           showToast('Tệp JSON không chứa dữ liệu sổ nợ hợp lệ!', 'error');
           return;
         }
 
-        if (debtorsFound.length > 0) saveDebtors(debtorsFound);
-        if (transactionsFound.length > 0) saveTransactions(transactionsFound);
-        if (partiesFound.length > 0) saveParties(partiesFound);
-
-        // Also push to cloud if online
-        try {
-          await apiUploadJsonToFirestore(rawJson, 'replace');
-        } catch {
-          // ignore cloud error if offline
-        }
-
-        handleDataReloadAndSync();
-        showToast(
-          `Đã khôi phục thành công ${debtorsFound.length} người nợ và ${transactionsFound.length} giao dịch!`,
-          'success'
-        );
+        setRestorePreview({
+          fileName: file.name,
+          fileSize: file.size,
+          debtorsCount: debtorsFound.length,
+          transactionsCount: transactionsFound.length,
+          partiesCount: partiesFound.length,
+          hasSettings: hasSettingsFound,
+          rawPayload: rawJson,
+        });
+        setIsRestoreConfirmOpen(true);
       } catch {
-        showToast('Tệp JSON bị lỗi hoặc sai định dạng!', 'error');
+        showToast('Tệp JSON bị lỗi hoặc sai cú pháp!', 'error');
       }
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleExecuteRestore = async (mode: 'replace' | 'merge') => {
+    if (!restorePreview) return;
+    setIsRestoring(true);
+    try {
+      const rawJson = restorePreview.rawPayload;
+      let debtorsFound: Debtor[] = [];
+      let transactionsFound: Transaction[] = [];
+      let partiesFound: PartySplit[] = [];
+
+      if (Array.isArray(rawJson)) {
+        if (rawJson.length > 0 && rawJson[0].debtorId !== undefined && rawJson[0].amount !== undefined) {
+          transactionsFound = rawJson;
+        } else {
+          debtorsFound = rawJson;
+        }
+      } else if (rawJson && typeof rawJson === 'object') {
+        if (Array.isArray(rawJson.debtors)) debtorsFound = rawJson.debtors;
+        if (Array.isArray(rawJson.transactions)) transactionsFound = rawJson.transactions;
+        if (Array.isArray(rawJson.parties)) partiesFound = rawJson.parties;
+        if (rawJson.settings && typeof rawJson.settings === 'object') {
+          const mergedSettings = { ...formData, ...rawJson.settings };
+          setFormData(mergedSettings);
+          saveSettings(mergedSettings);
+          onSaveSettings(mergedSettings);
+        }
+      }
+
+      if (mode === 'replace') {
+        if (debtorsFound.length > 0) saveDebtors(debtorsFound);
+        if (transactionsFound.length > 0) saveTransactions(transactionsFound);
+        if (partiesFound.length > 0) saveParties(partiesFound);
+      } else {
+        // Merge mode:
+        const curDebtors = loadDebtors();
+        const curDebtorMap = new Map(curDebtors.map((d) => [d.id, d]));
+        for (const d of debtorsFound) {
+          curDebtorMap.set(d.id, d);
+        }
+        saveDebtors(Array.from(curDebtorMap.values()));
+
+        const curTransactions = loadTransactions();
+        const curTxMap = new Map(curTransactions.map((t) => [t.id, t]));
+        for (const t of transactionsFound) {
+          curTxMap.set(t.id, t);
+        }
+        saveTransactions(Array.from(curTxMap.values()));
+
+        const curParties = loadParties();
+        const curPartyMap = new Map(curParties.map((p) => [p.id, p]));
+        for (const p of partiesFound) {
+          curPartyMap.set(p.id, p);
+        }
+        saveParties(Array.from(curPartyMap.values()));
+      }
+
+      // Also sync to Cloud Firestore automatically
+      try {
+        await apiUploadJsonToFirestore(rawJson, mode);
+      } catch {
+        // ignore cloud sync error if offline or unconfigured
+      }
+
+      handleDataReloadAndSync();
+      setIsRestoreConfirmOpen(false);
+      setRestorePreview(null);
+      showToast(
+        `Đã khôi phục thành công ${debtorsFound.length} người nợ và ${transactionsFound.length} giao dịch (đã đồng bộ lên Cloud)!`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(`Lỗi khôi phục dữ liệu: ${err?.message || 'Không rõ nguyên nhân'}`, 'error');
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   const handleCopyAccount = () => {
@@ -1087,6 +1157,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               parties={parties}
               onDataReload={handleDataReloadAndSync}
               showToast={showToast}
+              onSwitchToSecurityTab={() => setActiveTab('SECURITY')}
             />
           </div>
         )}
@@ -1109,6 +1180,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           handleDataReloadAndSync();
           showToast('Đã nạp lại dữ liệu 4 người nợ mẫu thành công!', 'success');
         }}
+      />
+
+      <ConfirmRestoreModal
+        isOpen={isRestoreConfirmOpen}
+        preview={restorePreview}
+        onClose={() => {
+          setIsRestoreConfirmOpen(false);
+          setRestorePreview(null);
+        }}
+        onConfirm={handleExecuteRestore}
+        isRestoring={isRestoring}
       />
     </div>
   );
