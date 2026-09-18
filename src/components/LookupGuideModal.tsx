@@ -130,42 +130,6 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 text-xs sm:text-sm">
-          {/* Quick Credential Badges */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-              <span className="text-[11px] text-slate-500 font-medium">Đường dẫn tra cứu:</span>
-              <div className="flex items-center justify-between gap-1">
-                <span className="font-mono text-xs text-slate-800 truncate font-semibold">
-                  {directLink}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="px-2 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded-md text-[11px] text-slate-700 font-medium shrink-0 flex items-center gap-1 cursor-pointer"
-                >
-                  {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedLink ? 'Đã chép' : 'Sao chép'}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1">
-              <span className="text-[11px] text-amber-800 font-medium">Mật khẩu của {debtor.name}:</span>
-              <div className="flex items-center justify-between gap-1">
-                <span className="font-mono text-sm font-bold text-amber-900 bg-white px-2 py-0.5 rounded border border-amber-300">
-                  {debtor.pin}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopyPass}
-                  className="px-2 py-1 bg-white hover:bg-amber-100 border border-amber-300 rounded-md text-[11px] text-amber-800 font-semibold shrink-0 flex items-center gap-1 cursor-pointer"
-                >
-                  {copiedPass ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedPass ? 'Đã chép' : 'Sao chép'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
 
           {/* Full Guide Text Preview */}
           <div>
@@ -178,24 +142,6 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
               <pre className="p-3.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-sans text-slate-800 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
                 {guideText}
               </pre>
-            </div>
-          </div>
-
-          {/* QR Code Quick Scan Helper */}
-          <div className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl flex items-center gap-3 text-xs">
-            <img
-              src={qrLinkUrl}
-              alt="QR mở link tra cứu"
-              className="w-16 h-16 rounded-lg border border-blue-200 bg-white p-1 shrink-0"
-            />
-            <div className="space-y-1">
-              <div className="font-bold text-blue-900 flex items-center gap-1">
-                <QrCode className="w-3.5 h-3.5 text-blue-700" />
-                <span>Mã QR mở nhanh trang tra cứu</span>
-              </div>
-              <p className="text-slate-600 text-[11px] leading-relaxed">
-                Bạn bè có thể dùng camera điện thoại hoặc Zalo quét mã này để mở thẳng trang tra cứu mà không cần gõ đường dẫn.
-              </p>
             </div>
           </div>
         </div>

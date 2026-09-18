@@ -223,16 +223,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Trung Tâm Điều Hành Tài Chính</span>
+                <span>Trung Tâm Tài Chính</span>
               </div>
-              <span className="text-[11px] text-slate-500 font-mono">
-                Cập nhật tức thì
-              </span>
             </div>
 
             <div className="mt-4">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Số Dư Nợ Ròng Toàn Sổ (Net Balance)
+                Số Dư
               </span>
               <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight mt-1 flex items-baseline gap-2">
                 <span
@@ -248,13 +245,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 </span>
                 <span className="text-xs font-normal text-slate-500">VNĐ</span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                {netBalance > 0
-                  ? 'Tổng số tiền người khác đang nợ bạn lớn hơn số bạn cần chi trả.'
-                  : netBalance < 0
-                  ? 'Bạn đang có các khoản cần thanh toán lớn hơn khoản thu về.'
-                  : 'Công nợ hiện đang ở trạng thái cân bằng tuyệt đối.'}
-              </p>
             </div>
 
             {/* Thanh Phân Bổ Tỷ Lệ Dòng Tiền (Live Cashflow Ratio Meter) */}
@@ -508,10 +498,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                         : 'text-slate-500 hover:text-slate-800'
                     }`}
-                    title="Xem dạng Thẻ Bento 3D"
+                    title="Xem dạng Thẻ 3D"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Thẻ Bento</span>
+                    <span className="hidden sm:inline">Thẻ</span>
                   </button>
                   <button
                     type="button"
@@ -521,10 +511,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                         : 'text-slate-500 hover:text-slate-800'
                     }`}
-                    title="Xem dạng Bảng Kế Toán Pro"
+                    title="Xem dạng Bảng"
                   >
                     <TableIcon className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Bảng Kế Toán</span>
+                    <span className="hidden sm:inline">Bảng</span>
                   </button>
                 </div>
 

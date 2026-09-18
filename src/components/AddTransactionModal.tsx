@@ -139,7 +139,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     // Validate inputs
     if (debtorMode === 'CREATE_NEW') {
       if (!newName.trim()) {
-        setError('Vui lòng nhập tên người nợ');
+        setError('Vui lòng nhập tên người mới');
         return;
       }
       const cleanPass = newPin.trim();
@@ -157,7 +157,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       }
     } else {
       if (!targetDebtorId) {
-        setError('Vui lòng chọn người nợ');
+        setError('Vui lòng chọn người mới');
         return;
       }
     }
@@ -188,11 +188,11 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           if (created && created.id) {
             targetDebtorId = created.id;
           } else {
-            setError('Không thể tạo người nợ. Vui lòng thử lại.');
+            setError('Không thể tạo người mới. Vui lòng thử lại.');
             return;
           }
         } else {
-          setError('Hệ thống chưa hỗ trợ tạo người nợ tại đây');
+          setError('Hệ thống chưa hỗ trợ tạo người mới tại đây');
           return;
         }
       }
@@ -276,7 +276,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-1.5">
               <label className="font-semibold text-slate-700 text-xs sm:text-sm">
-                Người nợ <span className="text-red-500">(*)</span>:
+                Người giao dịch <span className="text-red-500">(*)</span>:
               </label>
 
               <div className="inline-flex p-0.5 bg-slate-100 rounded-lg border border-slate-200 text-xs shrink-0">
@@ -320,7 +320,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 >
                   {debtors.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.name} - (Pass: {d.pin})
+                      {d.name} - ({d.pin})
                     </option>
                   ))}
                 </select>
@@ -341,23 +341,14 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-emerald-900 uppercase flex items-center gap-1.5">
                     <UserPlus className="w-3.5 h-3.5 text-emerald-600" />
-                    Thêm Người Nợ Mới:
+                    Thêm Người Mới:
                   </span>
-                  {debtors.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setDebtorMode('SELECT')}
-                      className="text-emerald-600 hover:text-emerald-800 font-semibold cursor-pointer"
-                    >
-                      ← Quay lại chọn người có sẵn
-                    </button>
-                  )}
                 </div>
 
                 <div className="space-y-2.5">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Tên con nợ<span className="text-red-500">(*)</span>:
+                      Tên<span className="text-red-500">(*)</span>:
                     </label>
                     <input
                       type="text"
@@ -418,7 +409,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                   </div>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-tight">
-                  Bạn cấp mật khẩu này cho con nợ đó để họ tự vào tra cứu sao kê riêng (hỗ trợ cả chữ và số).
+                  Bạn cấp mật khẩu này cho người này để họ tự vào tra cứu sao kê riêng (hỗ trợ cả chữ và số).
                 </p>
               </div>
             )}

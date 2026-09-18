@@ -332,7 +332,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={copyGuestLink}
-              title="Sao chép link gửi bạn bè tra cứu"
+              title="Sao chép đường dẫn tra cứu"
               className={`h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all border shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 shrink-0 ${
                 copiedLink
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -342,12 +342,12 @@ export const Header: React.FC<HeaderProps> = ({
               {copiedLink ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="hidden sm:inline">Đã chép</span>
+                  <span className="hidden sm:inline">Đã sao chép</span>
                 </>
               ) : (
                 <>
                   <Copy className="w-4 h-4 text-slate-600 shrink-0" />
-                  <span className="hidden sm:inline">Sao chép link</span>
+                  <span className="hidden sm:inline">Sao chép</span>
                 </>
               )}
             </button>
@@ -361,8 +361,8 @@ export const Header: React.FC<HeaderProps> = ({
                     type="button"
                     id="nav-owner-mode-btn"
                     onClick={() => onViewChange('OWNER')}
-                    title="Trang quản lý Sổ Nợ"
-                    aria-label="Sổ Nợ"
+                    title="Trang quản lý"
+                    aria-label="Tổng quan"
                     className={`flex items-center justify-center gap-1.5 h-8 sm:h-auto px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       currentView === 'OWNER'
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
@@ -370,7 +370,7 @@ export const Header: React.FC<HeaderProps> = ({
                     }`}
                   >
                     <LayoutDashboard className={`w-4 h-4 shrink-0 ${currentView === 'OWNER' ? 'text-emerald-600' : 'text-slate-500'}`} />
-                    <span className="hidden sm:inline">Sổ Nợ</span>
+                    <span className="hidden sm:inline">Tổng quan</span>
                   </button>
 
                   <button
@@ -394,12 +394,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   type="button"
                   onClick={onOwnerLogout}
-                  title="Khóa sổ & Đăng xuất quản lý"
-                  aria-label="Khóa sổ"
+                  title="Đăng xuất quản lý"
+                  aria-label="Đăng xuất"
                   className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100/80 hover:bg-rose-50 text-slate-600 hover:text-rose-600 active:bg-rose-100 border border-slate-200/80 hover:border-rose-200 transition-all flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 shrink-0"
                 >
                   <LogOut className="w-4 h-4 text-inherit shrink-0" />
-                  <span className="hidden sm:inline">Khóa sổ</span>
+                  <span className="hidden sm:inline">Đăng xuất</span>
                 </button>
               </>
             )}
@@ -425,20 +425,6 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
               </div>
-            )}
-
-            {/* PUBLIC / UNLOGGED MODE: Quick Access to Owner Login */}
-            {!isOwnerAuthenticated && !activeGuestDebtor && (
-              <button
-                type="button"
-                onClick={() => onViewChange('OWNER')}
-                title="Đăng nhập dành cho Chủ Sổ"
-                aria-label="Đăng nhập Chủ Sổ"
-                className="h-9 px-2.5 sm:px-3.5 rounded-xl bg-slate-100/90 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200/80 hover:border-emerald-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Lock className="w-4 h-4 text-slate-500 hover:text-emerald-600 shrink-0" />
-                <span className="hidden sm:inline">Chủ Sổ</span>
-              </button>
             )}
 
           </div>

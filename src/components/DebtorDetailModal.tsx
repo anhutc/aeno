@@ -123,7 +123,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                   <div className="inline-flex items-center gap-1.5 text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl font-mono text-xs font-semibold border border-amber-200 shadow-2xs">
                     <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Pass: {debtor.pin}</span>
+                    <span>{debtor.pin}</span>
                     <button
                       type="button"
                       onClick={handleCopyPin}
@@ -239,7 +239,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   title="Xem và sao chép hướng dẫn tra cứu kèm mật khẩu"
                 >
                   <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>Gửi Đường Dẫn Tra Cứu</span>
+                  <span>Gửi Hướng Dẫn Tra Cứu</span>
                 </button>
               </div>
             </div>
@@ -264,7 +264,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                       title="Sắp xếp giao dịch mới nhất lên đầu"
                     >
                       <ArrowDownWideNarrow className="w-3 h-3 text-emerald-600" />
-                      <span>Mới nhất trước</span>
+                      <span>Mới nhất</span>
                     </button>
                     <button
                       type="button"
@@ -277,7 +277,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                       title="Sắp xếp giao dịch cũ nhất lên đầu"
                     >
                       <ArrowUpNarrowWide className="w-3 h-3 text-slate-400" />
-                      <span>Cũ nhất trước</span>
+                      <span>Cũ nhất</span>
                     </button>
                   </div>
 
