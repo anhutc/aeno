@@ -15,11 +15,11 @@ import {
   Copy,
   Check,
   RotateCcw,
+  Lock,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
 import { loadDebtors, loadTransactions, loadSettings, saveSettings } from '../utils/storage';
-import { PinCodeInput } from './PinCodeInput';
 
 interface UnifiedLoginViewProps {
   settings: AppSettings;
@@ -27,14 +27,11 @@ interface UnifiedLoginViewProps {
   onLoginGuestSuccess: (debtor: Debtor, transactions: Transaction[], settings: AppSettings) => void;
 }
 
-type EntryMode = 'pin-4' | 'pin-6' | 'text';
-
 export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   settings,
   onLoginOwnerSuccess,
   onLoginGuestSuccess,
 }) => {
-  const [entryMode, setEntryMode] = useState<EntryMode>('pin-4');
   const [passcode, setPasscode] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
   const [error, setError] = useState('');
@@ -81,7 +78,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     async (codeToVerify: string) => {
       const clean = codeToVerify.trim();
       if (!clean) {
-        setError('Vui lòng nhập mật khẩu hoặc mã PIN');
+        setError('Vui lòng nhập mật khẩu đăng nhập');
         return;
       }
 
@@ -140,7 +137,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           return;
         }
 
-        // 4. Nếu cả 2 đều không khớp
+        // 4. Nếu không khớp
         setError('Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 500);
@@ -161,12 +158,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   };
 
   const handleClearCode = () => {
-    setPasscode('');
-    setError('');
-  };
-
-  const switchEntryMode = (mode: EntryMode) => {
-    setEntryMode(mode);
     setPasscode('');
     setError('');
   };
@@ -193,7 +184,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 mb-2 font-mono">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>XÁC THỰC THÔNG MINH</span>
+            <span>XÁC THỰC TRUY CẬP</span>
           </div>
 
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
@@ -288,7 +279,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           )}
         </div>
 
-        {/* PIN Entry Form with Segmented OTP Boxes */}
+        {/* Form Đăng Nhập Tiêu Chuẩn */}
         <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 space-y-4">
           <AnimatePresence>
             {error && (
@@ -305,129 +296,59 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             )}
           </AnimatePresence>
 
-          {/* Mode Selector Tabs */}
-          <div className="flex items-center justify-center p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80 text-xs font-bold gap-1">
-            <button
-              type="button"
-              onClick={() => switchEntryMode('pin-4')}
-              className={`flex-1 py-1.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
-                entryMode === 'pin-4'
-                  ? 'bg-white text-emerald-800 shadow-xs font-black'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Mã Khách (4 ô)
-            </button>
-            <button
-              type="button"
-              onClick={() => switchEntryMode('pin-6')}
-              className={`flex-1 py-1.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
-                entryMode === 'pin-6'
-                  ? 'bg-white text-emerald-800 shadow-xs font-black'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Chủ Sổ (6 ô)
-            </button>
-            <button
-              type="button"
-              onClick={() => switchEntryMode('text')}
-              className={`flex-1 py-1.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
-                entryMode === 'text'
-                  ? 'bg-white text-emerald-800 shadow-xs font-black'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              SĐT / Khác
-            </button>
-          </div>
-
           <div>
-            <div className="text-center mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                {entryMode === 'pin-4'
-                  ? 'Nhập Mã Tra Cứu (4 Ký Tự):'
-                  : entryMode === 'pin-6'
-                  ? 'Nhập Mật Khẩu Quản Lý (6 Ký Tự):'
-                  : 'Nhập Mật Khẩu Hoặc Số Điện Thoại:'}
-              </span>
-            </div>
-
-            {/* OTP Boxes for 4 or 6 digits */}
-            {entryMode === 'pin-4' && (
-              <PinCodeInput
-                length={4}
-                value={passcode}
-                onChange={setPasscode}
-                onComplete={executeAuthentication}
-                disabled={isLoading}
-                isError={Boolean(error)}
-                mask={!showPasscode}
-                autoFocus
-              />
-            )}
-
-            {entryMode === 'pin-6' && (
-              <PinCodeInput
-                length={6}
-                value={passcode}
-                onChange={setPasscode}
-                onComplete={executeAuthentication}
-                disabled={isLoading}
-                isError={Boolean(error)}
-                mask={!showPasscode}
-                autoFocus
-              />
-            )}
-
-            {/* Free Text Input fallback for phone numbers or long passwords */}
-            {entryMode === 'text' && (
-              <div className="relative mt-2">
-                <input
-                  id="unified-passcode-input"
-                  type={showPasscode ? 'text' : 'password'}
-                  value={passcode}
-                  onChange={(e) => setPasscode(e.target.value)}
-                  placeholder="Nhập SĐT hoặc mật khẩu dài..."
-                  autoFocus
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  className="w-full px-4 py-3.5 text-center text-lg sm:text-xl font-bold font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-normal placeholder:text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
-                />
-              </div>
-            )}
-
-            {/* Helper Controls (Toggle Mask / Clear) */}
-            <div className="flex items-center justify-between text-xs text-slate-500 px-1 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowPasscode(!showPasscode)}
-                className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900 font-semibold cursor-pointer py-1 px-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor="unified-passcode-input"
+                className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5"
               >
-                {showPasscode ? (
-                  <>
-                    <EyeOff className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Ẩn mã</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Hiện mã</span>
-                  </>
-                )}
-              </button>
+                <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Mật khẩu:</span>
+              </label>
 
               {passcode && (
                 <button
                   type="button"
                   onClick={handleClearCode}
-                  className="inline-flex items-center gap-1 text-slate-500 hover:text-rose-600 font-medium cursor-pointer py-1 px-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                  className="inline-flex items-center gap-1 text-slate-400 hover:text-rose-600 text-xs font-medium cursor-pointer transition-colors"
                 >
                   <RotateCcw className="w-3 h-3" />
                   <span>Xóa</span>
                 </button>
               )}
+            </div>
+
+            <div className="relative">
+              <input
+                id="unified-passcode-input"
+                type={showPasscode ? 'text' : 'password'}
+                value={passcode}
+                onChange={(e) => {
+                  setPasscode(e.target.value);
+                  if (error) setError('');
+                }}
+                placeholder="Nhập mật khẩu..."
+                autoFocus
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                disabled={isLoading}
+                className="w-full pl-4 pr-11 py-3.5 text-base sm:text-lg font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-2xl placeholder:text-slate-400 placeholder:text-xs placeholder:font-normal focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPasscode(!showPasscode)}
+                tabIndex={-1}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer rounded-lg hover:bg-slate-100 transition-colors"
+                title={showPasscode ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showPasscode ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
             </div>
           </div>
 
@@ -438,16 +359,16 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             type="submit"
             id="btn-unified-login-submit"
             disabled={isLoading || !passcode.trim()}
-            className="w-full py-3.5 px-5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3.5 px-5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
           >
             {isLoading ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                <span>Đang xác thực thông tin...</span>
+                <span>Đang kiểm tra...</span>
               </>
             ) : (
               <>
-                <span>Xác Thực &amp; Truy Cập</span>
+                <span>Đăng Nhập</span>
                 <ArrowRight className="w-4 h-4 text-white" />
               </>
             )}
