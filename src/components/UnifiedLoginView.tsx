@@ -141,7 +141,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         }
 
         // 4. Nếu cả 2 đều không khớp
-        setError('Mã PIN không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
+        setError('Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 500);
       } catch {
