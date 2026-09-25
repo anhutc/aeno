@@ -35,7 +35,9 @@ import {
   saveDebtors,
   saveTransactions,
   saveParties,
+  getDebtorBalance,
 } from './utils/storage';
+import { triggerSettledCelebration } from './utils/confetti';
 import { subscribeToFirestoreData } from './services/firestoreClient';
 import { Header } from './components/Header';
 import { OwnerDashboard } from './components/OwnerDashboard';
@@ -324,9 +326,15 @@ export default function App() {
   // --- Transaction Handlers (Synchronized) ---
   const handleSaveTransaction = async (txData: Omit<Transaction, 'id' | 'createdAt'>) => {
     lastActionTimeRef.current = Date.now();
+    const prevBalance = getDebtorBalance(txData.debtorId, transactions);
     const res = await apiSaveTransaction(txData);
     if (res.success && res.transactions) {
       setTransactions(res.transactions);
+      const newBalance = getDebtorBalance(txData.debtorId, res.transactions);
+      // Nếu trước đó đang nợ và sau giao dịch thanh toán này đã trả hết hoặc về 0
+      if (prevBalance > 0 && newBalance <= 0) {
+        triggerSettledCelebration();
+      }
     } else {
       alert(res.message || 'Lỗi khi lưu giao dịch');
     }

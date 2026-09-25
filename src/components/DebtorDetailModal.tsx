@@ -34,6 +34,8 @@ import {
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
+import { AnimatedCounter } from './AnimatedCounter';
+import { triggerSettledCelebration } from '../utils/confetti';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -100,16 +102,30 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) onClose();
+            }}
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-sm p-0 sm:p-4"
           >
             <motion.div
               id="debtor-detail-modal-card"
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={{ top: 0, bottom: 0.5 }}
+              onDragEnd={(_e, info) => {
+                if (info.offset.y > 100 || info.velocity.y > 350) {
+                  onClose();
+                }
+              }}
               initial={{ opacity: 0, scale: 0.95, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 12 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden max-h-[92vh] flex flex-col"
+              className="bg-white w-full max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden max-h-[90vh] sm:max-h-[92vh] flex flex-col"
             >
+          {/* Mobile Drag Pill Handle */}
+          <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto my-2.5 sm:hidden shrink-0 cursor-grab active:cursor-grabbing" />
+
           {/* Header - Sáng & Tinh tế */}
           <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
             <div className="flex items-center gap-3">
@@ -167,6 +183,33 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
 
           {/* Content Body */}
           <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+            {/* Celebration banner if settled */}
+            {currentBalance === 0 && (
+              <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border border-emerald-200/90 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-sm shadow-xs animate-bounce">
+                    🎉
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-emerald-950 uppercase tracking-wide">
+                      Đã hoàn thành sạch nợ 100%!
+                    </div>
+                    <p className="text-[11px] text-emerald-700 font-medium">
+                      Không còn bất kỳ khoản nợ nào tồn đọng
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={triggerSettledCelebration}
+                  className="px-3 py-1.5 bg-white text-emerald-700 hover:bg-emerald-50 active:scale-95 border border-emerald-300 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <span>Pháo hoa</span>
+                  <span>✨</span>
+                </button>
+              </div>
+            )}
+
             {/* Balance card */}
             <div
               className={`p-4 sm:p-5 rounded-2xl border transition-all ${
@@ -185,9 +228,11 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   </span>
                   <div className="flex items-baseline gap-2 font-mono mt-0.5">
                     <span className="text-3xl sm:text-4xl font-black tracking-tight">
-                      {currentBalance > 0
-                        ? `+${formatVND(currentBalance).replace(' VNĐ', '')}`
-                        : formatVND(currentBalance).replace(' VNĐ', '')}
+                      {currentBalance > 0 && '+'}
+                      <AnimatedCounter
+                        value={currentBalance}
+                        formatter={(val) => formatVND(val).replace(' VNĐ', '')}
+                      />
                     </span>
                     <span className="text-sm font-bold opacity-75">VNĐ</span>
                   </div>

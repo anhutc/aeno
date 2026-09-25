@@ -39,6 +39,8 @@ import {
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance } from '../utils/storage';
+import { AnimatedCounter } from './AnimatedCounter';
+import { triggerSettledCelebration } from '../utils/confetti';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
 import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
@@ -241,7 +243,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       : 'text-slate-700'
                   }
                 >
-                  {netBalance > 0 ? `+${formatVND(netBalance)}` : formatVND(netBalance)}
+                  {netBalance > 0 && '+'}
+                  <AnimatedCounter value={netBalance} formatter={formatVND} />
                 </span>
                 <span className="text-xs font-normal text-slate-500">VNĐ</span>
               </div>
@@ -278,11 +281,15 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           <div className="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-slate-100 text-center">
             <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
               <div className="text-[10px] text-slate-500 uppercase font-bold">Tổng người nợ</div>
-              <div className="text-base font-black font-mono text-slate-900 mt-0.5">{debtors.length}</div>
+              <div className="text-base font-black font-mono text-slate-900 mt-0.5">
+                <AnimatedCounter value={debtors.length} />
+              </div>
             </div>
             <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200/70">
               <div className="text-[10px] text-slate-500 uppercase font-bold">Tổng giao dịch</div>
-              <div className="text-base font-black font-mono text-slate-900 mt-0.5">{transactions.length}</div>
+              <div className="text-base font-black font-mono text-slate-900 mt-0.5">
+                <AnimatedCounter value={transactions.length} />
+              </div>
             </div>
           </div>
         </motion.div>
@@ -311,7 +318,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black text-emerald-700 tracking-tight font-mono my-2">
-              +{formatVND(totalReceivable)}
+              +<AnimatedCounter value={totalReceivable} formatter={formatVND} />
             </div>
             <div className="flex items-center justify-between text-[11px] font-medium text-emerald-800/80 pt-2 border-t border-emerald-100">
               <span>{receivableDebtors.length} người nợ chưa thanh toán</span>
@@ -343,7 +350,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black text-rose-700 tracking-tight font-mono my-2">
-              -{formatVND(totalPayable)}
+              -<AnimatedCounter value={totalPayable} formatter={formatVND} />
             </div>
             <div className="flex items-center justify-between text-[11px] font-medium text-rose-800/80 pt-2 border-t border-rose-100">
               <span>{payableDebtors.length} khoản cần thanh toán</span>
@@ -624,6 +631,17 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
               Đã hết nợ ({settledDebtors.length})
             </button>
+            {settledDebtors.length > 0 && (
+              <button
+                type="button"
+                onClick={triggerSettledCelebration}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+                title="Bắn pháo hoa ăn mừng các bạn đã thanh toán sạch nợ"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <span>Ăn mừng 🎉</span>
+              </button>
+            )}
           </div>
 
           {sortedDebtors.length === 0 ? (
@@ -754,7 +772,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 : 'text-slate-400'
                             }`}
                           >
-                            {balance > 0 ? `+${formatVND(balance)}` : formatVND(balance)}
+                            {balance > 0 && '+'}
+                            <AnimatedCounter value={balance} formatter={formatVND} />
                           </div>
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold mt-0.5 ${

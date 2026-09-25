@@ -36,6 +36,8 @@ import { formatVND, generateVietQrUrl } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
 import { subscribeToDebtorTransactions } from '../utils/api';
 import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
+import { AnimatedCounter } from './AnimatedCounter';
+import { triggerSettledCelebration } from '../utils/confetti';
 
 interface GuestPortalProps {
   debtor?: Debtor | null;
@@ -288,12 +290,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             </div>
 
             <div className="text-3xl sm:text-5xl font-black mt-2 tracking-tight font-mono">
-              {currentBalance > 0
-                ? `+ ${formatVND(currentBalance)}`
-                : formatVND(currentBalance)}
+              {currentBalance > 0 && '+ '}
+              <AnimatedCounter value={currentBalance} formatter={formatVND} />
             </div>
 
-            <div className="mt-3 text-xs sm:text-sm font-semibold pt-2 border-t border-black/5">
+            <div className="mt-3 text-xs sm:text-sm font-semibold pt-2 border-t border-black/5 flex flex-wrap items-center justify-between gap-2">
               {currentBalance > 0 ? (
                 <span className="text-rose-700 inline-flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
@@ -305,10 +306,19 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   {activeSettings.ownerName} đang nợ bạn {formatVND(Math.abs(currentBalance))}
                 </span>
               ) : (
-                <span className="text-slate-600 inline-flex items-center gap-2">
-                  <span>✨</span>
-                  Đã thanh toán hết, đôi bên không còn dư nợ
-                </span>
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-slate-600 inline-flex items-center gap-2">
+                    <span>✨</span>
+                    Đã thanh toán hết, đôi bên không còn dư nợ
+                  </span>
+                  <button
+                    type="button"
+                    onClick={triggerSettledCelebration}
+                    className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Ăn mừng 🎉</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>

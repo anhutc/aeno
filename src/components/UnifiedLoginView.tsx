@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Wallet,
@@ -14,10 +14,12 @@ import {
   CreditCard,
   Copy,
   Check,
+  RotateCcw,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
 import { loadDebtors, loadTransactions, loadSettings, saveSettings } from '../utils/storage';
+import { PinCodeInput } from './PinCodeInput';
 
 interface UnifiedLoginViewProps {
   settings: AppSettings;
@@ -25,15 +27,19 @@ interface UnifiedLoginViewProps {
   onLoginGuestSuccess: (debtor: Debtor, transactions: Transaction[], settings: AppSettings) => void;
 }
 
+type EntryMode = 'pin-4' | 'pin-6' | 'text';
+
 export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   settings,
   onLoginOwnerSuccess,
   onLoginGuestSuccess,
 }) => {
+  const [entryMode, setEntryMode] = useState<EntryMode>('pin-4');
   const [passcode, setPasscode] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedAcc, setCopiedAcc] = useState(false);
 
@@ -71,75 +77,98 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     }
   };
 
-  const handleAuthenticate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = passcode.trim();
-    if (!clean) {
-      setError('Vui lòng nhập mật khẩu');
-      return;
-    }
-
-    setIsLoading(true);
-    setError('');
-
-    try {
-      // 1. Kiểm tra xem có phải mật khẩu hoặc SĐT Quản lý hay không
-      const ownerRes = await loginOwner(clean);
-      if (ownerRes.success) {
-        setPasscode('');
-        onLoginOwnerSuccess();
+  const executeAuthentication = useCallback(
+    async (codeToVerify: string) => {
+      const clean = codeToVerify.trim();
+      if (!clean) {
+        setError('Vui lòng nhập mật khẩu hoặc mã PIN');
         return;
       }
 
-      // 2. Nếu không phải quản lý, kiểm tra xem có phải mật khẩu của Người xem hay không
-      const guestRes = await apiGuestLookup(clean);
-      if (guestRes.success && guestRes.debtor) {
-        setPasscode('');
-        onLoginGuestSuccess(
-          guestRes.debtor,
-          guestRes.transactions || [],
-          guestRes.settings || settings
+      setIsLoading(true);
+      setError('');
+      setIsShaking(false);
+
+      try {
+        // 1. Kiểm tra xem có phải mật khẩu hoặc SĐT Quản lý hay không
+        const ownerRes = await loginOwner(clean);
+        if (ownerRes.success) {
+          setPasscode('');
+          onLoginOwnerSuccess();
+          return;
+        }
+
+        // 2. Nếu không phải quản lý, kiểm tra xem có phải mật khẩu của Người xem hay không
+        const guestRes = await apiGuestLookup(clean);
+        if (guestRes.success && guestRes.debtor) {
+          setPasscode('');
+          onLoginGuestSuccess(
+            guestRes.debtor,
+            guestRes.transactions || [],
+            guestRes.settings || settings
+          );
+          return;
+        }
+
+        // 3. Dự phòng tra cứu danh bạ bộ nhớ cục bộ (offline cache)
+        const localSettings = loadSettings();
+        const localOwnerPass = (localSettings?.ownerPassword || '123456').trim();
+        const localOwnerPhone = (localSettings?.ownerPhone || '').trim();
+        const cleanLower = clean.toLowerCase();
+        const cleanPhone = clean.replace(/[\s.-]+/g, '');
+        const localPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
+
+        if (
+          clean === localOwnerPass ||
+          cleanLower === localOwnerPass.toLowerCase() ||
+          (localPhone && cleanPhone === localPhone) ||
+          clean === '123456'
+        ) {
+          setPasscode('');
+          onLoginOwnerSuccess();
+          return;
+        }
+
+        const localDebtors = loadDebtors();
+        const localFound = localDebtors.find(
+          (d) => d.pin.trim().toLowerCase() === cleanLower
         );
-        return;
+        if (localFound) {
+          const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
+          setPasscode('');
+          onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
+          return;
+        }
+
+        // 4. Nếu cả 2 đều không khớp
+        setError('Mã PIN không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
+        setIsShaking(true);
+        setTimeout(() => setIsShaking(false), 500);
+      } catch {
+        setError('Lỗi kết nối máy chủ. Vui lòng kiểm tra lại mạng.');
+        setIsShaking(true);
+        setTimeout(() => setIsShaking(false), 500);
+      } finally {
+        setIsLoading(false);
       }
+    },
+    [onLoginOwnerSuccess, onLoginGuestSuccess, settings]
+  );
 
-      // 3. Dự phòng tra cứu danh bạ bộ nhớ cục bộ (offline cache)
-      const localSettings = loadSettings();
-      const localOwnerPass = (localSettings?.ownerPassword || '123456').trim();
-      const localOwnerPhone = (localSettings?.ownerPhone || '').trim();
-      const cleanLower = clean.toLowerCase();
-      const cleanPhone = clean.replace(/[\s.-]+/g, '');
-      const localPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeAuthentication(passcode);
+  };
 
-      if (
-        clean === localOwnerPass ||
-        cleanLower === localOwnerPass.toLowerCase() ||
-        (localPhone && cleanPhone === localPhone) ||
-        clean === '123456'
-      ) {
-        setPasscode('');
-        onLoginOwnerSuccess();
-        return;
-      }
+  const handleClearCode = () => {
+    setPasscode('');
+    setError('');
+  };
 
-      const localDebtors = loadDebtors();
-      const localFound = localDebtors.find(
-        (d) => d.pin.trim().toLowerCase() === cleanLower
-      );
-      if (localFound) {
-        const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
-        setPasscode('');
-        onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
-        return;
-      }
-
-      // 4. Nếu cả 2 đều không khớp
-      setError('Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
-    } catch {
-      setError('Lỗi kết nối máy chủ. Vui lòng kiểm tra lại mạng.');
-    } finally {
-      setIsLoading(false);
-    }
+  const switchEntryMode = (mode: EntryMode) => {
+    setEntryMode(mode);
+    setPasscode('');
+    setError('');
   };
 
   return (
@@ -147,8 +176,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
       <motion.div
         id="unified-login-card"
         initial={{ opacity: 0, scale: 0.95, y: 14 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+        animate={isShaking ? { x: [-10, 10, -8, 8, -4, 4, 0] } : { opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: isShaking ? 0.38 : 0.28, ease: [0.16, 1, 0.3, 1] }}
         className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden relative"
       >
         {/* Top Header Card - Phong cách sáng thanh lịch & sang trọng */}
@@ -159,7 +188,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             transition={{ delay: 0.08, duration: 0.25 }}
             className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 text-white mx-auto flex items-center justify-center mb-3 shadow-md shadow-emerald-500/20 ring-4 ring-emerald-50"
           >
-            <Wallet className="w-7 h-7 text-slate-950 stroke-[2.5]" />
+            <Wallet className="w-7 h-7 text-white stroke-[2.5]" />
           </motion.div>
 
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 mb-2 font-mono">
@@ -240,13 +269,9 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                   title="Sao chép số tài khoản"
                 >
                   {copiedAcc ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-blue-700" />
-                    </>
+                    <Check className="w-3.5 h-3.5 text-blue-700" />
                   ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                    </>
+                    <Copy className="w-3.5 h-3.5" />
                   )}
                 </button>
               </div>
@@ -263,8 +288,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           )}
         </div>
 
-        {/* Single Input Form */}
-        <form onSubmit={handleAuthenticate} className="p-5 sm:p-6 space-y-4">
+        {/* PIN Entry Form with Segmented OTP Boxes */}
+        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 space-y-4">
           <AnimatePresence>
             {error && (
               <motion.div
@@ -280,37 +305,133 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             )}
           </AnimatePresence>
 
-          <div>
-            <label
-              htmlFor="unified-passcode-input"
-              className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 text-center"
+          {/* Mode Selector Tabs */}
+          <div className="flex items-center justify-center p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80 text-xs font-bold gap-1">
+            <button
+              type="button"
+              onClick={() => switchEntryMode('pin-4')}
+              className={`flex-1 py-1.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
+                entryMode === 'pin-4'
+                  ? 'bg-white text-emerald-800 shadow-xs font-black'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
             >
-              Nhập Mật Khẩu:
-            </label>
-            <div className="relative">
-              <input
-                id="unified-passcode-input"
-                type={showPasscode ? 'text' : 'password'}
+              Mã Khách (4 ô)
+            </button>
+            <button
+              type="button"
+              onClick={() => switchEntryMode('pin-6')}
+              className={`flex-1 py-1.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
+                entryMode === 'pin-6'
+                  ? 'bg-white text-emerald-800 shadow-xs font-black'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Chủ Sổ (6 ô)
+            </button>
+            <button
+              type="button"
+              onClick={() => switchEntryMode('text')}
+              className={`flex-1 py-1.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
+                entryMode === 'text'
+                  ? 'bg-white text-emerald-800 shadow-xs font-black'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              SĐT / Khác
+            </button>
+          </div>
+
+          <div>
+            <div className="text-center mb-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                {entryMode === 'pin-4'
+                  ? 'Nhập Mã Tra Cứu (4 Ký Tự):'
+                  : entryMode === 'pin-6'
+                  ? 'Nhập Mật Khẩu Quản Lý (6 Ký Tự):'
+                  : 'Nhập Mật Khẩu Hoặc Số Điện Thoại:'}
+              </span>
+            </div>
+
+            {/* OTP Boxes for 4 or 6 digits */}
+            {entryMode === 'pin-4' && (
+              <PinCodeInput
+                length={4}
                 value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="Ví dụ: 1234, nam123 hoặc SĐT..."
+                onChange={setPasscode}
+                onComplete={executeAuthentication}
+                disabled={isLoading}
+                isError={Boolean(error)}
+                mask={!showPasscode}
                 autoFocus
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                className="w-full pl-12 pr-12 py-3.5 text-center text-xl sm:text-2xl font-black font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-normal placeholder:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
               />
+            )}
+
+            {entryMode === 'pin-6' && (
+              <PinCodeInput
+                length={6}
+                value={passcode}
+                onChange={setPasscode}
+                onComplete={executeAuthentication}
+                disabled={isLoading}
+                isError={Boolean(error)}
+                mask={!showPasscode}
+                autoFocus
+              />
+            )}
+
+            {/* Free Text Input fallback for phone numbers or long passwords */}
+            {entryMode === 'text' && (
+              <div className="relative mt-2">
+                <input
+                  id="unified-passcode-input"
+                  type={showPasscode ? 'text' : 'password'}
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  placeholder="Nhập SĐT hoặc mật khẩu dài..."
+                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="w-full px-4 py-3.5 text-center text-lg sm:text-xl font-bold font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-2xl text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-normal placeholder:text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
+                />
+              </div>
+            )}
+
+            {/* Helper Controls (Toggle Mask / Clear) */}
+            <div className="flex items-center justify-between text-xs text-slate-500 px-1 pt-1">
               <button
                 type="button"
                 onClick={() => setShowPasscode(!showPasscode)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1.5 rounded-xl hover:bg-slate-200/60 transition-colors"
-                title={showPasscode ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900 font-semibold cursor-pointer py-1 px-1.5 rounded-lg hover:bg-slate-100 transition-colors"
               >
-                {showPasscode ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showPasscode ? (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Ẩn mã</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Hiện mã</span>
+                  </>
+                )}
               </button>
+
+              {passcode && (
+                <button
+                  type="button"
+                  onClick={handleClearCode}
+                  className="inline-flex items-center gap-1 text-slate-500 hover:text-rose-600 font-medium cursor-pointer py-1 px-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Xóa</span>
+                </button>
+              )}
             </div>
           </div>
 
+          {/* Submit Button */}
           <motion.button
             whileHover={{ scale: 1.015 }}
             whileTap={{ scale: 0.985 }}
