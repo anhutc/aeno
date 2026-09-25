@@ -5,17 +5,18 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  ShieldCheck,
   AlertCircle,
   KeyRound,
   ArrowRight,
-  Crown,
   Phone,
-  CreditCard,
   Copy,
   Check,
   RotateCcw,
   Lock,
+  Sparkles,
+  ShieldCheck,
+  CreditCard,
+  User,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
@@ -78,7 +79,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     async (codeToVerify: string) => {
       const clean = codeToVerify.trim();
       if (!clean) {
-        setError('Vui lòng nhập mật khẩu đăng nhập');
+        setError('Vui lòng nhập mật khẩu');
         return;
       }
 
@@ -163,132 +164,47 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   };
 
   return (
-    <div className="min-h-[75vh] flex items-center justify-center p-3 sm:p-4 w-full">
+    <div className="relative min-h-[82vh] flex items-center justify-center p-3 sm:p-5 w-full select-none">
+      {/* 🌌 Ambient Glow nhẹ nhàng phía sau */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden -z-10 flex items-center justify-center">
+        <div className="absolute -top-12 -left-12 w-72 h-72 rounded-full bg-emerald-400/20 blur-3xl" />
+        <div className="absolute -bottom-16 -right-16 w-72 h-72 rounded-full bg-teal-400/20 blur-3xl" />
+      </div>
+
+      {/* 📦 Khung Thẻ Trung Tâm Hài Hòa, Vừa Vặn */}
       <motion.div
         id="unified-login-card"
-        initial={{ opacity: 0, scale: 0.95, y: 14 }}
-        animate={isShaking ? { x: [-10, 10, -8, 8, -4, 4, 0] } : { opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: isShaking ? 0.38 : 0.28, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden relative"
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={isShaking ? { x: [-8, 8, -6, 6, -3, 3, 0] } : { opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: isShaking ? 0.35 : 0.25, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-[410px] bg-white rounded-3xl shadow-xl shadow-slate-200/80 border border-slate-200/90 overflow-hidden"
       >
-        {/* Top Header Card - Phong cách sáng thanh lịch & sang trọng */}
-        <div className="bg-gradient-to-b from-slate-50 via-slate-50/80 to-white text-slate-900 p-6 sm:p-7 text-center relative border-b border-slate-100">
-          <motion.div
-            initial={{ scale: 0.85, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.08, duration: 0.25 }}
-            className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 text-white mx-auto flex items-center justify-center mb-3 shadow-md shadow-emerald-500/20 ring-4 ring-emerald-50"
-          >
-            <Wallet className="w-7 h-7 text-white stroke-[2.5]" />
-          </motion.div>
+        {/* 1. Header Tinh Gọn */}
+        <div className="pt-6 pb-4 px-6 text-center border-b border-slate-100 bg-gradient-to-b from-slate-50/70 to-white">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white mx-auto flex items-center justify-center mb-2.5 shadow-md shadow-emerald-500/20 ring-4 ring-emerald-50">
+            <Wallet className="w-6 h-6 text-white stroke-[2.5]" />
+          </div>
 
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 mb-2 font-mono">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200/80 mb-1 font-mono">
+            <ShieldCheck className="w-3 h-3 text-emerald-600" />
             <span>XÁC THỰC TRUY CẬP</span>
           </div>
 
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
+          <h1 className="text-lg sm:text-xl font-black tracking-tight text-slate-900 truncate">
             {settings.appTitle || 'Sổ Ghi Nợ & Chia Tiền'}
           </h1>
         </div>
 
-        {/* Khối Thông Tin Liên Hệ & Chuyển Khoản */}
-        <div className="mx-4 sm:mx-6 mt-5 p-3.5 sm:p-4 bg-slate-50/90 border border-slate-200/90 rounded-2xl shadow-2xs space-y-3">
-          <div className="flex items-center justify-between gap-2 sm:gap-3 pb-2.5 border-b border-slate-200/80">
-            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 text-amber-800 flex items-center justify-center shrink-0 shadow-2xs">
-                <Crown className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-none mb-0.5">
-                  Liên hệ
-                </span>
-                <span className="text-sm font-black text-slate-900 truncate block leading-tight">
-                  {settings.ownerName || 'Quản lý'}
-                </span>
-              </div>
-            </div>
-
-            {/* Cụm Số Điện Thoại & Nút Sao Chép Tinh Gọn Trên Cùng 1 Hàng */}
-            <div className="flex items-center bg-emerald-50/90 border border-emerald-200/90 rounded-xl overflow-hidden shadow-2xs shrink-0">
-              <a
-                href={`tel:${displayPhone}`}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-emerald-100/70 active:bg-emerald-200 text-emerald-800 text-xs font-bold transition-colors cursor-pointer"
-                title="Gọi điện liên hệ"
-              >
-                <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="font-mono text-xs">{displayPhone}</span>
-              </a>
-              <div className="w-px h-4 bg-emerald-200/90" />
-              <button
-                type="button"
-                onClick={handleCopyPhone}
-                className="p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100/70 active:bg-emerald-200 transition-colors cursor-pointer"
-                title="Sao chép số điện thoại"
-                aria-label="Sao chép số điện thoại"
-              >
-                {copiedPhone ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5 text-emerald-600" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Tài khoản ngân hàng nhận chuyển khoản của Quản lý */}
-          {(settings.accountNumber || settings.bankName) && (
-            <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
-              <div className="flex items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <CreditCard className="w-4 h-4 text-blue-600 shrink-0" />
-                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-                    <span className="text-slate-600 font-medium">
-                      {settings.bankName || settings.bankId}
-                    </span>
-                    <span className="text-slate-300">•</span>
-                    <strong className="font-mono font-bold text-slate-900 text-xs sm:text-sm tracking-wide select-all whitespace-nowrap">
-                      {settings.accountNumber}
-                    </strong>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleCopyAcc}
-                  className="px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 rounded-lg border border-blue-200 transition-colors cursor-pointer shrink-0 flex items-center gap-1 shadow-2xs self-center"
-                  title="Sao chép số tài khoản"
-                >
-                  {copiedAcc ? (
-                    <Check className="w-3.5 h-3.5 text-blue-700" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5" />
-                  )}
-                </button>
-              </div>
-
-              {settings.accountName && (
-                <div className="text-[11px] text-slate-500 font-medium pt-1.5 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-slate-500 shrink-0">Chủ tài khoản:</span>
-                  <span className="uppercase text-slate-800 font-bold tracking-wide break-words">
-                    {settings.accountName}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Form Đăng Nhập Tiêu Chuẩn */}
-        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 space-y-4">
+        {/* 2. Form Nhập Mật Khẩu */}
+        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 space-y-3.5">
           <AnimatePresence>
             {error && (
               <motion.div
-                initial={{ opacity: 0, height: 0, y: -6 }}
+                initial={{ opacity: 0, height: 0, y: -4 }}
                 animate={{ opacity: 1, height: 'auto', y: 0 }}
-                exit={{ opacity: 0, height: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-                className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-semibold leading-relaxed flex items-start gap-2.5 shadow-2xs overflow-hidden"
+                exit={{ opacity: 0, height: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+                className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold flex items-start gap-2 shadow-2xs overflow-hidden"
               >
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span>{error}</span>
@@ -300,7 +216,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <label
                 htmlFor="unified-passcode-input"
-                className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5"
+                className="text-xs font-bold text-slate-700 flex items-center gap-1.5"
               >
                 <Lock className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Mật khẩu:</span>
@@ -333,14 +249,14 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 autoCorrect="off"
                 spellCheck={false}
                 disabled={isLoading}
-                className="w-full pl-4 pr-11 py-3.5 text-base sm:text-lg font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-2xl placeholder:text-slate-400 placeholder:text-xs placeholder:font-normal focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
+                className="w-full pl-3.5 pr-10 py-3 text-base font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl placeholder:text-slate-400 placeholder:text-xs placeholder:font-normal focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
               />
 
               <button
                 type="button"
                 onClick={() => setShowPasscode(!showPasscode)}
                 tabIndex={-1}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer rounded-lg hover:bg-slate-100 transition-colors"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer rounded-lg hover:bg-slate-100 transition-colors"
                 title={showPasscode ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
               >
                 {showPasscode ? (
@@ -352,14 +268,12 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             </div>
           </div>
 
-          {/* Submit Button */}
-          <motion.button
-            whileHover={{ scale: 1.015 }}
-            whileTap={{ scale: 0.985 }}
+          {/* Nút Đăng Nhập Đậm Chất & Đồng Bộ */}
+          <button
             type="submit"
             id="btn-unified-login-submit"
             disabled={isLoading || !passcode.trim()}
-            className="w-full py-3.5 px-5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             {isLoading ? (
               <>
@@ -368,16 +282,96 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
               </>
             ) : (
               <>
+                <Sparkles className="w-4 h-4 text-emerald-200" />
                 <span>Đăng Nhập</span>
                 <ArrowRight className="w-4 h-4 text-white" />
               </>
             )}
-          </motion.button>
+          </button>
         </form>
 
-        {/* Footer Note */}
-        <div className="p-3.5 bg-slate-50/90 border-t border-slate-100 text-center text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
-          <KeyRound className="w-3.5 h-3.5 text-slate-400" />
+        {/* 3. Khối Thông Tin Tài Khoản Nhận Tiền - Thiết Kế Hài Hòa Tinh Tế (Thanh lịch & Nhẹ nhàng) */}
+        {(settings.accountNumber || displayPhone) && (
+          <div className="mx-5 sm:mx-6 mb-5 p-3.5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/70 border border-slate-200/90 text-slate-800 space-y-2.5 shadow-2xs">
+            {/* Hàng 1: Ngân hàng & STK */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-emerald-100 border border-emerald-200 text-emerald-800 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {settings.bankName || settings.bankId || 'Ngân hàng'}
+                  </div>
+                  <strong className="font-mono text-sm font-black text-slate-900 tracking-wide select-all block truncate">
+                    {settings.accountNumber || 'Chưa cập nhật STK'}
+                  </strong>
+                </div>
+              </div>
+
+              {settings.accountNumber && (
+                <button
+                  type="button"
+                  onClick={handleCopyAcc}
+                  className="px-2.5 py-1 text-[11px] font-bold text-emerald-700 bg-white hover:bg-emerald-50 active:scale-95 rounded-lg border border-slate-200 shadow-2xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                  title="Sao chép số tài khoản"
+                >
+                  {copiedAcc ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span className="text-emerald-600 text-[10px]">Đã chép</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span className="text-[10px]">Chép STK</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Đường phân cách mảnh */}
+            <div className="h-px bg-slate-200/70" />
+
+            {/* Hàng 2: Chủ tài khoản & SĐT liên hệ */}
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5 min-w-0 text-slate-600">
+                <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="font-bold text-slate-800 uppercase tracking-wide truncate text-[11px]">
+                  {settings.accountName || settings.ownerName || 'Quản lý'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0 bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                <a
+                  href={`tel:${displayPhone}`}
+                  className="text-emerald-700 hover:text-emerald-800 text-[11px] font-mono font-bold flex items-center gap-1"
+                  title="Gọi điện"
+                >
+                  <Phone className="w-3 h-3 text-emerald-600" />
+                  <span>{displayPhone}</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={handleCopyPhone}
+                  className="p-1 text-slate-400 hover:text-slate-700 active:scale-95 cursor-pointer ml-0.5"
+                  title="Sao chép số điện thoại"
+                >
+                  {copiedPhone ? (
+                    <Check className="w-3 h-3 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. Footer Tối Giản */}
+        <div className="py-2.5 px-4 bg-slate-50 border-t border-slate-100 text-center text-[10.5px] text-slate-400 flex items-center justify-center gap-1.5">
+          <KeyRound className="w-3 h-3 text-slate-400" />
           <span>Quên mật khẩu? Vui lòng liên hệ trực tiếp quản lý</span>
         </div>
       </motion.div>
