@@ -40,7 +40,6 @@ import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance } from '../utils/storage';
 import { AnimatedCounter } from './AnimatedCounter';
-import { triggerSettledCelebration } from '../utils/confetti';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
 import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
@@ -631,17 +630,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
               Đã hết nợ ({settledDebtors.length})
             </button>
-            {settledDebtors.length > 0 && (
-              <button
-                type="button"
-                onClick={triggerSettledCelebration}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
-                title="Bắn pháo hoa ăn mừng các bạn đã thanh toán sạch nợ"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>Ăn mừng 🎉</span>
-              </button>
-            )}
           </div>
 
           {sortedDebtors.length === 0 ? (

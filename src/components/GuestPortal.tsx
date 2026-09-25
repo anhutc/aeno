@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Calendar,
@@ -156,6 +156,27 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   const currentBalance = getDebtorBalance(debtor.id, transactions);
   const statement = getDebtorStatement(debtor.id, transactions);
 
+  // Tự động bắn pháo hoa ăn mừng khi tra cứu nếu đã hết nợ (số dư <= 0)
+  const hasCelebratedOnMount = useRef(false);
+  useEffect(() => {
+    if (!hasCelebratedOnMount.current && currentBalance <= 0) {
+      hasCelebratedOnMount.current = true;
+      const timer = setTimeout(() => {
+        triggerSettledCelebration();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [currentBalance]);
+
+  // Và tự động bắn nếu vừa được cập nhật real-time từ còn nợ sang hết nợ
+  const prevBalanceRef = useRef<number | null>(currentBalance);
+  useEffect(() => {
+    if (prevBalanceRef.current !== null && prevBalanceRef.current > 0 && currentBalance <= 0) {
+      triggerSettledCelebration();
+    }
+    prevBalanceRef.current = currentBalance;
+  }, [currentBalance]);
+
   // Statistics for quick mobile overview
   const totalAdded = useMemo(() => {
     return transactions
@@ -245,7 +266,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           <div className="text-left sm:text-right text-xs text-slate-500">
             {/* Ẩn/Hiện Pass */}
             <div className="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 font-mono shadow-2xs">
-              <span className="text-slate-500 text-[11px]">Mật khẩu tra cứu:</span>
+              <span className="text-slate-500 text-[11px]">Mật khẩu:</span>
               <span className="text-slate-900 font-extrabold text-xs">
                 {showPin ? debtor.pin : '••••'}
               </span>
@@ -285,7 +306,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     : 'bg-slate-200 text-slate-700'
                 }`}
               >
-                {currentBalance > 0 ? 'Cần thanh toán' : currentBalance < 0 ? 'Quản lý hoàn trả' : 'Hoàn tất'}
+                {currentBalance > 0 ? 'Cần thanh toán' : currentBalance < 0 ? 'Được thanh toán' : 'Hoàn thành'}
               </span>
             </div>
 
@@ -306,19 +327,10 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   {activeSettings.ownerName} đang nợ bạn {formatVND(Math.abs(currentBalance))}
                 </span>
               ) : (
-                <div className="flex items-center justify-between w-full">
-                  <span className="text-slate-600 inline-flex items-center gap-2">
-                    <span>✨</span>
-                    Đã thanh toán hết, đôi bên không còn dư nợ
-                  </span>
-                  <button
-                    type="button"
-                    onClick={triggerSettledCelebration}
-                    className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer flex items-center gap-1"
-                  >
-                    <span>Ăn mừng 🎉</span>
-                  </button>
-                </div>
+                <span className="text-slate-600 inline-flex items-center gap-2">
+                  <span>✨</span>
+                  Đã thanh toán hết, đôi bên không còn dư nợ
+                </span>
               )}
             </div>
           </div>

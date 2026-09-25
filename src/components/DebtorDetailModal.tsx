@@ -35,7 +35,6 @@ import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
 import { AnimatedCounter } from './AnimatedCounter';
-import { triggerSettledCelebration } from '../utils/confetti';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -185,28 +184,18 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
           <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
             {/* Celebration banner if settled */}
             {currentBalance === 0 && (
-              <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border border-emerald-200/90 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-sm shadow-xs animate-bounce">
-                    🎉
-                  </div>
-                  <div>
-                    <div className="text-xs font-black text-emerald-950 uppercase tracking-wide">
-                      Đã hoàn thành sạch nợ 100%!
-                    </div>
-                    <p className="text-[11px] text-emerald-700 font-medium">
-                      Không còn bất kỳ khoản nợ nào tồn đọng
-                    </p>
-                  </div>
+              <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border border-emerald-200/90 rounded-2xl flex items-center gap-3 shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-sm shadow-xs animate-bounce shrink-0">
+                  🎉
                 </div>
-                <button
-                  type="button"
-                  onClick={triggerSettledCelebration}
-                  className="px-3 py-1.5 bg-white text-emerald-700 hover:bg-emerald-50 active:scale-95 border border-emerald-300 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                >
-                  <span>Pháo hoa</span>
-                  <span>✨</span>
-                </button>
+                <div>
+                  <div className="text-xs font-black text-emerald-950 uppercase tracking-wide">
+                    Đã hoàn thành sạch nợ 100%!
+                  </div>
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    Không còn bất kỳ khoản nợ nào tồn đọng
+                  </p>
+                </div>
               </div>
             )}
 

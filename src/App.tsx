@@ -342,11 +342,16 @@ export default function App() {
 
   const handleUpdateTransaction = async (updatedTx: Transaction) => {
     lastActionTimeRef.current = Date.now();
+    const prevBalance = getDebtorBalance(updatedTx.debtorId, transactions);
     // Optimistic local state update
     setTransactions((prev) => prev.map((t) => (t.id === updatedTx.id ? updatedTx : t)));
     const res = await apiUpdateTransaction(updatedTx);
     if (res.success && res.transactions) {
       setTransactions(res.transactions);
+      const newBalance = getDebtorBalance(updatedTx.debtorId, res.transactions);
+      if (prevBalance > 0 && newBalance <= 0) {
+        triggerSettledCelebration();
+      }
     } else if (!res.success) {
       alert(res.message || 'Lỗi khi cập nhật giao dịch');
     }
@@ -486,8 +491,9 @@ export default function App() {
                 onLoginOwnerSuccess={handleOwnerLoginSuccess}
                 onLoginGuestSuccess={(debtor, txs, setts) => {
                   setGuestInitialDebtor(debtor);
-                  if (txs && txs.length > 0) {
-                    setTransactions(txs);
+                  const validTxs = txs || [];
+                  if (validTxs.length > 0) {
+                    setTransactions(validTxs);
                   }
                   if (setts) {
                     setSettings(setts);
@@ -495,6 +501,13 @@ export default function App() {
                   setCurrentView('GUEST');
                   if (window.location.hash) {
                     window.history.replaceState(null, '', window.location.pathname);
+                  }
+                  // Nếu đã hết nợ (số dư <= 0) thì bắn pháo hoa ăn mừng ngay khi tra cứu thành công
+                  const balance = getDebtorBalance(debtor.id, validTxs);
+                  if (balance <= 0) {
+                    setTimeout(() => {
+                      triggerSettledCelebration();
+                    }, 350);
                   }
                 }}
               />
