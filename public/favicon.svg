@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="50%" stop-color="#0d9488" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#022c22" flood-opacity="0.25" />
+    </filter>
+  </defs>
+
+  <!-- Background squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bgGrad)" />
+  <rect x="2.5" y="2.5" width="59" height="59" rx="14.5" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" />
+
+  <!-- Ledger / Wallet symbol -->
+  <g filter="url(#shadow)">
+    <!-- Main Book / Ledger Folder -->
+    <rect x="14" y="16" width="36" height="32" rx="6" fill="#ffffff" />
+    <!-- Spine Accent -->
+    <path d="M14 20C14 17.7909 15.7909 16 18 16H23V48H18C15.7909 48 14 46.2091 14 44V20Z" fill="#a7f3d0" />
+    <!-- Horizontal Ledger Lines -->
+    <rect x="27" y="23" width="17" height="3" rx="1.5" fill="#10b981" />
+    <rect x="27" y="29" width="12" height="3" rx="1.5" fill="#94a3b8" />
+    <rect x="27" y="35" width="15" height="3" rx="1.5" fill="#cbd5e1" />
+    <!-- Golden Coin Badge / Check -->
+    <circle cx="43" cy="38" r="6" fill="#f59e0b" />
+    <path d="M41 38L42.5 39.5L45.5 36.5" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

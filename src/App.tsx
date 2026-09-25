@@ -48,6 +48,7 @@ import { EditTransactionModal } from './components/EditTransactionModal';
 import { SplitBillModal } from './components/SplitBillModal';
 import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
+import { BottomNavBar } from './components/BottomNavBar';
 
 export default function App() {
   // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
@@ -462,7 +463,7 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
+      <main className={`flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 ${isOwnerAuthenticated ? 'pb-24 sm:pb-6' : ''}`}>
         <AnimatePresence mode="wait">
           {!isOwnerAuthenticated && !guestInitialDebtor ? (
             <motion.div
@@ -659,6 +660,27 @@ export default function App() {
         title={viewImageTitle}
         onClose={() => setViewImageUrl(null)}
       />
+
+      {/* Mobile Bottom Navigation Dock (Chỉ cho Chủ Sổ) */}
+      {isOwnerAuthenticated && (
+        <BottomNavBar
+          currentView={currentView}
+          isOwnerAuthenticated={isOwnerAuthenticated}
+          onViewChange={handleViewChange}
+          onOpenAddTx={() => {
+            setDefaultTxDebtorId(undefined);
+            setIsAddTxOpen(true);
+          }}
+          onOpenSplitParty={() => {
+            setEditingParty(null);
+            setIsSplitPartyOpen(true);
+          }}
+          onOpenAddDebtor={() => {
+            setEditingDebtor(null);
+            setIsAddDebtorOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 }
