@@ -985,7 +985,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                1. Mẫu Gửi Mật Khẩu Tra Cứu
+                1. Tra Cứu
               </button>
               <button
                 type="button"
@@ -996,7 +996,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                2. Mẫu Nhắc Nợ Lịch Sự
+                2. Nhắc Nợ
               </button>
             </div>
 
