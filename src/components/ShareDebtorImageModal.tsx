@@ -118,14 +118,6 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
     return () => window.removeEventListener('resize', calculateScale);
   }, [viewMode]);
 
-  // Chuẩn bị URL VietQR
-  const memoSuffix = (settings.defaultMemoPrefix ?? 'TRA NO').trim();
-  const rawMemo = memoSuffix ? `${debtor?.name || ''} ${memoSuffix}` : (debtor?.name || '');
-  const vietQrMemo = rawMemo
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
-
   const qrUrl = useMemo(() => {
     if (!debtor || !settings.bankId || !settings.accountNumber) return null;
     return generateVietQrUrl({
@@ -133,10 +125,9 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
       accountNumber: settings.accountNumber,
       accountName: settings.accountName,
       amount: currentBalance > 0 ? currentBalance : undefined,
-      memo: vietQrMemo,
       template: settings.vietQrTemplate || 'compact2',
     });
-  }, [debtor, settings, currentBalance, vietQrMemo]);
+  }, [debtor, settings, currentBalance]);
 
   // Preload VietQR thành Base64 Data URL để html-to-image không bị lỗi CORS hay tải chậm
   useEffect(() => {
@@ -526,9 +517,6 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                   Chủ TK: <strong className="text-slate-900">{settings.accountName.toUpperCase()}</strong>
                 </div>
               )}
-              <div className="text-[11px] text-slate-600 pt-0.5 truncate">
-                Nội dung: <strong className="text-emerald-700 font-mono">{vietQrMemo}</strong>
-              </div>
             </div>
           </div>
         </div>

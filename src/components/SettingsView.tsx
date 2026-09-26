@@ -86,6 +86,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   });
 
   // Normalize settings with strict fallbacks
+  const cleanTemplate = (text: string | undefined, defaultText: string) => {
+    if (!text) return defaultText;
+    // Strip any lingering line with "Nội dung chuyển khoản" or similar
+    return text
+      .split('\n')
+      .filter((line) => !line.toLowerCase().includes('nội dung chuyển khoản') && !line.toLowerCase().includes('noi dung chuyen khoan'))
+      .join('\n');
+  };
+
   const normalizeSettings = (s: Partial<AppSettings> = {}): AppSettings => ({
     ownerName: s.ownerName || 'Chủ Sổ',
     ownerPhone: s.ownerPhone || '',
@@ -93,13 +102,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     bankName: s.bankName || 'MB Bank',
     accountNumber: s.accountNumber || '',
     accountName: s.accountName || '',
-    defaultMemoPrefix: s.defaultMemoPrefix || 'TRA NO',
+    defaultMemoPrefix: '',
     ownerPassword: s.ownerPassword || 'admin123',
     appTitle: s.appTitle || DEFAULT_APP_TITLE,
     appSubtitle: s.appSubtitle || DEFAULT_APP_SUBTITLE,
-    shareMessageTemplate: s.shareMessageTemplate || DEFAULT_SHARE_MESSAGE,
-    lookupGuideTemplate: s.lookupGuideTemplate || s.shareMessageTemplate || DEFAULT_LOOKUP_GUIDE,
-    reminderMessageTemplate: s.reminderMessageTemplate || DEFAULT_REMINDER_TEMPLATE,
+    shareMessageTemplate: cleanTemplate(s.shareMessageTemplate, DEFAULT_SHARE_MESSAGE),
+    lookupGuideTemplate: cleanTemplate(s.lookupGuideTemplate || s.shareMessageTemplate, DEFAULT_LOOKUP_GUIDE),
+    reminderMessageTemplate: cleanTemplate(s.reminderMessageTemplate, DEFAULT_REMINDER_TEMPLATE),
     guestAnnouncement:
       s.guestAnnouncement !== undefined
         ? s.guestAnnouncement
@@ -455,16 +464,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Live VietQR URL preview
   const liveVietQrUrl = useMemo(() => {
     if (!formData.bankId || !formData.accountNumber) return '';
-    const memoSuffix = (formData.defaultMemoPrefix ?? 'TRA NO').trim();
-    const memoText = memoSuffix ? `NGUYEN VAN A ${memoSuffix}` : 'NGUYEN VAN A';
     return generateVietQrUrl({
       bankId: formData.bankId,
       accountNumber: formData.accountNumber,
       accountName: formData.accountName,
-      memo: memoText,
       template: formData.vietQrTemplate || 'compact2',
     });
-  }, [formData.bankId, formData.accountNumber, formData.accountName, formData.defaultMemoPrefix, formData.vietQrTemplate]);
+  }, [formData.bankId, formData.accountNumber, formData.accountName, formData.vietQrTemplate]);
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-4 pb-16 animate-in fade-in duration-150">
@@ -567,7 +573,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Ngân Hàng &amp; VietQR</span>
+          <span>Ngân Hàng</span>
         </button>
 
         <button
@@ -706,36 +712,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Nội Dung Chuyển Khoản Mặc Định:
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.defaultMemoPrefix || ''}
-                      onChange={(e) => setFormData({ ...formData, defaultMemoPrefix: e.target.value })}
-                      placeholder="TRA NO"
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-2xl text-xs font-mono font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 uppercase"
-                    />
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {['TRA NO', 'THANH TOAN', 'TIEN AN', 'TIEN PHONG', 'TIEN HANG'].map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => setFormData({ ...formData, defaultMemoPrefix: tag })}
-                          className={`text-[10px] font-mono px-2 py-0.5 rounded-lg border transition-colors cursor-pointer ${
-                            formData.defaultMemoPrefix === tag
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          {tag}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
+                <div className="pt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Kiểu Khung Hiển Thị VietQR:
@@ -990,7 +967,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="border-b border-slate-100 pb-4">
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-emerald-600" />
-                <span>Tùy Biến Mẫu Tin Nhắn Gửi Cho Con Nợ</span>
+                <span>Tùy Biến Mẫu Tin Nhắn</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                 Tùy chỉnh nội dung tin nhắn gửi Zalo/SMS khi gửi link sao kê hoặc tin nhắn nhắc nợ lịch sự.
@@ -1008,7 +985,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                1. Mẫu Gửi Pass Tra Cứu
+                1. Mẫu Gửi Mật Khẩu Tra Cứu
               </button>
               <button
                 type="button"
@@ -1028,7 +1005,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-xs font-bold text-slate-900">
                   {activeTemplateTab === 'LOOKUP'
-                    ? 'Nội dung tin gửi Link và Mật khẩu tra cứu:'
+                    ? 'Nội dung tin gửi Đường dẫn và Mật khẩu tra cứu:'
                     : 'Nội dung tin nhắn nhắc nợ định kỳ:'}
                 </span>
 
@@ -1118,7 +1095,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
                 <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Lời Nhắn Ghim Đầu Trang Sao Kê:
+                  Lời Nhắn Ghim Đầu Trang Tra Cứu:
                 </label>
                 <textarea
                   rows={2}

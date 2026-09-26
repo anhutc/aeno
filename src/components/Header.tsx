@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Title & Subtitle */}
               <div className="min-w-0">
                 <h1 className="font-bold text-base sm:text-lg text-slate-900 tracking-tight truncate group-hover:text-emerald-700 transition-colors leading-tight">
-                  {settings.appTitle || 'OK Sổ Ghi Nợ'}
+                  {settings.appTitle || 'AE Cây Khế'}
                 </h1>
                 <p className="text-[11px] text-slate-500 hidden sm:block truncate max-w-xs sm:max-w-sm lg:max-w-md mt-0.5 leading-none">
                   {isOwnerAuthenticated

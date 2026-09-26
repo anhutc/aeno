@@ -1,10 +1,9 @@
 /**
  * ============================================================================
  * GHI CHÚ CHỈNH SỬA / CHANGELOG:
- * - Xóa số điện thoại người nợ: Bỏ tìm kiếm và hiển thị SĐT người nợ trong danh sách tra cứu.
- * - Thêm số điện thoại Chủ Nợ: Hiển thị SĐT Chủ Nợ trong phần thông tin chuyển khoản / liên hệ
- *   giúp con nợ dễ dàng liên lạc hoặc thắc mắc khi xem sao kê.
- * - Tối ưu giao diện: Giao diện tra cứu sao kê trực quan, tương thích di động tối đa.
+ * - Giữ lại đầy đủ các thông tin chuyển khoản: Tên ngân hàng, Số tài khoản,
+ *   Chủ tài khoản, Số tiền cần chuyển, Mã QR quét thanh toán, SĐT liên hệ.
+ * - Loại bỏ hoàn toàn trường "Nội dung chuyển khoản" (cú pháp ghi chú CK) theo yêu cầu.
  * ============================================================================
  */
 
@@ -58,13 +57,10 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   allTransactions = [],
   appSettings,
 }) => {
-  const currentDebtor = propDebtor || initialDebtor || null;
-  const [debtor, setDebtor] = useState<Debtor | null>(currentDebtor);
+  const [debtor, setDebtor] = useState<Debtor | null>(propDebtor || initialDebtor || null);
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    if (currentDebtor) {
-      return allTransactions.filter((t) => t.debtorId === currentDebtor.id);
-    }
-    return [];
+    const active = propDebtor || initialDebtor;
+    return active ? allTransactions.filter((t) => t.debtorId === active.id) : [];
   });
 
   // Privacy: Hide debtor PIN/Pass by default on screen
@@ -77,7 +73,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   // Copy state
   const [copiedAcc, setCopiedAcc] = useState(false);
-  const [copiedMemo, setCopiedMemo] = useState(false);
   const [copiedAmount, setCopiedAmount] = useState(false);
 
   // Sync if prop changes
@@ -105,7 +100,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     ownerName: 'Quản lý',
     ownerPhone: '0987654321',
     appTitle: 'Sổ Ghi Nợ & Chia Tiền',
-    defaultMemoPrefix: 'TRA NO',
+    defaultMemoPrefix: '',
     bankId: '',
     accountNumber: '',
     accountName: '',
@@ -200,17 +195,9 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     return sortOrder === 'newest' ? list.reverse() : list;
   }, [statement, typeFilter, sortOrder]);
 
-  // VietQR Memo
-  const suffix = (activeSettings.defaultMemoPrefix ?? 'TRA NO').trim();
-  const rawMemo = suffix ? `${debtor.name} ${suffix}` : debtor.name;
-  const vietQrMemo = rawMemo
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
-
   const qrTemplate = activeSettings.vietQrTemplate || 'compact2';
 
-  // Standard Bank Account QR (QR STK Ngân Hàng - amount is undefined so user enters amount directly in their banking app)
+  // Standard Bank Account QR (không gài nội dung chuyển khoản)
   const vietQrUrl =
     activeSettings.bankId && activeSettings.accountNumber
       ? generateVietQrUrl({
@@ -218,7 +205,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           accountNumber: activeSettings.accountNumber,
           accountName: activeSettings.accountName,
           amount: undefined,
-          memo: vietQrMemo,
+          memo: undefined,
           template: qrTemplate,
         })
       : null;
@@ -256,7 +243,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-widest text-emerald-700 font-extrabold font-mono">
-                👤 SAO KÊ CÁ NHÂN
+                👤 TRA CỨU GIAO DỊCH
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black mt-1 text-slate-900 tracking-tight">
@@ -298,11 +285,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 💰 DƯ NỢ HIỆN TẠI
               </span>
               <span
-                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                className={`text-[11px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider ${
                   currentBalance > 0
-                    ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                    ? 'bg-rose-100 text-rose-800'
                     : currentBalance < 0
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    ? 'bg-emerald-100 text-emerald-800'
                     : 'bg-slate-200 text-slate-700'
                 }`}
               >
@@ -310,9 +297,26 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               </span>
             </div>
 
-            <div className="text-3xl sm:text-5xl font-black mt-2 tracking-tight font-mono">
-              {currentBalance > 0 && '+ '}
-              <AnimatedCounter value={currentBalance} formatter={formatVND} />
+            <div className="mt-2">
+              <div
+                className={`text-3xl sm:text-4xl font-black font-mono tracking-tight leading-none ${
+                  currentBalance > 0
+                    ? 'text-rose-600'
+                    : currentBalance < 0
+                    ? 'text-emerald-600'
+                    : 'text-slate-800'
+                }`}
+              >
+                <AnimatedCounter
+                  value={Math.abs(currentBalance)}
+                  formatter={(val) => {
+                    const formatted = formatVND(val);
+                    if (currentBalance > 0) return `+${formatted}`;
+                    if (currentBalance < 0) return `-${formatted}`;
+                    return formatted;
+                  }}
+                />
+              </div>
             </div>
 
             <div className="mt-3 text-xs sm:text-sm font-semibold pt-2 border-t border-black/5 flex flex-wrap items-center justify-between gap-2">
@@ -336,6 +340,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           </div>
         </div>
 
+        {/* 💳 THÔNG TIN CHUYỂN KHOẢN (ĐÃ LOẠI BỎ TRƯỜNG NỘI DUNG CHUYỂN KHOẢN) */}
         {currentBalance > 0 ? (
           <div className="p-5 sm:p-7 bg-slate-50/70 border-b border-slate-200/80 space-y-4">
             <div className="flex items-center gap-2">
@@ -401,36 +406,15 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500 font-medium">Số tiền nợ:</span>
+                    <span className="text-slate-500 font-medium">Số tiền cần thanh toán:</span>
                     <strong className="text-rose-600 font-black text-base font-mono">
                       {formatVND(currentBalance)}
                     </strong>
                   </div>
                 </div>
-
-                <div className="pt-3 border-t border-slate-100 bg-slate-50/80 -mx-5 -mb-5 p-4 rounded-b-3xl space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-500 text-[11px] font-medium">Nội dung chuyển khoản:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(vietQrMemo);
-                        setCopiedMemo(true);
-                        setTimeout(() => setCopiedMemo(false), 2000);
-                      }}
-                      className="inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-800 font-bold px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
-                    >
-                      {copiedMemo ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                      <span>{copiedMemo ? 'Đã sao chép' : 'Sao chép'}</span>
-                    </button>
-                  </div>
-                  <div className="font-mono font-bold text-xs bg-white px-3 py-2 rounded-xl border border-slate-200 text-slate-900 break-all select-all">
-                    {vietQrMemo}
-                  </div>
-                </div>
               </div>
 
-              {/* MÃ VIETQR STK NGÂN HÀNG */}
+              {/* MÃ VIETQR QUÉT NHANH */}
               {vietQrUrl && (
                 <div className="p-5 bg-white rounded-3xl border border-emerald-200/90 shadow-2xs space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
@@ -465,20 +449,47 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             </div>
           </div>
         ) : (
-          <div className="p-4 sm:p-6 bg-slate-50 border-b border-slate-200 text-center">
+          <div className="p-4 sm:p-6 bg-slate-50 border-b border-slate-200">
             {currentBalance < 0 ? (
-              <div className="p-4 bg-emerald-50 text-emerald-800 rounded-2xl border border-emerald-200 text-xs space-y-1">
-                <div className="font-bold text-sm">
-                  ✨ {activeSettings.ownerName} đang có trách nhiệm trả lại bạn{' '}
-                  {formatVND(Math.abs(currentBalance))}
+              <div className="p-5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white text-emerald-950 rounded-2xl border border-emerald-200 shadow-2xs space-y-3.5">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                    <Phone className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-extrabold text-sm sm:text-base text-emerald-900 leading-tight">
+                      ✨ {activeSettings.ownerName} đang có trách nhiệm trả lại bạn {formatVND(Math.abs(currentBalance))}
+                    </div>
+                    <p className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                      Vui lòng gửi số tài khoản của bạn cho <strong>{activeSettings.ownerName}</strong> để nhận lại tiền nhé!
+                    </p>
+                  </div>
                 </div>
-                <p>
-                  Bạn không cần thanh toán. Hãy gửi số tài khoản của bạn cho{' '}
-                  {activeSettings.ownerName} để nhận lại tiền nhé!
-                </p>
+
+                {/* Khối thông tin liên hệ trực tiếp Chủ Sổ */}
+                <div className="pt-3 border-t border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-500 font-medium block text-[11px]">Thông tin liên hệ {activeSettings.ownerName}:</span>
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                      <span>SĐT / Zalo: </span>
+                      <strong className="font-mono text-emerald-800 text-sm tracking-wide">{contactPhone}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`tel:${contactPhone}`}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer text-xs"
+                      title="Bấm để gọi điện trực tiếp"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Gọi điện ngay</span>
+                    </a>
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="p-4 bg-slate-100 text-slate-700 rounded-2xl border border-slate-200 text-xs font-medium leading-relaxed whitespace-pre-line">
+              <div className="p-4 bg-slate-100 text-slate-700 rounded-2xl border border-slate-200 text-xs font-medium leading-relaxed whitespace-pre-line text-center">
                 {activeSettings.settledThankYouNote || DEFAULT_SETTLED_NOTE}
               </div>
             )}
@@ -491,7 +502,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <h2 className="font-black text-xs sm:text-sm text-slate-900 uppercase tracking-wide flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-600" />
-              <span>LỊCH SỬ GIAO DỊCH ({statement.length})</span>
+              <span>GIAO DỊCH ({statement.length})</span>
             </h2>
             <div className="flex items-center self-start sm:self-auto bg-slate-100 p-1 rounded-xl text-[11px] font-semibold text-slate-600 border border-slate-200/80">
               <button
@@ -523,94 +534,98 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             </div>
           </div>
 
-          {/* Quick Stats Summary Grid for mobile */}
-          <div className="grid grid-cols-2 gap-2 mb-3.5">
-            <div className="p-3 bg-rose-50/60 rounded-2xl border border-rose-100 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] uppercase font-bold text-rose-600 block leading-tight">Tổng nợ thêm</span>
-                <span className="text-xs sm:text-sm font-black text-rose-700 font-mono truncate block">
-                  +{formatVND(totalAdded)}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-3 bg-emerald-50/60 rounded-2xl border border-emerald-100 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                <TrendingDown className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] uppercase font-bold text-emerald-600 block leading-tight">Tổng đã trả</span>
-                <span className="text-xs sm:text-sm font-black text-emerald-700 font-mono truncate block">
-                  -{formatVND(totalSubtracted)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Filter Segmented Control */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 mb-4 overflow-x-auto text-[11px] font-bold">
+          {/* 🔘 Segmented Control Bố Cục Đều 3 Cột (Tất cả, Tiền nợ, Đã trả) */}
+          <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100/90 rounded-2xl mb-4 text-xs font-bold border border-slate-200/60">
             <button
               type="button"
               onClick={() => setTypeFilter('ALL')}
-              className={`flex-1 py-1.5 px-2.5 rounded-lg text-center transition-all cursor-pointer whitespace-nowrap ${
+              className={`py-2 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
                 typeFilter === 'ALL'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900'
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80 font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
-              Tất cả ({statement.length})
+              <span>Tất cả</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${typeFilter === 'ALL' ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/70 text-slate-600'}`}>
+                {statement.length}
+              </span>
             </button>
+
             <button
               type="button"
               onClick={() => setTypeFilter('ADD')}
-              className={`flex-1 py-1.5 px-2.5 rounded-lg text-center transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
+              className={`py-2 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
                 typeFilter === 'ADD'
-                  ? 'bg-white text-rose-700 shadow-xs'
-                  : 'text-slate-500 hover:text-rose-600'
+                  ? 'bg-rose-500 text-white shadow-sm font-black'
+                  : 'text-rose-700 hover:bg-rose-50/70'
               }`}
             >
-              <PlusCircle className="w-3 h-3 text-rose-500" />
-              <span>Ghi nợ</span>
+              <span className="flex items-center gap-1 truncate">
+                <TrendingUp className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+                <span>Tiền nợ</span>
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${typeFilter === 'ADD' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'}`}>
+                +{formatVND(totalAdded)}
+              </span>
             </button>
+
             <button
               type="button"
               onClick={() => setTypeFilter('SUB')}
-              className={`flex-1 py-1.5 px-2.5 rounded-lg text-center transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
+              className={`py-2 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
                 typeFilter === 'SUB'
-                  ? 'bg-white text-emerald-700 shadow-xs'
-                  : 'text-slate-500 hover:text-emerald-600'
+                  ? 'bg-emerald-600 text-white shadow-sm font-black'
+                  : 'text-emerald-700 hover:bg-emerald-50/70'
               }`}
             >
-              <MinusCircle className="w-3 h-3 text-emerald-500" />
-              <span>Đã trả</span>
+              <span className="flex items-center gap-1 truncate">
+                <TrendingDown className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+                <span>Đã trả</span>
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${typeFilter === 'SUB' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                -{formatVND(totalSubtracted)}
+              </span>
             </button>
           </div>
 
           {displayedStatement.length === 0 ? (
-            <div className="text-center py-10 bg-slate-50/80 rounded-3xl text-slate-400 text-xs border border-dashed border-slate-200 space-y-1">
-              <p className="font-semibold text-slate-500">Chưa có giao dịch phù hợp với bộ lọc.</p>
-              <p className="text-[11px]">Vui lòng chọn tab "Tất cả" để xem toàn bộ lịch sử.</p>
+            <div className="text-center py-10 sm:py-12 bg-slate-50/70 rounded-3xl border border-dashed border-slate-200 text-slate-400">
+              <Receipt className="w-10 h-10 mx-auto text-slate-300 mb-2 stroke-1" />
+              <p className="text-sm font-semibold text-slate-600">
+                {typeFilter === 'ALL'
+                  ? 'Chưa có phát sinh giao dịch nào'
+                  : typeFilter === 'ADD'
+                  ? 'Không có khoản nợ nào'
+                  : 'Không có khoản thanh toán nào'}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Mọi khoản cộng và trừ sẽ được hiển thị minh bạch tại đây
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {displayedStatement.map(({ transaction: tx, runningBalance }) => {
+              {displayedStatement.map((item, idx) => {
+                const tx = item.transaction;
+                const runningBalance = typeof item.runningBalance === 'number' && !isNaN(item.runningBalance)
+                  ? item.runningBalance
+                  : (typeof (item as any).balanceAfter === 'number' && !isNaN((item as any).balanceAfter)
+                    ? (item as any).balanceAfter
+                    : 0);
                 const isAdd = tx.type === 'ADD';
+
                 return (
                   <div
-                    key={tx.id}
-                    className={`p-3.5 sm:p-4.5 rounded-2xl border transition-all shadow-2xs hover:shadow-xs relative overflow-hidden ${
+                    key={tx.id || idx}
+                    className={`p-4 rounded-2xl border transition-all hover:shadow-xs ${
                       isAdd
-                        ? 'border-slate-200 bg-white hover:border-rose-200'
-                        : 'border-emerald-100 bg-emerald-50/30 hover:border-emerald-200'
+                        ? 'bg-rose-50/30 border-rose-100/80 hover:border-rose-200'
+                        : 'bg-emerald-50/30 border-emerald-100/80 hover:border-emerald-200'
                     }`}
                   >
-                    {/* Top Row: Icon + Date & Category Badge + Receipt Button */}
-                    <div className="flex items-center justify-between gap-2 text-xs mb-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div
+                    {/* Top Row: Date, Badge, and Action */}
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span
                           className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
                             isAdd
                               ? 'bg-rose-100 text-rose-600'
@@ -620,59 +635,64 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                           {isAdd ? (
                             <PlusCircle className="w-4 h-4" />
                           ) : (
-                            <CheckCircle2 className="w-4 h-4" />
+                            <MinusCircle className="w-4 h-4" />
                           )}
-                        </div>
-
-                        <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono text-[11px] font-semibold text-slate-500">
-                            {tx.date}
+                        </span>
+                        <div>
+                          <span
+                            className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                              isAdd
+                                ? 'bg-rose-100/80 text-rose-800'
+                                : 'bg-emerald-100/80 text-emerald-800'
+                            }`}
+                          >
+                            {isAdd ? 'Ghi nợ' : 'Đã thanh toán'}
                           </span>
-
-                          {tx.category === 'PARTY_SPLIT' && (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-bold border border-amber-200/80 shrink-0">
-                              Ăn chia nhóm
-                            </span>
-                          )}
-                          {tx.category === 'PAYMENT_SETTLED' && (
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200/80 shrink-0">
-                              Đã thanh toán
-                            </span>
-                          )}
                         </div>
                       </div>
 
-                      {tx.billImage && (
-                        <button
-                          type="button"
-                          onClick={() => onViewImage(tx.billImage!, tx.note)}
-                          className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:text-blue-800 font-bold bg-blue-50/90 hover:bg-blue-100 px-2.5 py-1 rounded-xl transition-all cursor-pointer border border-blue-200/60 shrink-0"
-                          title="Bấm để phóng to xem ảnh hóa đơn"
-                        >
-                          <Receipt className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Hóa đơn</span>
-                        </button>
-                      )}
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        {tx.date}
+                      </div>
                     </div>
 
-                    {/* Content / Note with thumbnail preview if bill image exists */}
-                    <div className="flex items-start justify-between gap-2.5 mb-2.5">
-                      <div className="font-medium text-slate-800 text-xs sm:text-sm break-words leading-relaxed flex-1">
-                        {tx.note}
-                      </div>
+                    {/* Middle: Description Note */}
+                    <div className="text-xs sm:text-sm text-slate-800 font-medium mb-3 pl-9">
+                      {tx.note ? (
+                        <span className="whitespace-pre-line leading-relaxed">{tx.note}</span>
+                      ) : (
+                        <span className="italic text-slate-400">
+                          {isAdd ? 'Ghi nhận khoản nợ' : 'Thanh toán tiền'}
+                        </span>
+                      )}
 
-                      {tx.billImage && (
-                        <div
-                          onClick={() => onViewImage(tx.billImage!, tx.note)}
-                          className="w-11 h-11 rounded-xl overflow-hidden border border-slate-200 shrink-0 cursor-pointer shadow-2xs hover:opacity-90 transition-opacity bg-slate-100"
-                          title="Bấm để xem ảnh phóng to"
-                        >
-                          <img
-                            src={tx.billImage}
-                            alt="Hóa đơn"
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
+                      {/* Attachments / Invoice images preview button */}
+                      {tx.imageUrls && tx.imageUrls.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {tx.imageUrls.map((img, imgIdx) => (
+                            <button
+                              key={imgIdx}
+                              type="button"
+                              onClick={() =>
+                                onViewImage(
+                                  img,
+                                  `Hóa đơn: ${tx.note || (isAdd ? 'Ghi nợ' : 'Thanh toán')}`
+                                )
+                              }
+                              className="relative group w-14 h-14 rounded-xl overflow-hidden border border-slate-200 shadow-2xs hover:opacity-90 transition-all cursor-pointer"
+                              title="Bấm để xem ảnh hóa đơn phóng to"
+                            >
+                              <img
+                                src={img}
+                                alt="Hóa đơn"
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold">
+                                Xem
+                              </div>
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -707,7 +727,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
         </div>
       </div>
 
-      {/* ⚡ THANH CỐ ĐỊNH THANH TOÁN DÍNH ĐÁY (STICKY BOTTOM ACTION BAR) CHO MOBILE */}
+      {/* ⚡ THANH CỐ ĐỊNH THANH TOÁN DÍNH ĐÁY CHO MOBILE */}
       {currentBalance > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-2xl px-4 py-3 sm:py-3.5">
           <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
@@ -751,16 +771,22 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       {/* 📱 POPUP / BOTTOM SHEET XEM NHANH MÃ QR VÀ CHI TIẾT CHUYỂN KHOẢN */}
       <AnimatePresence>
         {showQrModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowQrModal(false);
+            }}
+          >
             <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 40 }}
-              transition={{ duration: 0.2 }}
-              className="bg-white rounded-t-3xl sm:rounded-3xl border border-slate-200 max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 16 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="bg-white rounded-3xl border border-slate-200/90 max-w-sm w-full p-4 sm:p-5 space-y-3.5 shadow-2xl relative my-auto"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2 text-slate-900 font-black text-sm uppercase">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm uppercase">
                   <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
                     <QrCode className="w-4 h-4" />
                   </div>
@@ -770,20 +796,23 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   type="button"
                   onClick={() => setShowQrModal(false)}
                   className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Đóng popup"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* VietQR Image Container */}
               {vietQrUrl ? (
-                <div className="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                  <img
-                    src={vietQrUrl}
-                    alt="Mã QR thanh toán"
-                    className="max-h-56 max-w-full object-contain rounded-2xl bg-white p-2 shadow-xs border border-slate-200/60"
-                  />
-                  <p className="mt-2 text-xs font-semibold text-slate-700 text-center">
+                <div className="flex flex-col items-center justify-center p-2.5 bg-slate-50 rounded-2xl border border-slate-200/80">
+                  <div className="bg-white p-2 rounded-xl shadow-xs border border-slate-200/60 inline-flex items-center justify-center">
+                    <img
+                      src={vietQrUrl}
+                      alt="Mã QR thanh toán"
+                      className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
+                    />
+                  </div>
+                  <p className="mt-2 text-[11.5px] font-semibold text-slate-600 text-center">
                     Mở ứng dụng ngân hàng và quét mã để thanh toán
                   </p>
                 </div>
@@ -794,7 +823,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               )}
 
               {/* Quick Details & Copy Rows */}
-              <div className="space-y-2 text-xs text-slate-700 bg-slate-50/80 p-3.5 rounded-2xl border border-slate-100">
+              <div className="space-y-1.5 text-xs text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200/70">
                 <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Ngân hàng:</span>
                   <strong className="text-slate-900 font-bold">{activeSettings.bankName}</strong>
@@ -807,46 +836,28 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
                 <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Số tài khoản:</span>
-                  <div className="flex items-center gap-2">
-                    <strong className="font-mono text-slate-900 font-black">{activeSettings.accountNumber}</strong>
+                  <div className="flex items-center gap-1.5">
+                    <strong className="font-mono text-slate-900 font-bold tracking-wide">{activeSettings.accountNumber}</strong>
                     <button
                       type="button"
                       onClick={copyAccountNumber}
-                      className="px-2 py-0.5 text-[11px] bg-white border border-slate-200 rounded-md font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="px-2 py-0.5 text-[10.5px] bg-white border border-slate-200 rounded-md font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                     >
                       {copiedAcc ? 'Đã chép' : 'Chép'}
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
+                <div className="flex items-center justify-between py-1">
                   <span className="text-slate-500">Số tiền cần trả:</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <strong className="font-mono text-rose-600 font-black">{formatVND(currentBalance)}</strong>
                     <button
                       type="button"
                       onClick={() => copyAmountToPay(currentBalance)}
-                      className="px-2 py-0.5 text-[11px] bg-white border border-slate-200 rounded-md font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="px-2 py-0.5 text-[10.5px] bg-white border border-slate-200 rounded-md font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                     >
                       {copiedAmount ? 'Đã chép' : 'Chép'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-slate-500">Nội dung CK:</span>
-                  <div className="flex items-center gap-2">
-                    <strong className="font-mono text-slate-900 font-bold text-[11px] max-w-[150px] truncate">{vietQrMemo}</strong>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(vietQrMemo);
-                        setCopiedMemo(true);
-                        setTimeout(() => setCopiedMemo(false), 2000);
-                      }}
-                      className="px-2 py-0.5 text-[11px] bg-white border border-slate-200 rounded-md font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                    >
-                      {copiedMemo ? 'Đã chép' : 'Chép'}
                     </button>
                   </div>
                 </div>
@@ -856,7 +867,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowQrModal(false)}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
               >
                 Đóng
               </button>

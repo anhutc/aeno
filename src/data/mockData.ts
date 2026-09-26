@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bankName: 'MB Bank',
   accountNumber: '0987654321',
   accountName: 'CHU TAI KHOAN',
-  defaultMemoPrefix: 'TRA NO',
+  defaultMemoPrefix: '',
   ownerPassword: '123456',
   appTitle: DEFAULT_APP_TITLE,
   appSubtitle: DEFAULT_APP_SUBTITLE,
@@ -28,7 +28,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export const INITIAL_DEBTORS: Debtor[] = [
   {
     id: 'debtor-nam',
-    name: 'Nguyễn Văn Nam',
+    name: 'Đặng Văn Ánh',
     pin: '1234',
     note: 'Bạn cấp 3, hay đi ăn lẩu',
     createdAt: '2026-09-01T08:00:00.000Z',
@@ -173,7 +173,7 @@ export const DATASET_PRESETS: DatasetPreset[] = [
   {
     id: 'DEFAULT',
     name: 'Dữ liệu mẫu mặc định (4 người nợ)',
-    description: '4 người nợ mẫu: Nam, Bình, An, Cường và các giao dịch mẫu.',
+    description: '4 người nợ mẫu: Ánh, Bình, An, Cường và các giao dịch mẫu.',
     tag: 'Mặc định',
     scenarioTag: 'Dữ liệu mẫu cơ bản',
     icon: '👥',

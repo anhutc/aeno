@@ -15,24 +15,23 @@ export const DEFAULT_APP_SUBTITLE =
 export const DEFAULT_LOOKUP_GUIDE = `📋 HƯỚNG DẪN TRUY CẬP TRA CỨU SỔ GIAO DỊCH
 Chào {name},
 Dưới đây là thông tin để bạn tự kiểm tra lịch sử chi tiêu và số dư giao dịch:
-🔗 Link tra cứu chung: {url}
-🔑 Mật khẩu (Pass) riêng của bạn: {pass}
+🔗 Đường dẫn tra cứu chung: {url}
+🔑 Mật khẩu riêng của bạn: {pass}
 
 👉 Các bước tra cứu rất đơn giản:
-1. Bấm vào Link tra cứu chung ở trên.
-2. Nhập Mật khẩu (Pass): {pass}
+1. Bấm vào Đường dẫn tra cứu chung ở trên.
+2. Nhập Mật khẩu: {pass}
 3. Bạn sẽ xem được toàn bộ sao kê chi tiết từng khoản cộng/trừ và mã VietQR để thanh toán nhanh (quét xong tự nhập số tiền tùy ý trên app ngân hàng).`;
 
 export const DEFAULT_REMINDER_TEMPLATE = `👋 Chào {name},
 Mình gửi bạn thông báo số dư nợ hiện tại trong sổ:
 💰 Số tiền cần thanh toán: {balance}
-🔗 Link xem sao kê chi tiết: {url} (Mật khẩu: {pass})
+🔗 Đường dẫn xem sao kê chi tiết: {url} (Mật khẩu: {pass})
 
 💳 Thông tin chuyển khoản VietQR:
 - Ngân hàng: {bank}
 - Số tài khoản: {account}
 - Chủ tài khoản: {accountName}
-- Nội dung chuyển khoản: TRA NO {name}
 
 Khi nào thuận tiện bạn sắp xếp chuyển khoản giúp mình nhé. Cảm ơn bạn nhiều!`;
 
@@ -41,13 +40,13 @@ export const DEFAULT_SHARE_MESSAGE = DEFAULT_LOOKUP_GUIDE;
 export const DEFAULT_REMINDER_MESSAGE = DEFAULT_REMINDER_TEMPLATE;
 
 export const DEFAULT_GUEST_ANNOUNCEMENT =
-  'Sổ giao dịch cập nhật tự động. Khi chuyển khoản xin giữ nguyên nội dung để hệ thống đối soát chính xác nhé!';
+  'Sổ giao dịch cập nhật tự động khi chủ sổ ghi nhận các khoản thu/chi.';
 
 export const DEFAULT_SETTLED_NOTE =
   '🎉 Tuyệt vời! Bạn đã thanh toán xong toàn bộ các khoản nợ. Cảm ơn bạn nhiều!';
 
 export const DEFAULT_LOOKUP_INSTRUCTION =
-  'Nhập mật khẩu (pass) cá nhân được người quản lý cung cấp để tra cứu lịch sử chi tiêu, sao kê nợ và quét mã VietQR chuyển khoản nhanh.';
+  'Nhập mật khẩu cá nhân được người quản lý cung cấp để tra cứu lịch sử chi tiêu, sao kê nợ và quét mã VietQR chuyển khoản nhanh.';
 
 export interface TemplateVariables {
   name: string;
@@ -75,15 +74,14 @@ export interface TemplateVariables {
 }
 
 export const TEMPLATE_TAG_DESCRIPTIONS: { tag: string; label: string; example: string }[] = [
-  { tag: '{name}', label: 'Tên người nợ ({TEN_KHACH})', example: 'Nguyễn Văn Nam' },
-  { tag: '{pass}', label: 'Mật khẩu / Pass ({PASS})', example: 'nam123' },
+  { tag: '{name}', label: 'Tên người nợ ({TEN_KHACH})', example: 'Đặng Văn Ánh' },
+  { tag: '{pass}', label: 'Mật khẩu ({PASS})', example: 'nam123' },
   { tag: '{url}', label: 'Link tra cứu chung ({LINK})', example: 'https://...' },
   { tag: '{balance}', label: 'Số tiền dư nợ ({SO_TIEN})', example: '250.000 đ' },
   { tag: '{bank}', label: 'Tên ngân hàng ({NGAN_HANG})', example: 'MB Bank' },
   { tag: '{account}', label: 'Số tài khoản ({SO_TK})', example: '0987654321' },
-  { tag: '{accountName}', label: 'Chủ tài khoản ({CHU_TK})', example: 'NGUYEN VAN A' },
-  { tag: '{memo}', label: 'Nội dung chuyển khoản QR ({NOI_DUNG_CK})', example: 'NAM TRA NO' },
-  { tag: '{owner}', label: 'Tên quản lý ({CHU_SO})', example: 'Anh Dũng' },
+  { tag: '{accountName}', label: 'Chủ tài khoản ({CHU_TK})', example: 'DANG VAN ANH' },
+  { tag: '{owner}', label: 'Tên quản lý ({CHU_SO})', example: 'Anh' },
   { tag: '{ownerPhone}', label: 'SĐT quản lý ({SDT_CHU_NO})', example: '0987654321' },
 ];
 
@@ -94,7 +92,7 @@ export function renderMessageTemplate(
 ): string {
   const tpl = template && template.trim() ? template : fallbackTemplate;
   const passValue = vars.pass || vars.pin || '';
-  const memoValue = vars.memo || vars.noi_dung_ck || `TRA NO ${vars.name || ''}`;
+  const memoValue = vars.memo || vars.noi_dung_ck || '';
   return tpl
     .replace(/\{name\}|\{TEN_KHACH\}|\{ten_nguoi_no\}/gi, vars.name || '')
     .replace(/\{pass\}|\{pin\}|\{PASS\}/gi, passValue)
@@ -126,7 +124,7 @@ export function getDebtorTemplateVariables(params: {
       : formatVND(params.balance);
 
   const pass = params.debtorPin;
-  const suffix = (params.defaultMemoPrefix ?? 'TRA NO').trim();
+  const suffix = (params.defaultMemoPrefix || '').trim();
   const rawMemo = suffix ? `${params.debtorName} ${suffix}` : params.debtorName;
   const cleanMemo = rawMemo
     .normalize('NFD')

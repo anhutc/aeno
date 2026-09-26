@@ -239,10 +239,20 @@ export function loadSettings(): AppSettings {
       return DEFAULT_SETTINGS;
     }
     const parsed = JSON.parse(raw);
+    const stripMemoLine = (text: string | undefined, defaultText: string) => {
+      if (!text) return defaultText;
+      return text
+        .split('\n')
+        .filter((l) => !l.toLowerCase().includes('nội dung chuyển khoản') && !l.toLowerCase().includes('noi dung chuyen khoan'))
+        .join('\n');
+    };
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      defaultMemoPrefix: '',
       ownerPhone: parsed.ownerPhone !== undefined ? parsed.ownerPhone : (DEFAULT_SETTINGS.ownerPhone || ''),
+      reminderMessageTemplate: stripMemoLine(parsed.reminderMessageTemplate, DEFAULT_SETTINGS.reminderMessageTemplate || ''),
+      lookupGuideTemplate: stripMemoLine(parsed.lookupGuideTemplate || parsed.shareMessageTemplate, DEFAULT_SETTINGS.lookupGuideTemplate || ''),
     };
   } catch (err) {
     console.error('Failed to load settings', err);
