@@ -69,10 +69,10 @@ export const Header: React.FC<HeaderProps> = ({
                   {isOwnerAuthenticated
                     ? currentView === 'SETTINGS'
                       ? 'Cài đặt & Đồng bộ Cloud'
-                      : settings.appSubtitle || `Quản lý sổ nợ • Chủ sổ: ${settings.ownerName}`
+                      : `Quản lý sổ nợ • Chủ sổ: ${settings.ownerName}`
                     : activeGuestDebtor
                     ? `Sao kê tài khoản: ${activeGuestDebtor.name}`
-                    : settings.appSubtitle || 'Ghi chép sổ nợ & tra cứu sao kê'}
+                    : 'Ghi chép sổ nợ & tra cứu sao kê'}
                 </p>
               </div>
             </div>

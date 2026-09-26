@@ -245,12 +245,24 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  // Sync document.title with settings appTitle
+  // Sync document.title with settings appTitle and appSubtitle
   useEffect(() => {
-    if (settings?.appTitle) {
-      document.title = settings.appTitle;
+    const title = settings?.appTitle || 'OK Sổ Ghi Nợ';
+    const subtitle = settings?.appSubtitle ? ` - ${settings.appSubtitle}` : '';
+    document.title = `${title}${subtitle}`;
+
+    // Cập nhật meta description và OpenGraph nếu có subtitle
+    if (settings?.appSubtitle) {
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute('content', settings.appSubtitle);
+      }
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) {
+        ogTitle.setAttribute('content', `${title}${subtitle}`);
+      }
     }
-  }, [settings?.appTitle]);
+  }, [settings?.appTitle, settings?.appSubtitle]);
 
   // View switcher
   const handleViewChange = (view: 'OWNER' | 'GUEST' | 'SETTINGS') => {

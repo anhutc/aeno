@@ -193,6 +193,11 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           <h1 className="text-lg sm:text-xl font-black tracking-tight text-slate-900 truncate">
             {settings.appTitle || 'Sổ Ghi Nợ & Chia Tiền'}
           </h1>
+          {settings.appSubtitle && (
+            <p className="text-xs text-slate-500 mt-1 line-clamp-2 px-2 leading-relaxed">
+              {settings.appSubtitle}
+            </p>
+          )}
         </div>
 
         {/* 2. Form Nhập Mật Khẩu */}

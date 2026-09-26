@@ -843,6 +843,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       placeholder={DEFAULT_APP_SUBTITLE}
                       className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
                     />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Hiển thị ngay dưới tên ứng dụng tại màn hình đăng nhập / tra cứu và thanh điều hướng đầu trang.
+                    </p>
                   </div>
                 </div>
               </div>
