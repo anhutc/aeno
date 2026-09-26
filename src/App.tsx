@@ -497,6 +497,7 @@ export default function App() {
                   }
                   if (setts) {
                     setSettings(setts);
+                    saveSettings(setts);
                   }
                   setCurrentView('GUEST');
                   if (window.location.hash) {

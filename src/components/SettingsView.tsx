@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Save,
   Check,
@@ -473,9 +474,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [formData.bankId, formData.accountNumber, formData.accountName, formData.vietQrTemplate]);
 
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-4 pb-16 animate-in fade-in duration-150">
-      {/* 1. SINGLE HEADER BAR WITH SAVE ACTION */}
-      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="w-full max-w-5xl mx-auto space-y-4 pb-28 sm:pb-24 animate-in fade-in duration-150">
+      {/* 1. SINGLE HEADER BAR (Clean, no clutter) */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {onGoBack && (
             <button
@@ -497,48 +498,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* Action button cluster */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        {/* Status indicator in header */}
+        <div className="hidden sm:flex items-center gap-2">
           {isDirty ? (
-            <>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold animate-in fade-in">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span>Chưa lưu</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleDiscardChanges}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
-                title="Hủy các thay đổi và khôi phục cài đặt trước"
-              >
-                Khôi phục
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSave()}
-                disabled={isSaving}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</span>
-              </button>
-            </>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold animate-in fade-in">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+              <span>Có thay đổi chưa lưu</span>
+            </div>
           ) : (
-            <>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Đã lưu mới nhất</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSave()}
-                disabled={isSaving}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                <Save className="w-3.5 h-3.5 text-slate-500" />
-                <span>Lưu Lại</span>
-              </button>
-            </>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Đã lưu mới nhất</span>
+            </div>
           )}
         </div>
       </div>
@@ -1169,6 +1140,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         onConfirm={handleExecuteRestore}
         isRestoring={isRestoring}
       />
+
+      {/* Floating Bottom Bar: Xuất hiện popup ở dưới đáy màn hình khi có thay đổi chưa lưu (Tone sáng thanh lịch, ăn khớp với toàn bộ giao diện) */}
+      <AnimatePresence>
+        {isDirty && (
+          <motion.div
+            initial={{ opacity: 0, y: 35, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 35, scale: 0.98 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 400 }}
+            className="fixed bottom-20 sm:bottom-6 inset-x-0 z-50 flex justify-center px-3 sm:px-6 pointer-events-none"
+          >
+            <div className="pointer-events-auto bg-white/95 text-slate-800 backdrop-blur-xl border border-emerald-500/25 shadow-[0_12px_40px_rgba(16,185,129,0.18),0_4px_16px_rgba(0,0,0,0.08)] rounded-2xl sm:rounded-full px-3.5 sm:px-5 py-2.5 sm:py-3 max-w-lg w-full flex items-center justify-between gap-3 ring-1 ring-emerald-500/15">
+              {/* Bên trái: Trạng thái & thông báo nhẹ nhàng */}
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-amber-100/90 border border-amber-300 text-amber-700 flex items-center justify-center shrink-0">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-xs sm:text-sm text-slate-900 tracking-tight truncate flex items-center gap-1.5">
+                    <span>Thay đổi chưa được lưu</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate hidden xs:block">
+                    Nhấn nút bên dưới để áp dụng vào hệ thống
+                  </p>
+                </div>
+              </div>
+
+              {/* Bên phải: Nút Khôi phục & Nút Lưu */}
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleDiscardChanges}
+                  disabled={isSaving}
+                  className="px-3 py-1.5 sm:py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl sm:rounded-full text-xs font-semibold transition-colors cursor-pointer border border-slate-200/90 disabled:opacity-50"
+                  title="Hủy bỏ mọi thay đổi và khôi phục giá trị đã lưu trước đó"
+                >
+                  <span>Khôi phục</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSave()}
+                  disabled={isSaving}
+                  className="px-4 sm:px-5 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs sm:text-sm rounded-xl sm:rounded-full shadow-md shadow-emerald-600/25 hover:shadow-lg hover:shadow-emerald-600/35 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
+                  <span>{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</span>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

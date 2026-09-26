@@ -32,8 +32,9 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
-import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
+import { getDebtorBalance, getDebtorStatement, loadSettings } from '../utils/storage';
 import { subscribeToDebtorTransactions } from '../utils/api';
+import { subscribeToFirestoreData } from '../services/firestoreClient';
 import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
 import { AnimatedCounter } from './AnimatedCounter';
 import { triggerSettledCelebration } from '../utils/confetti';
@@ -84,6 +85,19 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     }
   }, [propDebtor, initialDebtor, allTransactions]);
 
+  // Local settings state so GuestPortal always reflects the newest settings
+  const [liveSettings, setLiveSettings] = useState<AppSettings>(() => {
+    return appSettings || loadSettings();
+  });
+
+  useEffect(() => {
+    if (appSettings) {
+      setLiveSettings(appSettings);
+    } else {
+      setLiveSettings(loadSettings());
+    }
+  }, [appSettings]);
+
   // Real-time listener: When debtor is viewing statement on mobile, auto-update when owner records changes
   useEffect(() => {
     if (!debtor || isOwnerAuthenticated) return;
@@ -95,16 +109,22 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     };
   }, [debtor?.id, isOwnerAuthenticated]);
 
+  // Real-time settings listener for guests (if owner updates bank, phone, or name)
+  useEffect(() => {
+    const unsub = subscribeToFirestoreData({
+      onSettings: (newSettings) => {
+        if (newSettings) {
+          setLiveSettings((prev) => ({ ...prev, ...newSettings }));
+        }
+      },
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
   // --- Active Settings ---
-  const activeSettings = appSettings || {
-    ownerName: 'Quản lý',
-    ownerPhone: '0987654321',
-    appTitle: 'Sổ Ghi Nợ & Chia Tiền',
-    defaultMemoPrefix: '',
-    bankId: '',
-    accountNumber: '',
-    accountName: '',
-  };
+  const activeSettings = liveSettings || loadSettings();
 
   const copyAccountNumber = () => {
     const acc = activeSettings?.accountNumber;
@@ -146,7 +166,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     );
   }
 
-  const contactPhone = (activeSettings.ownerPhone || '0987654321').trim();
+  const contactPhone = (
+    activeSettings.ownerPhone ||
+    loadSettings()?.ownerPhone ||
+    ''
+  ).trim();
 
   const currentBalance = getDebtorBalance(debtor.id, transactions);
   const statement = getDebtorStatement(debtor.id, transactions);
@@ -837,7 +861,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Số tài khoản:</span>
                   <div className="flex items-center gap-1.5">
-                    <strong className="font-mono text-slate-900 font-bold tracking-wide">{activeSettings.accountNumber}</strong>
                     <button
                       type="button"
                       onClick={copyAccountNumber}
@@ -845,6 +868,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     >
                       {copiedAcc ? 'Đã chép' : 'Chép'}
                     </button>
+                    <strong className="font-mono text-slate-900 font-bold tracking-wide">{activeSettings.accountNumber}</strong>
                   </div>
                 </div>
 
@@ -852,13 +876,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   <span className="text-slate-500">Số tiền cần trả:</span>
                   <div className="flex items-center gap-1.5">
                     <strong className="font-mono text-rose-600 font-black">{formatVND(currentBalance)}</strong>
-                    <button
-                      type="button"
-                      onClick={() => copyAmountToPay(currentBalance)}
-                      className="px-2 py-0.5 text-[10.5px] bg-white border border-slate-200 rounded-md font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                    >
-                      {copiedAmount ? 'Đã chép' : 'Chép'}
-                    </button>
                   </div>
                 </div>
               </div>

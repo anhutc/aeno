@@ -1346,6 +1346,7 @@ app.use(async (req, _res, next) => {
       transactions: debtorTransactions,
       settings: {
         ownerName: db.settings.ownerName,
+        ownerPhone: db.settings.ownerPhone || '',
         bankId: db.settings.bankId,
         bankName: db.settings.bankName,
         accountNumber: db.settings.accountNumber,
