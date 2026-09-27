@@ -26,6 +26,8 @@ import { Debtor, PartySplit, Transaction } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerator';
 import { ThousandAmountInput } from './ThousandAmountInput';
+import { compressImageFile } from '../utils/imageCompressor';
+import { cleanStorageIfQuotaBloated } from '../utils/storage';
 
 interface SplitBillModalProps {
   isOpen: boolean;
@@ -203,14 +205,21 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
     setSelectedDebtorIds(debtors.map((d) => d.id));
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (loadEvt) => {
-        setBillImage(loadEvt.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+      if (file.size > 15 * 1024 * 1024) {
+        setError('Kích thước ảnh không vượt quá 15MB');
+        return;
+      }
+      try {
+        setError('');
+        const compressedBase64 = await compressImageFile(file, 1200, 1200, 0.75);
+        setBillImage(compressedBase64);
+      } catch (err) {
+        console.error('Image compression failed:', err);
+        setError('Không thể xử lý hình ảnh này. Vui lòng chọn ảnh khác.');
+      }
     }
   };
 
@@ -306,7 +315,13 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       }
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Có lỗi xảy ra khi lưu cuộc chia tiền');
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('exceeded')) {
+        cleanStorageIfQuotaBloated();
+        setError('Bộ nhớ tạm đã đầy và hệ thống đã tự động dọn dẹp. Bạn hãy thử bấm Tạo / Cập Nhật lại lần nữa nhé!');
+      } else {
+        setError(msg || 'Có lỗi xảy ra khi lưu cuộc chia tiền');
+      }
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);

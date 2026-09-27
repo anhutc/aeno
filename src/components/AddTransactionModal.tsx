@@ -28,6 +28,8 @@ import {
 import { Debtor, Transaction, TransactionType } from '../types';
 import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerator';
 import { ThousandAmountInput } from './ThousandAmountInput';
+import { compressImageFile } from '../utils/imageCompressor';
+import { cleanStorageIfQuotaBloated } from '../utils/storage';
 
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -114,18 +116,22 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     setNewPin(createAlphanumericPin(existingPins, 4));
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Kích thước ảnh không vượt quá 5MB');
+      if (file.size > 15 * 1024 * 1024) {
+        setError('Kích thước ảnh gốc không vượt quá 15MB');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (loadEvt) => {
-        setBillImage(loadEvt.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        setError('');
+        // Automatically compress image down to crisp, lightweight size (< 150KB)
+        const compressedBase64 = await compressImageFile(file, 1200, 1200, 0.75);
+        setBillImage(compressedBase64);
+      } catch (err) {
+        console.error('Image compression failed:', err);
+        setError('Không thể xử lý hình ảnh này. Vui lòng chọn ảnh khác.');
+      }
     }
   };
 
@@ -209,7 +215,29 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       await onSave(payload);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Có lỗi xảy ra khi lưu giao dịch');
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('exceeded')) {
+        cleanStorageIfQuotaBloated();
+        // Retry once after cleaning local cache
+        try {
+          const payloadRetry: Omit<Transaction, 'id' | 'createdAt'> = {
+            debtorId: targetDebtorId,
+            type,
+            amount,
+            date,
+            note: note.trim(),
+            category: 'SINGLE',
+            ...(billImage ? { billImage } : {}),
+          };
+          await onSave(payloadRetry);
+          onClose();
+          return;
+        } catch {
+          setError('Bộ nhớ trình duyệt tạm đầy. Hệ thống đã tự động dọn dẹp, bạn hãy nhấn "Tạo Giao Dịch" lại một lần nữa nhé!');
+        }
+      } else {
+        setError(msg || 'Có lỗi xảy ra khi lưu giao dịch');
+      }
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);

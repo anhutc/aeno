@@ -26,6 +26,68 @@ const STORAGE_KEYS = {
   DELETED_PARTY_IDS: 'debt_app_deleted_party_ids_v1',
 };
 
+/**
+ * Safe write to localStorage that detects QuotaExceededError and never throws unhandled errors.
+ */
+function safeSetItem(key: string, value: string): boolean {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err: any) {
+    const isQuota =
+      err?.name === 'QuotaExceededError' ||
+      err?.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err?.code === 22 ||
+      err?.code === 1014 ||
+      (typeof err?.message === 'string' && err.message.toLowerCase().includes('quota'));
+
+    if (isQuota) {
+      console.warn(`[Storage] Quota exceeded on setting key "${key}". Running self-healing cleanup...`);
+    } else {
+      console.warn(`[Storage] Could not write "${key}" to localStorage:`, err);
+    }
+    return false;
+  }
+}
+
+/**
+ * Proactively clean bloated base64 images from localStorage transactions on startup
+ * to instantly recover from quota overflow.
+ */
+export function cleanStorageIfQuotaBloated(): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const rawTxs = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
+    if (!rawTxs) return;
+
+    // If transactions JSON is over 1MB or has heavy images, optimize local copy
+    if (rawTxs.length > 500000 || rawTxs.includes('data:image')) {
+      const parsed = JSON.parse(rawTxs);
+      if (Array.isArray(parsed)) {
+        // Strip heavy images from older transactions in local storage cache
+        const optimized = parsed.map((t: any, idx: number) => {
+          if (idx > 2 && t.billImage) {
+            const { billImage, ...rest } = t;
+            return rest;
+          }
+          return t;
+        });
+        safeSetItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(optimized));
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Run cleanup immediately on load
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    cleanStorageIfQuotaBloated();
+  }, 100);
+}
+
 export function getDeletedTxIds(): Set<string> {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.DELETED_TX_IDS);
@@ -184,7 +246,16 @@ export function loadDebtors(): Debtor[] {
 }
 
 export function saveDebtors(debtors: Debtor[]): void {
-  localStorage.setItem(STORAGE_KEYS.DEBTORS, JSON.stringify(debtors));
+  try {
+    const serialized = JSON.stringify(debtors);
+    if (!safeSetItem(STORAGE_KEYS.DEBTORS, serialized)) {
+      // If saving debtors failed due to quota, clean up bloated transactions cache first
+      cleanStorageIfQuotaBloated();
+      safeSetItem(STORAGE_KEYS.DEBTORS, serialized);
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to save debtors locally:', err);
+  }
 }
 
 export function loadTransactions(): Transaction[] {
@@ -206,7 +277,41 @@ export function loadTransactions(): Transaction[] {
 }
 
 export function saveTransactions(txs: Transaction[]): void {
-  localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(txs));
+  try {
+    // 1. Try standard save
+    const serialized = JSON.stringify(txs);
+    if (safeSetItem(STORAGE_KEYS.TRANSACTIONS, serialized)) {
+      return;
+    }
+
+    // 2. If quota exceeded: Strip heavy billImage from older transactions in local cache
+    console.warn('[Storage] Quota limit reached. Stripping older bill images from local cache...');
+    const strippedTxs = txs.map((t, idx) => {
+      // Keep billImage only on the 2 most recent transactions locally
+      if (idx > 1 && t.billImage) {
+        const { billImage, ...rest } = t;
+        return rest as Transaction;
+      }
+      return t;
+    });
+
+    if (safeSetItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(strippedTxs))) {
+      return;
+    }
+
+    // 3. If STILL exceeding quota: strip ALL images from local storage cache
+    const allStripped = txs.map(({ billImage, ...rest }) => rest as Transaction);
+    if (safeSetItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(allStripped))) {
+      return;
+    }
+
+    // 4. If still exceeding: keep only the latest 80 transactions in localStorage
+    const truncated = allStripped.slice(0, 80);
+    safeSetItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(truncated));
+  } catch (err) {
+    console.warn('[Storage] Could not write transactions to localStorage (quota or storage disabled):', err);
+    // CRITICAL: NEVER throw to caller!
+  }
 }
 
 export function loadParties(): PartySplit[] {
@@ -228,7 +333,17 @@ export function loadParties(): PartySplit[] {
 }
 
 export function saveParties(parties: PartySplit[]): void {
-  localStorage.setItem(STORAGE_KEYS.PARTIES, JSON.stringify(parties));
+  try {
+    const serialized = JSON.stringify(parties);
+    if (!safeSetItem(STORAGE_KEYS.PARTIES, serialized)) {
+      cleanStorageIfQuotaBloated();
+      // Try stripping bill images from parties if needed
+      const stripped = parties.map(({ billImage, ...rest }) => rest as PartySplit);
+      safeSetItem(STORAGE_KEYS.PARTIES, JSON.stringify(stripped));
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to save parties locally:', err);
+  }
 }
 
 export function loadSettings(): AppSettings {
@@ -261,7 +376,11 @@ export function loadSettings(): AppSettings {
 }
 
 export function saveSettings(settings: AppSettings): void {
-  localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+  try {
+    safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+  } catch (err) {
+    console.warn('[Storage] Failed to save settings locally:', err);
+  }
 }
 
 export function getDebtorBalance(debtorId: string, transactions: Transaction[]): number {

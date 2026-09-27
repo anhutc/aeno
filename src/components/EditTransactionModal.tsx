@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
 import { ThousandAmountInput } from './ThousandAmountInput';
+import { compressImageFile } from '../utils/imageCompressor';
+import { cleanStorageIfQuotaBloated } from '../utils/storage';
 
 interface EditTransactionModalProps {
   isOpen: boolean;
@@ -55,19 +57,21 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     }
   }, [isOpen, transaction, debtor]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Kích thước ảnh không được vượt quá 5MB');
+      if (file.size > 15 * 1024 * 1024) {
+        setError('Kích thước ảnh không được vượt quá 15MB');
         return;
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBillImage(reader.result as string);
+      try {
         setError('');
-      };
-      reader.readAsDataURL(file);
+        const compressedBase64 = await compressImageFile(file, 1200, 1200, 0.75);
+        setBillImage(compressedBase64);
+      } catch (err) {
+        console.error('Image compression failed:', err);
+        setError('Không thể xử lý hình ảnh này. Vui lòng chọn ảnh khác.');
+      }
     }
   };
 
@@ -105,7 +109,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       await onSave(updated);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Có lỗi xảy ra khi lưu giao dịch');
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('exceeded')) {
+        cleanStorageIfQuotaBloated();
+        setError('Bộ nhớ tạm đã đầy và đang được dọn dẹp. Hãy thử bấm Lưu một lần nữa nhé!');
+      } else {
+        setError(msg || 'Có lỗi xảy ra khi lưu giao dịch');
+      }
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);

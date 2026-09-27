@@ -428,7 +428,11 @@ export async function apiSaveTransaction(
   // Immediate optimistic local update to guarantee responsiveness
   const currentLocal = loadTransactions();
   currentLocal.unshift(localNewTx);
-  saveTransactions(currentLocal);
+  try {
+    saveTransactions(currentLocal);
+  } catch (err) {
+    console.warn('Optimistic local storage save skipped:', err);
+  }
 
   try {
     const res = await fetch('/api/owner/transaction', {
@@ -441,7 +445,11 @@ export async function apiSaveTransaction(
       const data = await res.json();
       if (data.success) {
         const merged = smartMergeTransactions(data.transactions || currentLocal);
-        saveTransactions(merged);
+        try {
+          saveTransactions(merged);
+        } catch {
+          // ignore
+        }
         if (data.transaction) {
           await saveTransactionDirect(data.transaction).catch((err) => console.warn('Direct saveTx sync:', err));
         } else {
