@@ -242,10 +242,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       : 'text-slate-700'
                   }
                 >
-                  {netBalance > 0 && '+'}
-                  <AnimatedCounter value={netBalance} formatter={formatVND} />
+                  <AnimatedCounter
+                    value={Math.abs(netBalance)}
+                    formatter={(val) => {
+                      const formatted = formatVND(val);
+                      if (netBalance > 0) return `+${formatted}`;
+                      if (netBalance < 0) return `-${formatted}`;
+                      return formatted;
+                    }}
+                  />
                 </span>
-                <span className="text-xs font-normal text-slate-500">VNĐ</span>
               </div>
             </div>
 
@@ -698,9 +704,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     key={debtor.id}
                     className={`bg-white rounded-3xl border p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 relative overflow-hidden group ${
                       balance > 0
-                        ? 'border-rose-200/90 hover:border-rose-300'
-                        : balance < 0
                         ? 'border-emerald-200/90 hover:border-emerald-300'
+                        : balance < 0
+                        ? 'border-rose-200/90 hover:border-rose-300'
                         : 'border-slate-200/90 hover:border-slate-300'
                     }`}
                   >
@@ -712,9 +718,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             onClick={() => onSelectDebtor(debtor)}
                             className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-base shrink-0 shadow-xs cursor-pointer transition-transform hover:scale-105 select-none ${
                               balance > 0
-                                ? 'bg-gradient-to-br from-rose-50 to-rose-100 text-rose-700 border border-rose-200/80'
-                                : balance < 0
                                 ? 'bg-gradient-to-br from-emerald-50 to-emerald-100 text-emerald-700 border border-emerald-200/80'
+                                : balance < 0
+                                ? 'bg-gradient-to-br from-rose-50 to-rose-100 text-rose-700 border border-rose-200/80'
                                 : 'bg-gradient-to-br from-slate-100 to-slate-200 text-slate-700 border border-slate-200/80'
                             }`}
                           >
@@ -754,21 +760,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           <div
                             className={`font-black text-base sm:text-lg font-mono tracking-tight ${
                               balance > 0
-                                ? 'text-rose-600'
-                                : balance < 0
                                 ? 'text-emerald-600'
+                                : balance < 0
+                                ? 'text-rose-600'
                                 : 'text-slate-400'
                             }`}
                           >
-                            {balance > 0 && '+'}
-                            <AnimatedCounter value={balance} formatter={formatVND} />
+                            {balance > 0 ? `+${formatVND(balance)}` : balance < 0 ? `-${formatVND(Math.abs(balance))}` : '0 đ'}
                           </div>
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold mt-0.5 ${
                               balance > 0
-                                ? 'bg-rose-50 text-rose-700 border border-rose-200/70'
-                                : balance < 0
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/70'
+                                : balance < 0
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200/70'
                                 : 'bg-slate-100 text-slate-600 border border-slate-200/70'
                             }`}
                           >
@@ -889,9 +894,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               <div
                                 className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 select-none ${
                                   balance > 0
-                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80'
-                                    : balance < 0
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                                    : balance < 0
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80'
                                     : 'bg-slate-100 text-slate-700 border border-slate-200/80'
                                 }`}
                               >
@@ -938,13 +943,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             <span
                               className={`font-black font-mono text-sm ${
                                 balance > 0
-                                  ? 'text-rose-600'
-                                  : balance < 0
                                   ? 'text-emerald-600'
+                                  : balance < 0
+                                  ? 'text-rose-600'
                                   : 'text-slate-400'
                               }`}
                             >
-                              {balance > 0 ? `+${formatVND(balance)}` : formatVND(balance)}
+                              {balance > 0 ? `+${formatVND(balance)}` : balance < 0 ? `-${formatVND(Math.abs(balance))}` : '0 đ'}
                             </span>
                           </td>
 
@@ -952,9 +957,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
                                 balance > 0
-                                  ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
-                                  : balance < 0
                                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                  : balance < 0
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
                                   : 'bg-slate-100 text-slate-600 border border-slate-200/60'
                               }`}
                             >

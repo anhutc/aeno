@@ -203,9 +203,9 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
             <div
               className={`p-4 sm:p-5 rounded-2xl border transition-all ${
                 currentBalance > 0
-                  ? 'bg-rose-50/70 border-rose-200/80 text-rose-950'
-                  : currentBalance < 0
                   ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
+                  : currentBalance < 0
+                  ? 'bg-rose-50/70 border-rose-200/80 text-rose-950'
                   : 'bg-slate-50 border-slate-200 text-slate-700'
               }`}
             >
@@ -213,17 +213,32 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <span className="text-[11px] uppercase tracking-wider font-bold opacity-70">
-                    Số Nợ Hiện Tại
+                    {currentBalance > 0
+                      ? 'Người này đang nợ bạn'
+                      : currentBalance < 0
+                      ? 'Bạn cần trả cho người này'
+                      : 'Số Dư Nợ Hiện Tại'}
                   </span>
                   <div className="flex items-baseline gap-2 font-mono mt-0.5">
-                    <span className="text-3xl sm:text-4xl font-black tracking-tight">
-                      {currentBalance > 0 && '+'}
+                    <span
+                      className={`text-3xl sm:text-4xl font-black tracking-tight ${
+                        currentBalance > 0
+                          ? 'text-emerald-700'
+                          : currentBalance < 0
+                          ? 'text-rose-700'
+                          : 'text-slate-700'
+                      }`}
+                    >
                       <AnimatedCounter
-                        value={currentBalance}
-                        formatter={(val) => formatVND(val).replace(' VNĐ', '')}
+                        value={Math.abs(currentBalance)}
+                        formatter={(val) => {
+                          const formatted = formatVND(val);
+                          if (currentBalance > 0) return `+${formatted}`;
+                          if (currentBalance < 0) return `-${formatted}`;
+                          return formatted;
+                        }}
                       />
                     </span>
-                    <span className="text-sm font-bold opacity-75">VNĐ</span>
                   </div>
                 </div>
 
@@ -231,20 +246,20 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   <span
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border ${
                       currentBalance > 0
-                        ? 'bg-rose-100/90 text-rose-800 border-rose-200'
-                        : currentBalance < 0
                         ? 'bg-emerald-100/90 text-emerald-800 border-emerald-200'
+                        : currentBalance < 0
+                        ? 'bg-rose-100/90 text-rose-800 border-rose-200'
                         : 'bg-white text-slate-600 border-slate-200 shadow-2xs'
                     }`}
                   >
                     {currentBalance > 0 ? (
                       <>
-                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         <span>{debtor.name} đang nợ bạn</span>
                       </>
                     ) : currentBalance < 0 ? (
                       <>
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
                         <span>Bạn đang nợ {debtor.name}</span>
                       </>
                     ) : (

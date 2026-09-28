@@ -29,6 +29,8 @@ import {
   TrendingDown,
   CheckCircle2,
   X,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
@@ -71,10 +73,12 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   // Quick Payment Modal state
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
 
   // Copy state
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [copiedAmount, setCopiedAmount] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
 
   // Sync if prop changes
   useEffect(() => {
@@ -172,6 +176,15 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     ''
   ).trim();
 
+  const copyPhoneNumber = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (contactPhone) {
+      navigator.clipboard.writeText(contactPhone);
+      setCopiedPhone(true);
+      setTimeout(() => setCopiedPhone(false), 2000);
+    }
+  };
+
   const currentBalance = getDebtorBalance(debtor.id, transactions);
   const statement = getDebtorStatement(debtor.id, transactions);
 
@@ -240,7 +253,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
       className={`max-w-xl w-full mx-auto space-y-4 sm:space-y-5 ${
-        currentBalance > 0 ? 'pb-24' : 'pb-12'
+        currentBalance !== 0 ? 'pb-28 sm:pb-24' : 'pb-12'
       }`}
     >
       {/* Lời nhắn / Thông báo ghim của chủ sổ gửi khách */}
@@ -262,34 +275,37 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
       {/* SỔ GIAO DỊCH CÁ NHÂN Card */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
-        {/* Header - Bright Light Theme */}
-        <div className="bg-gradient-to-b from-slate-50 to-white text-slate-900 px-5 sm:px-7 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-widest text-emerald-700 font-extrabold font-mono">
-                👤 TRA CỨU GIAO DỊCH
-              </span>
+        {/* Header - Sáng & Tinh tế, tối ưu hàng ngang cho mobile */}
+        <div className="bg-gradient-to-r from-slate-50/90 via-emerald-50/20 to-white text-slate-900 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2.5 sm:gap-3 border-b border-slate-200/80">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-black text-xs sm:text-sm flex items-center justify-center shrink-0 shadow-xs ring-2 ring-emerald-500/10">
+              {debtor.name ? debtor.name.trim().charAt(0).toUpperCase() : '👤'}
             </div>
-            <h1 className="text-xl sm:text-2xl font-black mt-1 text-slate-900 tracking-tight">
-              {debtor.name}
-            </h1>
+            <div className="min-w-0">
+              <span className="text-[10px] uppercase tracking-wider text-emerald-700 font-extrabold font-mono block leading-tight">
+                TRA CỨU GIAO DỊCH
+              </span>
+              <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight truncate leading-tight mt-0.5">
+                {debtor.name}
+              </h1>
+            </div>
           </div>
-          <div className="text-left sm:text-right text-xs text-slate-500">
-            {/* Ẩn/Hiện Pass */}
-            <div className="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 font-mono shadow-2xs">
-              <span className="text-slate-500 text-[11px]">Mật khẩu:</span>
-              <span className="text-slate-900 font-extrabold text-xs">
-                {showPin ? debtor.pin : '••••'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowPin(!showPin)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
-                title={showPin ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-              >
-                {showPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+
+          {/* Ẩn/Hiện Mật khẩu - Cố định cùng hàng bên phải */}
+          <div className="inline-flex items-center gap-1.5 bg-slate-100/90 hover:bg-slate-200/60 px-2.5 py-1.5 rounded-xl border border-slate-200/90 font-mono shadow-2xs shrink-0 select-none transition-colors">
+            <span className="text-slate-500 text-[10px] sm:text-[11px] hidden xs:inline">Mật khẩu:</span>
+            <span className="text-slate-500 text-[10px] sm:text-[11px] xs:hidden">MK:</span>
+            <span className="text-slate-900 font-black text-xs tracking-wider">
+              {showPin ? debtor.pin : '••••'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowPin(!showPin)}
+              className="p-0.5 text-slate-400 hover:text-slate-700 active:scale-90 rounded-md hover:bg-slate-200/80 transition-all cursor-pointer"
+              title={showPin ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            >
+              {showPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
           </div>
         </div>
 
@@ -335,8 +351,8 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   value={Math.abs(currentBalance)}
                   formatter={(val) => {
                     const formatted = formatVND(val);
-                    if (currentBalance > 0) return `+${formatted}`;
-                    if (currentBalance < 0) return `-${formatted}`;
+                    if (currentBalance > 0) return formatted;
+                    if (currentBalance < 0) return `+${formatted}`;
                     return formatted;
                   }}
                 />
@@ -473,42 +489,20 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             </div>
           </div>
         ) : (
-          <div className="p-4 sm:p-6 bg-slate-50 border-b border-slate-200">
+          <div className="p-4 sm:p-5 bg-slate-50/70 border-b border-slate-200/80">
             {currentBalance < 0 ? (
-              <div className="p-5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white text-emerald-950 rounded-2xl border border-emerald-200 shadow-2xs space-y-3.5">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                    <Phone className="w-5 h-5" />
+              <div className="p-3.5 sm:p-4 bg-emerald-50/80 text-emerald-950 rounded-2xl border border-emerald-200/80 shadow-2xs flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
                   </div>
-                  <div className="flex-1">
-                    <div className="font-extrabold text-sm sm:text-base text-emerald-900 leading-tight">
-                      ✨ {activeSettings.ownerName} đang có trách nhiệm trả lại bạn {formatVND(Math.abs(currentBalance))}
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-emerald-950 text-xs sm:text-sm truncate">
+                      {activeSettings.ownerName} cần hoàn trả lại tiền cho bạn
                     </div>
-                    <p className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                    <p className="text-[11px] text-emerald-800/80 mt-0.5 leading-relaxed">
                       Vui lòng gửi số tài khoản của bạn cho <strong>{activeSettings.ownerName}</strong> để nhận lại tiền nhé!
                     </p>
-                  </div>
-                </div>
-
-                {/* Khối thông tin liên hệ trực tiếp Chủ Sổ */}
-                <div className="pt-3 border-t border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                  <div>
-                    <span className="text-slate-500 font-medium block text-[11px]">Thông tin liên hệ {activeSettings.ownerName}:</span>
-                    <div className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
-                      <span>SĐT / Zalo: </span>
-                      <strong className="font-mono text-emerald-800 text-sm tracking-wide">{contactPhone}</strong>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={`tel:${contactPhone}`}
-                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer text-xs"
-                      title="Bấm để gọi điện trực tiếp"
-                    >
-                      <Phone className="w-3.5 h-3.5" />
-                      <span>Gọi điện ngay</span>
-                    </a>
                   </div>
                 </div>
               </div>
@@ -736,10 +730,20 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
                       <div className="text-right">
                         <span className="text-slate-500 text-[11px] font-medium block xs:inline">Dư nợ sau GD: </span>
-                        <strong className="text-slate-900 font-bold font-mono text-xs sm:text-sm">
+                        <strong
+                          className={`font-bold font-mono text-xs sm:text-sm ${
+                            runningBalance > 0
+                              ? 'text-rose-600'
+                              : runningBalance < 0
+                              ? 'text-emerald-600'
+                              : 'text-slate-900'
+                          }`}
+                        >
                           {runningBalance > 0
-                            ? `+${formatVND(runningBalance)}`
-                            : formatVND(runningBalance)}
+                            ? formatVND(runningBalance)
+                            : runningBalance < 0
+                            ? `+${formatVND(Math.abs(runningBalance))}`
+                            : formatVND(0)}
                         </strong>
                       </div>
                     </div>
@@ -751,43 +755,110 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
         </div>
       </div>
 
-      {/* ⚡ THANH CỐ ĐỊNH THANH TOÁN DÍNH ĐÁY CHO MOBILE */}
-      {currentBalance > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-2xl px-4 py-3 sm:py-3.5">
-          <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <span className="text-[10px] text-slate-500 uppercase font-bold block leading-tight">
-                Cần thanh toán
-              </span>
-              <span className="font-mono text-base sm:text-lg font-black text-rose-600 tracking-tight truncate block">
-                {formatVND(currentBalance)}
-              </span>
-            </div>
+      {/* ⚡ THANH CỐ ĐỊNH DÍNH ĐÁY CHO MOBILE (Thanh toán khi còn nợ, Liên hệ khi chủ sổ cần trả) */}
+      {currentBalance !== 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-4 py-2.5 sm:py-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-xl mx-auto flex items-center justify-between gap-2.5 sm:gap-3">
+            {currentBalance > 0 ? (
+              // Trạng thái 1: Khách nợ chủ sổ -> Cần thanh toán
+              <>
+                <div className="min-w-0">
+                  <span className="text-[10px] text-slate-500 uppercase font-extrabold block leading-tight tracking-wider">
+                    Cần thanh toán
+                  </span>
+                  <span className="font-mono text-base sm:text-lg font-black text-rose-600 tracking-tight truncate block">
+                    {formatVND(currentBalance)}
+                  </span>
+                </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={copyAccountNumber}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200/80 active:scale-95"
-                title="Sao chép số tài khoản ngân hàng"
-              >
-                {copiedAcc ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-                <span>{copiedAcc ? 'Đã chép STK' : 'Chép STK'}</span>
-              </button>
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={copyAccountNumber}
+                    className="px-2.5 sm:px-3 py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200/80 active:scale-95"
+                    title="Sao chép số tài khoản ngân hàng"
+                  >
+                    {copiedAcc ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedAcc ? 'Đã chép STK' : 'Chép STK'}</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setShowQrModal(true)}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-              >
-                <QrCode className="w-4 h-4" />
-                <span>Mã QR</span>
-              </button>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowQrModal(true)}
+                    className="px-3 sm:px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Mã QR</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Trạng thái 2: Chủ sổ nợ khách -> Hiển thị thông tin liên hệ ngay ở thanh bottom
+              <>
+                <div className="min-w-0">
+                  <span className="text-[10px] text-emerald-700 uppercase font-extrabold block leading-tight tracking-wider flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Được thanh toán</span>
+                  </span>
+                  <span className="font-mono text-base sm:text-lg font-black text-emerald-600 tracking-tight truncate block">
+                    +{formatVND(Math.abs(currentBalance))}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  {contactPhone && (
+                    <button
+                      type="button"
+                      onClick={copyPhoneNumber}
+                      className="px-2.5 sm:px-3 py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200/80 active:scale-95"
+                      title="Sao chép số điện thoại chủ sổ"
+                    >
+                      {copiedPhone ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedPhone ? 'Đã chép' : 'Chép SĐT'}</span>
+                    </button>
+                  )}
+
+                  {contactPhone ? (
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={`tel:${contactPhone.replace(/\s+/g, '')}`}
+                        className="px-3 sm:px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                        title="Bấm để gọi điện ngay cho chủ sổ"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>Gọi điện</span>
+                      </a>
+                      <a
+                        href={`https://zalo.me/${contactPhone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-2 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 border border-blue-200/80 rounded-xl text-xs font-bold transition-all hidden xs:inline-flex items-center gap-1 active:scale-95"
+                        title="Nhắn tin qua Zalo cho chủ sổ"
+                      >
+                        <span>Zalo</span>
+                      </a>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowContactModal(true)}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Liên hệ</span>
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -884,6 +955,120 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowQrModal(false)}
+                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+              >
+                Đóng
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 📱 POPUP / BOTTOM SHEET LIÊN HỆ CHỦ SỔ NHẬN TIỀN */}
+      <AnimatePresence>
+        {showContactModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowContactModal(false);
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 16 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="bg-white rounded-3xl border border-slate-200/90 max-w-sm w-full p-4 sm:p-5 space-y-4 shadow-2xl relative my-auto"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm uppercase">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Phone className="w-4 h-4" />
+                  </div>
+                  <span>Thông Tin Liên Hệ</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowContactModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Đóng popup"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Amount info */}
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-center">
+                <span className="text-[11px] text-emerald-700 font-bold uppercase block">
+                  Số tiền bạn được nhận lại
+                </span>
+                <span className="text-xl sm:text-2xl font-black font-mono text-emerald-700 block mt-0.5">
+                  {formatVND(Math.abs(currentBalance))}
+                </span>
+                <p className="text-[11px] text-slate-600 mt-1">
+                  Hãy gửi STK ngân hàng của bạn cho <strong>{activeSettings.ownerName}</strong> để nhận lại tiền nhé!
+                </p>
+              </div>
+
+              {/* Contact actions */}
+              <div className="space-y-2">
+                {contactPhone ? (
+                  <>
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">SĐT / Zalo Chủ Sổ</span>
+                        <strong className="text-sm font-mono font-bold text-slate-900">{contactPhone}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={copyPhoneNumber}
+                        className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1 active:scale-95"
+                      >
+                        {copiedPhone ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Đã chép</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Sao chép</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <a
+                        href={`tel:${contactPhone.replace(/\s+/g, '')}`}
+                        className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-95"
+                      >
+                        <Phone className="w-4 h-4" />
+                        <span>Gọi điện ngay</span>
+                      </a>
+                      <a
+                        href={`https://zalo.me/${contactPhone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-95"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>Nhắn Zalo</span>
+                      </a>
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center text-xs text-slate-500">
+                    Chủ sổ chưa cập nhật số điện thoại liên hệ.
+                  </div>
+                )}
+              </div>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setShowContactModal(false)}
                 className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
               >
                 Đóng
