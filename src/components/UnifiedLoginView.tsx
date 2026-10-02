@@ -21,6 +21,7 @@ import {
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
 import { loadDebtors, loadTransactions, loadSettings, saveSettings } from '../utils/storage';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface UnifiedLoginViewProps {
   settings: AppSettings;
@@ -164,7 +165,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   };
 
   return (
-    <div className="relative min-h-[82vh] flex items-center justify-center p-3 sm:p-5 w-full select-none">
+    <div className="relative min-h-[82vh] flex flex-col items-center justify-center p-3 sm:p-5 w-full select-none">
       {/* 🌌 Ambient Glow nhẹ nhàng phía sau */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden -z-10 flex items-center justify-center">
         <div className="absolute -top-12 -left-12 w-72 h-72 rounded-full bg-emerald-400/20 blur-3xl" />
@@ -374,10 +375,13 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           </div>
         )}
 
-        {/* 4. Footer Tối Giản */}
-        <div className="py-2.5 sm:py-3 px-4 bg-slate-50 border-t border-slate-100 text-center text-[11px] sm:text-xs text-slate-400 flex items-center justify-center gap-1.5 font-medium">
-          <KeyRound className="w-3.5 h-3.5 text-slate-400" />
-          <span>Quên mật khẩu? Vui lòng liên hệ trực tiếp quản lý</span>
+        {/* 4. Footer Tối Giản & Gọn Gàng */}
+        <div className="py-2.5 sm:py-3 px-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] sm:text-xs">
+          <div className="flex items-center gap-1.5 text-slate-400 font-medium truncate">
+            <KeyRound className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="truncate">Quên mật khẩu? Liên hệ quản lý</span>
+          </div>
+          <PWAInstallButton variant="inline" />
         </div>
       </motion.div>
     </div>

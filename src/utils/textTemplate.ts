@@ -15,16 +15,16 @@ export const DEFAULT_APP_SUBTITLE =
 export const DEFAULT_LOOKUP_GUIDE = `📋 HƯỚNG DẪN TRUY CẬP TRA CỨU SỔ GIAO DỊCH
 Chào {name},
 Dưới đây là thông tin để bạn tự kiểm tra lịch sử chi tiêu và số dư giao dịch:
-🔗 Đường dẫn tra cứu chung: {url}
+🔗 Đường dẫn tra cứu: {url}
 🔑 Mật khẩu riêng của bạn: {pass}
 
 👉 Các bước tra cứu rất đơn giản:
-1. Bấm vào Đường dẫn tra cứu chung ở trên.
+1. Bấm vào Đường dẫn tra cứu ở trên.
 2. Nhập Mật khẩu: {pass}
 3. Bạn sẽ xem được toàn bộ sao kê chi tiết từng khoản cộng/trừ và mã VietQR để thanh toán nhanh (quét xong tự nhập số tiền tùy ý trên app ngân hàng).`;
 
 export const DEFAULT_REMINDER_TEMPLATE = `👋 Chào {name},
-Mình gửi bạn thông báo số dư nợ hiện tại trong sổ:
+Mình gửi bạn thông báo số dư nợ hiện tại:
 💰 Số tiền cần thanh toán: {balance}
 🔗 Đường dẫn xem sao kê chi tiết: {url} (Mật khẩu: {pass})
 

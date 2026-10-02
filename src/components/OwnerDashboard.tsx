@@ -646,10 +646,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 </div>
                 <div className="max-w-md mx-auto space-y-1.5">
                   <h4 className="font-bold text-base sm:text-lg text-slate-900">
-                    Không Có Con Nợ Nào
+                    Không Có Người Nào
                   </h4>
                   <p className="text-slate-500 text-xs leading-relaxed">
-                    Bạn đã xóa dữ liệu mẫu hoặc chưa thêm con nợ nào. Hãy bấm nút dưới đây để tạo con nợ!
+                    Bạn đã xóa dữ liệu mẫu hoặc chưa thêm người nào. Hãy bấm nút dưới đây để tạo thêm người!
                   </p>
                 </div>
 
@@ -660,7 +660,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
                     <UserPlus className="w-4 h-4" />
-                    <span>Thêm Con Nợ</span>
+                    <span>Thêm Người</span>
                   </button>
                   <button
                     type="button"
@@ -676,7 +676,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             ) : (
               <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs space-y-2">
                 <Users className="w-8 h-8 mx-auto text-slate-300" />
-                <div>Không tìm thấy con nợ nào phù hợp với bộ lọc hiện tại.</div>
+                <div>Không tìm thấy người nào phù hợp với bộ lọc hiện tại.</div>
                 <button
                   type="button"
                   onClick={() => {
@@ -993,7 +993,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                   type="button"
                                   onClick={() => setDebtorToDelete(debtor)}
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                  title="Xóa người nợ này"
+                                  title="Xóa người này"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -1003,7 +1003,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 type="button"
                                 onClick={() => onSelectDebtor(debtor)}
                                 className="p-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg transition-colors cursor-pointer ml-1"
-                                title="Xem chi tiết sổ nợ"
+                                title="Xem chi tiết"
                               >
                                 <ChevronRight className="w-3.5 h-3.5" />
                               </button>
@@ -1293,7 +1293,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         onClose={() => setIsConfirmClearOpen(false)}
         onSuccess={() => {
           if (onDataReload) onDataReload();
-          showToast('Đã xóa sạch toàn bộ dữ liệu mẫu! Sổ nợ của bạn đã sẵn sàng ghi dữ liệu thật.');
+          showToast('Đã xóa sạch toàn bộ dữ liệu mẫu! Ứng dụng của bạn đã sẵn sàng ghi dữ liệu thật.');
         }}
       />
 
@@ -1321,7 +1321,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         onConfirm={() => {
           if (debtorToDelete && onDeleteDebtor) {
             onDeleteDebtor(debtorToDelete.id);
-            showToast(`Đã xóa con nợ "${debtorToDelete.name}" thành công!`, 'success');
+            showToast(`Đã xóa "${debtorToDelete.name}" thành công!`, 'success');
             setDebtorToDelete(null);
           }
         }}

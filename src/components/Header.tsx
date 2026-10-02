@@ -10,6 +10,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { AppSettings, Debtor } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   currentView: 'OWNER' | 'GUEST' | 'SETTINGS';
@@ -69,10 +70,10 @@ export const Header: React.FC<HeaderProps> = ({
                   {isOwnerAuthenticated
                     ? currentView === 'SETTINGS'
                       ? 'Cài đặt & Đồng bộ Cloud'
-                      : `Quản lý sổ nợ • Chủ sổ: ${settings.ownerName}`
+                      : `Quản lý • Chủ sổ: ${settings.ownerName}`
                     : activeGuestDebtor
                     ? `Sao kê tài khoản: ${activeGuestDebtor.name}`
-                    : 'Ghi chép sổ nợ & tra cứu sao kê'}
+                    : 'Ghi chép & tra cứu sao kê'}
                 </p>
               </div>
             </div>
@@ -80,6 +81,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* RIGHT: Navigation & Action Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* PWA Install Button */}
+            <PWAInstallButton variant="header" />
             
             {/* Copy Link Button */}
             <button

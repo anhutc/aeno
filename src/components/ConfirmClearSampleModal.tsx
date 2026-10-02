@@ -72,7 +72,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
                 Xác Nhận Xóa Sạch Dữ Liệu Mẫu
               </h2>
               <p className="text-[11px] text-rose-100">
-                Bắt đầu ghi sổ nợ thực tế
+                Bắt đầu ghi dữ liệu thực tế
               </p>
             </div>
           </div>

@@ -51,6 +51,7 @@ import { SplitBillModal } from './components/SplitBillModal';
 import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { BottomNavBar } from './components/BottomNavBar';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
   // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
@@ -694,6 +695,9 @@ export default function App() {
         title={viewImageTitle}
         onClose={() => setViewImageUrl(null)}
       />
+
+      {/* Offline Status Awareness Indicator */}
+      <OfflineIndicator />
 
       {/* Mobile Bottom Navigation Dock (Chỉ cho Chủ Sổ) */}
       {isOwnerAuthenticated && (

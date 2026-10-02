@@ -645,7 +645,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                 </div>
 
                 <p className="text-[11px] text-slate-500 italic">
-                  * Gợi ý: Khi viết Bot Zalo/Telegram, bạn chỉ cần gửi HTTP POST tới endpoint trên với mật khẩu chủ sổ trong header là dữ liệu sẽ tự nhảy vào sổ nợ ngay lập tức.
+                  * Gợi ý: Khi viết Bot Zalo/Telegram, bạn chỉ cần gửi HTTP POST tới endpoint trên với mật khẩu chủ sổ trong header là dữ liệu sẽ tự nhảy vào ngay lập tức.
                 </p>
               </div>
             )}

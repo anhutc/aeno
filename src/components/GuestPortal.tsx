@@ -40,6 +40,7 @@ import { subscribeToFirestoreData } from '../services/firestoreClient';
 import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
 import { AnimatedCounter } from './AnimatedCounter';
 import { triggerSettledCelebration } from '../utils/confetti';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface GuestPortalProps {
   debtor?: Debtor | null;
@@ -754,6 +755,9 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           )}
         </div>
       </div>
+
+      {/* 📱 PWA Install Card for Quick Access */}
+      <PWAInstallButton variant="card" />
 
       {/* ⚡ THANH CỐ ĐỊNH DÍNH ĐÁY CHO MOBILE (Thanh toán khi còn nợ, Liên hệ khi chủ sổ cần trả) */}
       {currentBalance !== 0 && (

@@ -38,6 +38,7 @@ import {
   saveSettings,
 } from '../utils/storage';
 import { apiUploadJsonToFirestore } from '../utils/api';
+import { PWAInstallButton } from './PWAInstallButton';
 import { ConfirmRestoreModal, RestorePayloadPreview } from './ConfirmRestoreModal';
 import {
   DEFAULT_APP_TITLE,
@@ -305,7 +306,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         }
 
         if (debtorsFound.length === 0 && transactionsFound.length === 0 && partiesFound.length === 0) {
-          showToast('Tệp JSON không chứa dữ liệu sổ nợ hợp lệ!', 'error');
+          showToast('Tệp JSON không chứa dữ liệu hợp lệ!', 'error');
           return;
         }
 
@@ -777,40 +778,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Security section */}
-              <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
-                <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
-                  <Lock className="w-4 h-4 text-emerald-600" />
-                  <span>Mật Khẩu Đăng Nhập Quản Lý</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Mật khẩu quản lý:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={formData.ownerPassword}
-                      onChange={(e) => setFormData({ ...formData, ownerPassword: e.target.value })}
-                      placeholder="Nhập mật khẩu quản lý..."
-                      className="w-full px-3.5 py-2.5 pr-10 bg-white border border-slate-300 rounded-2xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
-                      title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-                    Dùng để đăng nhập vào trang quản lý số dư, thêm bớt người nợ và sửa giao dịch.
-                  </p>
-                </div>
-              </div>
-
               {/* Branding / Titles section */}
               <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
                 <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
@@ -849,16 +816,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 </div>
               </div>
+              {/* Security section */}
+              <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
+                <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
+                  <Lock className="w-4 h-4 text-emerald-600" />
+                  <span>Mật Khẩu Đăng Nhập Quản Lý</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Mật khẩu quản lý:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={formData.ownerPassword}
+                      onChange={(e) => setFormData({ ...formData, ownerPassword: e.target.value })}
+                      placeholder="Nhập mật khẩu quản lý..."
+                      className="w-full px-3.5 py-2.5 pr-10 bg-white border border-slate-300 rounded-2xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                      title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                    Dùng để đăng nhập vào trang quản lý số dư, thêm bớt người nợ và sửa giao dịch.
+                  </p>
+                </div>
+              </div>
             </div>
+
+            {/* PWA App Installation Section */}
+            <PWAInstallButton variant="settings" />
 
             {/* Data management actions */}
             <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                  Thao Tác Dữ Liệu Sổ Nợ
+                  Thao Tác Dữ Liệu
                 </span>
                 <span className="text-[11px] text-slate-500">
-                  Hiện có: <strong>{debtors.length}</strong> con nợ, <strong>{transactions.length}</strong> giao dịch
+                  Hiện có: <strong>{debtors.length}</strong> người, <strong>{transactions.length}</strong> giao dịch
                 </span>
               </div>
 
@@ -887,7 +890,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <Upload className="w-4 h-4 text-blue-600" />
                   </div>
                   <span className="text-[11px] text-slate-500 leading-tight">
-                    Nạp dữ liệu từ tệp JSON sao lưu trước đây để phục hồi sổ nợ.
+                    Nạp dữ liệu từ tệp JSON sao lưu trước đây để phục hồi dữ liệu.
                   </span>
                   <input
                     type="file"

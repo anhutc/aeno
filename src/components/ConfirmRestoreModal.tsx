@@ -62,7 +62,7 @@ export const ConfirmRestoreModal: React.FC<ConfirmRestoreModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold leading-tight">Khôi Phục Dữ Liệu Từ Tệp JSON</h3>
-              <p className="text-xs text-emerald-100">Kiểm tra thông tin trước khi áp dụng vào sổ nợ</p>
+              <p className="text-xs text-emerald-100">Kiểm tra thông tin trước khi áp dụng dữ liệu</p>
             </div>
           </div>
           <button
@@ -150,7 +150,7 @@ export const ConfirmRestoreModal: React.FC<ConfirmRestoreModalProps> = ({
                   </span>
                 </div>
                 <p className="text-slate-500 mt-0.5 leading-relaxed">
-                  Thay thế toàn bộ sổ nợ hiện tại bằng nội dung trong tệp sao lưu. Đảm bảo dữ liệu đồng nhất và đồng bộ tức thì lên Cloud Firestore.
+                  Thay thế toàn bộ dữ liệu hiện tại bằng nội dung trong tệp sao lưu. Đảm bảo dữ liệu đồng nhất và đồng bộ tức thì lên Cloud Firestore.
                 </p>
               </div>
             </label>
