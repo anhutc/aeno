@@ -1422,7 +1422,7 @@ app.use(async (req, _res, next) => {
       }
       const db = getDatabase();
       const rawTitle = db.settings?.appTitle?.trim();
-      const appTitle = rawTitle && rawTitle.length > 0 ? rawTitle : 'OK Sổ Ghi Nợ';
+      const appTitle = rawTitle && rawTitle.length > 0 ? rawTitle : 'Sổ Ghi Nợ';
       const appSubtitle = db.settings?.appSubtitle?.trim() || 'Ứng dụng quản lý tài chính, chia tiền và sao kê';
       const shortName = appTitle.length <= 14 ? appTitle : appTitle.slice(0, 14);
 

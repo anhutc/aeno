@@ -21,7 +21,7 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'OK Sổ Ghi Nợ & Chia Tiền',
+          name: 'Sổ Ghi Nợ & Chia Tiền',
           short_name: 'Sổ Ghi Nợ',
           description:
             'Ứng dụng quản lý sổ nợ cá nhân, chia tiền cuộc vui tự động, tra cứu bằng mã PIN và thanh toán VietQR',
@@ -94,6 +94,29 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 1600,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase')) {
+                return 'firebase-vendor';
+              }
+              if (id.includes('motion')) {
+                return 'motion-vendor';
+              }
+              if (id.includes('react') || id.includes('scheduler')) {
+                return 'react-vendor';
+              }
+              if (id.includes('lucide-react') || id.includes('html-to-image') || id.includes('canvas-confetti')) {
+                return 'ui-vendor';
+              }
+            }
+          },
+        },
       },
     },
     server: {
