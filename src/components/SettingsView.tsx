@@ -612,7 +612,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Tên Liên Hệ (Hiển thị cho người xem):</span>
+                      <span>Tên Liên Hệ:</span>
                     </label>
                     <input
                       type="text"
