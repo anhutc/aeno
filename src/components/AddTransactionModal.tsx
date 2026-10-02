@@ -256,7 +256,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
-          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto overscroll-contain"
         >
           <motion.div
             id="add-transaction-modal-card"
@@ -272,7 +272,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 12 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] sm:max-h-[92vh] flex flex-col"
+            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden max-h-[85dvh] sm:max-h-[90vh] flex flex-col my-auto sm:my-auto shrink-0"
           >
         {/* Mobile Drag Pill Handle */}
         <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto my-2.5 sm:hidden shrink-0 cursor-grab active:cursor-grabbing" />
@@ -304,7 +304,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
         {/* Form Content */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <div className="p-4 sm:p-6 space-y-4 text-slate-800 text-sm overflow-y-auto flex-1">
+          <div className="p-4 sm:p-6 space-y-4 text-slate-800 text-sm overflow-y-auto flex-1 overscroll-contain">
             {error && (
               <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-medium">
                 {error}
@@ -588,7 +588,12 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             </div>
 
             {/* Sticky Action Footer - Cố định nút ở chân modal */}
-            <div className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+            <div
+              className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0 select-none"
+              style={{
+                paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 8px), 12px)',
+              }}
+            >
               <button
                 type="button"
                 id="btn-cancel-transaction"

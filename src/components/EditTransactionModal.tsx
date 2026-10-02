@@ -136,7 +136,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
-          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto"
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto overscroll-contain"
         >
           <motion.div
             id="edit-transaction-modal-card"
@@ -144,7 +144,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 12 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col"
+            className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85dvh] sm:max-h-[90vh] flex flex-col my-auto shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
         {/* Header - Sáng & Tinh tế */}
@@ -355,7 +355,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </div>
 
             {/* Footer Actions - Cố định nút ở chân modal */}
-            <div className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+            <div
+              className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0 select-none"
+              style={{
+                paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 8px), 12px)',
+              }}
+            >
               <button
                 type="button"
                 id="btn-cancel-edit-tx"

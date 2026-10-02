@@ -25,6 +25,15 @@ input::-ms-clear {
   pointer-events: none !important;
 }
 
+/* Ngăn chặn tuyệt đối iOS Safari và Android tự động phóng to (auto-zoom) khi chạm vào ô nhập */
+@media screen and (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Custom modern scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

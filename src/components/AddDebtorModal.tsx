@@ -134,7 +134,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
-          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto overscroll-contain"
         >
           <motion.div
             id="add-debtor-modal-card"
@@ -150,7 +150,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 12 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] sm:max-h-[92vh] flex flex-col"
+            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85dvh] sm:max-h-[90vh] flex flex-col my-auto sm:my-auto shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Mobile Drag Pill Handle */}
@@ -185,7 +185,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto flex-1">
+              <div className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto flex-1 overscroll-contain">
                 {error && (
                   <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
                     {error}
@@ -202,8 +202,8 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                     placeholder="Nhập tên, ví dụ: Nguyễn Văn Nam"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 font-medium transition-colors text-sm"
-                    autoFocus
+                    onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 font-medium transition-colors text-base sm:text-sm"
                   />
                 </div>
 
@@ -219,7 +219,8 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                         placeholder="Ví dụ: nam123 hoặc 1234"
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
-                        className="w-full pl-3.5 pr-10 py-2.5 text-sm sm:text-base font-bold font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 transition-colors"
+                        onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150)}
+                        className="w-full pl-3.5 pr-10 py-2.5 text-base sm:text-base font-bold font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 transition-colors"
                       />
                       <button
                         type="button"
@@ -257,13 +258,19 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                     placeholder="Bạn cấp 3 / Đồng nghiệp / Nhóm đá banh..."
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 transition-colors text-sm"
+                    onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 transition-colors text-base sm:text-sm"
                   />
                 </div>
               </div>
 
               {/* Action buttons - Cố định ở đáy modal */}
-              <div className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+              <div
+                className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0 select-none"
+                style={{
+                  paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 8px), 12px)',
+                }}
+              >
                 <button
                   type="button"
                   id="btn-cancel-debtor"
