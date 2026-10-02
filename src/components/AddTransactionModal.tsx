@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -244,72 +245,70 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     }
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          id="add-transaction-modal-backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) onClose();
-          }}
-          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto overscroll-contain"
-        >
-          <motion.div
-            id="add-transaction-modal-card"
-            drag="y"
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.5 }}
-            onDragEnd={(_e, info) => {
-              if (info.offset.y > 100 || info.velocity.y > 350) {
-                onClose();
-              }
-            }}
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 12 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden max-h-[85dvh] sm:max-h-[90vh] flex flex-col my-auto sm:my-auto shrink-0"
-          >
-        {/* Mobile Drag Pill Handle */}
-        <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto my-2.5 sm:hidden shrink-0 cursor-grab active:cursor-grabbing" />
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <AnimatePresence>
+          {isOpen && (
+            <div
+              id="add-transaction-modal-backdrop"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) onClose();
+              }}
+              className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-md p-0 sm:p-4 overflow-y-auto overflow-x-hidden overscroll-contain"
+            >
+              <motion.div
+                id="add-transaction-modal-card"
+                drag="y"
+                dragConstraints={{ top: 0, bottom: 0 }}
+                dragElastic={{ top: 0, bottom: 0.5 }}
+                onDragEnd={(_e, info) => {
+                  if (info.offset.y > 100 || info.velocity.y > 350) {
+                    onClose();
+                  }
+                }}
+                initial={{ opacity: 0, scale: 0.96, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 20 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="bg-white w-full sm:max-w-lg rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-slate-100 overflow-hidden max-h-[88dvh] sm:max-h-[90vh] flex flex-col shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+            {/* Mobile Drag Pill Handle */}
+            <div className="w-10 h-1.5 bg-slate-200/90 rounded-full mx-auto my-3 sm:hidden shrink-0 cursor-grab active:cursor-grabbing" />
 
-        {/* Header - Sáng & Tinh tế */}
-        <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0 shadow-2xs">
-              <PlusCircle className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-sm sm:text-base tracking-wide uppercase leading-tight truncate text-slate-900">
-                Tạo Giao Dịch Mới
-              </h2>
-              <p className="text-xs text-slate-500 truncate mt-0.5">
-                Ghi nợ mới hoặc ghi nhận thanh toán tiền nợ
-              </p>
-            </div>
-          </div>
-          <button
-            id="close-add-transaction-btn"
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer shrink-0"
-            title="Đóng"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Form Content */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <div className="p-4 sm:p-6 space-y-4 text-slate-800 text-sm overflow-y-auto flex-1 overscroll-contain">
-            {error && (
-              <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-medium">
-                {error}
+            {/* Header */}
+            <div className="px-5 sm:px-6 pt-1 sm:pt-5 pb-4 flex items-center justify-between shrink-0 border-b border-slate-100 bg-white">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 shadow-xs">
+                  <PlusCircle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900 leading-tight truncate">
+                    Tạo Giao Dịch Mới
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
+                    Ghi thêm nợ hoặc ghi nhận thanh toán tiền nợ
+                  </p>
+                </div>
               </div>
-            )}
+              <button
+                id="close-add-transaction-btn"
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Đóng"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form Content */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-50/40">
+              <div className="p-5 sm:p-6 space-y-4 text-slate-800 text-sm overflow-y-auto overflow-x-hidden flex-1 overscroll-contain">
+                {error && (
+                  <div className="p-3.5 bg-rose-50 border border-rose-200/80 text-rose-700 rounded-2xl text-xs font-semibold">
+                    {error}
+                  </div>
+                )}
 
           {/* Người nợ: Tùy biến chọn có sẵn hoặc tạo ngay tại chỗ */}
           <div className="space-y-2">
@@ -589,9 +588,9 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
             {/* Sticky Action Footer - Cố định nút ở chân modal */}
             <div
-              className="px-4 sm:px-6 py-3 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0 select-none"
+              className="p-4 sm:p-5 bg-white border-t border-slate-100 flex items-center gap-3 shrink-0 select-none"
               style={{
-                paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 8px), 12px)',
+                paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 16px)',
               }}
             >
               <button
@@ -599,7 +598,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 id="btn-cancel-transaction"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-2xl text-sm font-bold transition-all cursor-pointer text-center disabled:opacity-50"
               >
                 Hủy
               </button>
@@ -607,7 +606,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 type="submit"
                 id="btn-save-transaction"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
+                className="flex-[1.6] inline-flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-sm rounded-2xl shadow-md shadow-emerald-500/25 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
               >
                 <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
                 <span>{isSubmitting ? 'Đang lưu...' : 'Tạo Giao Dịch'}</span>
@@ -615,8 +614,10 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             </div>
           </form>
           </motion.div>
-        </motion.div>
+        </div>
       )}
-    </AnimatePresence>
-  );
+    </AnimatePresence>,
+    document.body
+  )
+: null;
 };

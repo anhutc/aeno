@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Download,
   Smartphone,
@@ -151,130 +152,134 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         </div>
       )}
 
-      {/* Modal Hướng Dẫn Cài Đặt Dành Cho iOS Safari / Trình duyệt khác */}
-      <AnimatePresence>
-        {showGuideModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto"
-            onClick={() => setShowGuideModal(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 12 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl border border-slate-200 max-w-sm sm:max-w-md w-full shadow-2xl relative my-auto max-h-[88vh] flex flex-col overflow-hidden"
-            >
-              {/* Header cố định trên cùng - luôn luôn nhìn thấy rõ */}
-              <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-white shrink-0">
-                <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm sm:text-base">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                    <Smartphone className="w-4 h-4" />
-                  </div>
-                  <span>Hướng Dẫn Cài Đặt App</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowGuideModal(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
-                  aria-label="Đóng"
+      {/* Modal Hướng Dẫn Cài Đặt Dành Cho iOS Safari / Trình duyệt khác - Teleport ra document.body */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {showGuideModal && (
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain"
+                onClick={() => setShowGuideModal(false)}
+              >
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-white rounded-3xl border border-slate-200 max-w-sm sm:max-w-md w-full shadow-2xl relative my-auto max-h-[85dvh] sm:max-h-[90vh] flex flex-col overflow-hidden shrink-0"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Phần thân có thể cuộn trượt nếu màn hình nhỏ */}
-              <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1 overscroll-contain">
-                {isIOS ? (
-                  // Hướng dẫn dành riêng cho iPhone / iPad (Safari)
-                  <div className="space-y-3 text-xs sm:text-sm text-slate-700">
-                    <p className="font-semibold text-slate-900 flex items-center gap-1.5 text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-100">
-                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Cách thêm vào màn hình chính trên iPhone/iPad:</span>
-                    </p>
-
-                    <div className="space-y-2.5">
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                          1
-                        </div>
-                        <div className="leading-relaxed">
-                          Chạm vào nút <strong>Chia sẻ</strong> (biểu tượng <Share className="w-3.5 h-3.5 inline mx-0.5 text-blue-600" />) ở thanh dưới cùng trình duyệt Safari.
-                        </div>
+                  {/* Header cố định trên cùng - luôn luôn nhìn thấy rõ */}
+                  <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-white shrink-0">
+                    <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm sm:text-base">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                        <Smartphone className="w-4 h-4" />
                       </div>
-
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                          2
-                        </div>
-                        <div className="leading-relaxed">
-                          Cuộn danh sách xuống và chọn <strong>"Thêm vào MH chính"</strong> (hoặc <strong>"Add to Home Screen"</strong> <PlusSquare className="w-3.5 h-3.5 inline mx-0.5 text-slate-700" />).
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                          3
-                        </div>
-                        <div className="leading-relaxed">
-                          Nhấn <strong>"Thêm"</strong> (Add) ở góc trên bên phải màn hình. Biểu tượng ứng dụng sẽ xuất hiện ngay trên màn hình chính!
-                        </div>
-                      </div>
+                      <span>Hướng Dẫn Cài Đặt App</span>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowGuideModal(false)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                      aria-label="Đóng"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-                ) : (
-                  // Hướng dẫn dành cho Android / Chrome / Edge / Máy tính
-                  <div className="space-y-3 text-xs sm:text-sm text-slate-700">
-                    {isInIframe ? (
-                      <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/80 text-amber-900 text-xs space-y-1">
-                        <strong className="block font-bold">Lưu ý khi xem trong môi trường thử nghiệm:</strong>
-                        <p className="leading-relaxed text-amber-800">
-                          Trình duyệt chặn hộp thoại tự động cài đặt khi ứng dụng đang nằm trong khung xem trước (iframe). Để cài đặt tự động 1 chạm, hãy mở đường link ứng dụng trực tiếp trên trình duyệt điện thoại.
+
+                  {/* Phần thân có thể cuộn trượt nếu màn hình nhỏ */}
+                  <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1 overscroll-contain">
+                    {isIOS ? (
+                      // Hướng dẫn dành riêng cho iPhone / iPad (Safari)
+                      <div className="space-y-3 text-xs sm:text-sm text-slate-700">
+                        <p className="font-semibold text-slate-900 flex items-center gap-1.5 text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-100">
+                          <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>Cách thêm vào màn hình chính trên iPhone/iPad:</span>
                         </p>
-                      </div>
-                    ) : null}
 
-                    <p className="font-semibold text-slate-900">
-                      Cách thêm nhanh vào màn hình chính trên Android / Chrome:
-                    </p>
+                        <div className="space-y-2.5">
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                              1
+                            </div>
+                            <div className="leading-relaxed">
+                              Chạm vào nút <strong>Chia sẻ</strong> (biểu tượng <Share className="w-3.5 h-3.5 inline mx-0.5 text-blue-600" />) ở thanh dưới cùng trình duyệt Safari.
+                            </div>
+                          </div>
 
-                    <div className="space-y-2.5">
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                          1
-                        </div>
-                        <div className="leading-relaxed">
-                          Bấm vào biểu tượng <strong>Menu ba chấm (⋮)</strong> ở góc trên bên phải trình duyệt Chrome / Cốc Cốc.
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                              2
+                            </div>
+                            <div className="leading-relaxed">
+                              Cuộn danh sách xuống và chọn <strong>"Thêm vào MH chính"</strong> (hoặc <strong>"Add to Home Screen"</strong> <PlusSquare className="w-3.5 h-3.5 inline mx-0.5 text-slate-700" />).
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                              3
+                            </div>
+                            <div className="leading-relaxed">
+                              Nhấn <strong>"Thêm"</strong> (Add) ở góc trên bên phải màn hình. Biểu tượng ứng dụng sẽ xuất hiện ngay trên màn hình chính!
+                            </div>
+                          </div>
                         </div>
                       </div>
+                    ) : (
+                      // Hướng dẫn dành cho Android / Chrome / Edge / Máy tính
+                      <div className="space-y-3 text-xs sm:text-sm text-slate-700">
+                        {isInIframe ? (
+                          <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/80 text-amber-900 text-xs space-y-1">
+                            <strong className="block font-bold">Lưu ý khi xem trong môi trường thử nghiệm:</strong>
+                            <p className="leading-relaxed text-amber-800">
+                              Trình duyệt chặn hộp thoại tự động cài đặt khi ứng dụng đang nằm trong khung xem trước (iframe). Để cài đặt tự động 1 chạm, hãy mở đường link ứng dụng trực tiếp trên trình duyệt điện thoại.
+                            </p>
+                          </div>
+                        ) : null}
 
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                          2
-                        </div>
-                        <div className="leading-relaxed">
-                          Chọn <strong>"Cài đặt ứng dụng"</strong> (hoặc <strong>"Thêm vào màn hình chính"</strong>). Máy sẽ tự động tải biểu tượng app và ghim ra màn hình chính.
+                        <p className="font-semibold text-slate-900">
+                          Cách thêm nhanh vào màn hình chính trên Android / Chrome:
+                        </p>
+
+                        <div className="space-y-2.5">
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                              1
+                            </div>
+                            <div className="leading-relaxed">
+                              Bấm vào biểu tượng <strong>Menu ba chấm (⋮)</strong> ở góc trên bên phải trình duyệt Chrome / Cốc Cốc.
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                              2
+                            </div>
+                            <div className="leading-relaxed">
+                              Chọn <strong>"Cài đặt ứng dụng"</strong> (hoặc <strong>"Thêm vào màn hình chính"</strong>). Máy sẽ tự động tải biểu tượng app và ghim ra màn hình chính.
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* Nút hành động cố định ở đáy modal */}
-              <div className="p-4 sm:p-5 border-t border-slate-100 bg-slate-50/80 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowGuideModal(false)}
-                  className="w-full py-2.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center"
-                >
-                  Đã hiểu
-                </button>
+                  {/* Nút hành động cố định ở đáy modal */}
+                  <div className="p-4 sm:p-5 border-t border-slate-100 bg-slate-50/80 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowGuideModal(false)}
+                      className="w-full py-2.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center"
+                    >
+                      Đã hiểu
+                    </button>
+                  </div>
+                </motion.div>
               </div>
-            </motion.div>
-          </div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </>
   );
 };
