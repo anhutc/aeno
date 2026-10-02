@@ -21,7 +21,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   variant = 'button',
   className = '',
 }) => {
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const { isInstallable, isInstalled, isIOS, isInIframe, install } = usePWAInstall();
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [, setJustInstalled] = useState(false);
 
@@ -217,8 +217,17 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               ) : (
                 // Hướng dẫn dành cho Android / Chrome / Edge / Máy tính
                 <div className="space-y-3 text-xs sm:text-sm text-slate-700">
+                  {isInIframe ? (
+                    <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/80 text-amber-900 text-xs space-y-1">
+                      <strong className="block font-bold">Lưu ý khi xem trong môi trường thử nghiệm:</strong>
+                      <p className="leading-relaxed text-amber-800">
+                        Trình duyệt chặn hộp thoại tự động cài đặt khi ứng dụng đang nằm trong khung xem trước (iframe). Để cài đặt tự động 1 chạm, hãy mở đường link ứng dụng trực tiếp trên trình duyệt điện thoại.
+                      </p>
+                    </div>
+                  ) : null}
+
                   <p className="font-semibold text-slate-900">
-                    Để cài đặt ứng dụng trên Chrome / Cốc Cốc / Edge:
+                    Cách thêm nhanh vào màn hình chính trên Android / Chrome:
                   </p>
 
                   <div className="space-y-2.5">
@@ -227,7 +236,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                         1
                       </div>
                       <div className="leading-relaxed">
-                        Bấm vào biểu tượng <strong>Menu ba chấm (⋮)</strong> ở góc trên bên phải trình duyệt.
+                        Bấm vào biểu tượng <strong>Menu ba chấm (⋮)</strong> ở góc trên bên phải trình duyệt Chrome / Cốc Cốc.
                       </div>
                     </div>
 
@@ -236,7 +245,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                         2
                       </div>
                       <div className="leading-relaxed">
-                        Chọn <strong>"Cài đặt ứng dụng"</strong> hoặc <strong>"Thêm vào màn hình chính"</strong>.
+                        Chọn <strong>"Cài đặt ứng dụng"</strong> (hoặc <strong>"Thêm vào màn hình chính"</strong>). Máy sẽ tự động tải biểu tượng app và ghim ra màn hình chính.
                       </div>
                     </div>
                   </div>

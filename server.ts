@@ -1410,6 +1410,68 @@ app.use(async (req, _res, next) => {
     });
   });
 
+  // --- DYNAMIC PWA WEB MANIFEST (Tự động đồng bộ theo Tên Ứng Dụng trong Cài Đặt) ---
+  app.get(['/site.webmanifest', '/manifest.webmanifest'], async (_req, res) => {
+    try {
+      if (!isFirestoreActive) {
+        try {
+          await ensureFirestoreSync();
+        } catch {
+          // ignore
+        }
+      }
+      const db = getDatabase();
+      const rawTitle = db.settings?.appTitle?.trim();
+      const appTitle = rawTitle && rawTitle.length > 0 ? rawTitle : 'OK Sổ Ghi Nợ';
+      const appSubtitle = db.settings?.appSubtitle?.trim() || 'Ứng dụng quản lý tài chính, chia tiền và sao kê';
+      const shortName = appTitle.length <= 14 ? appTitle : appTitle.slice(0, 14);
+
+      const dynamicManifest = {
+        id: '/',
+        name: appTitle,
+        short_name: shortName,
+        description: appSubtitle,
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#f8fafc',
+        theme_color: '#059669',
+        icons: [
+          {
+            src: '/pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+          {
+            src: '/favicon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+          },
+        ],
+      };
+
+      res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.json(dynamicManifest);
+    } catch {
+      res.sendFile(path.resolve('./public/site.webmanifest'));
+    }
+  });
+
   // --- VITE MIDDLEWARE / STATIC ASSETS & LISTEN ---
   async function startStandaloneServer() {
     if (process.env.NODE_ENV !== 'production') {

@@ -32,7 +32,10 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   return (
     <nav
       aria-label="Thanh điều hướng nhanh trên di động"
-      className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/90 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] pb-[max(env(safe-area-inset-bottom,0px),8px)] pt-1 select-none"
+      className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/90 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] pt-1.5 select-none"
+      style={{
+        paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 14px), 20px)',
+      }}
     >
       <div className="max-w-md mx-auto px-2">
         <div className="grid grid-cols-5 items-center justify-items-center h-14">

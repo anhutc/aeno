@@ -797,6 +797,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       placeholder={DEFAULT_APP_TITLE}
                       className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
                     />
+                    <p className="text-[11px] text-emerald-700 font-medium mt-1 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Tên này được tự động dùng làm tên ứng dụng khi cài đặt (PWA) lên màn hình chính điện thoại.</span>
+                    </p>
                   </div>
 
                   <div>

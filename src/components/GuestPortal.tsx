@@ -761,7 +761,12 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
       {/* ⚡ THANH CỐ ĐỊNH DÍNH ĐÁY CHO MOBILE (Thanh toán khi còn nợ, Liên hệ khi chủ sổ cần trả) */}
       {currentBalance !== 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-4 py-2.5 sm:py-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div
+          className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-4 py-2.5 sm:py-3.5 select-none"
+          style={{
+            paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 18px)',
+          }}
+        >
           <div className="max-w-xl md:max-w-2xl mx-auto flex items-center justify-between gap-2.5 sm:gap-3">
             {currentBalance > 0 ? (
               // Trạng thái 1: Khách nợ chủ sổ -> Cần thanh toán

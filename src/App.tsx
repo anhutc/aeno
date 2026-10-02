@@ -170,6 +170,27 @@ export default function App() {
     refreshDataFromServer(true);
   }, [refreshDataFromServer]);
 
+  // Đồng bộ tiêu đề trang, tên hiển thị trên iPhone và Manifest PWA theo tên trong Cài Đặt
+  useEffect(() => {
+    const rawTitle = settings?.appTitle?.trim();
+    const appTitle = rawTitle && rawTitle.length > 0 ? rawTitle : 'OK Sổ Ghi Nợ';
+
+    // 1. Cập nhật tiêu đề tab trình duyệt
+    document.title = appTitle;
+
+    // 2. Cập nhật tên ứng dụng khi thêm vào màn hình chính trên iOS (iPhone/iPad)
+    const appleTitleMeta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (appleTitleMeta) {
+      appleTitleMeta.setAttribute('content', appTitle);
+    }
+
+    // 3. Cập nhật link manifest với query param để trình duyệt Android/Chrome refresh tên mới ngay
+    const manifestLink = document.querySelector('link[rel="manifest"]');
+    if (manifestLink) {
+      manifestLink.setAttribute('href', `/site.webmanifest?v=${encodeURIComponent(appTitle)}`);
+    }
+  }, [settings?.appTitle]);
+
   // Real-time synchronization: CHỈ kích hoạt khi Chủ Nợ đã đăng nhập thành công
   useEffect(() => {
     if (!isOwnerAuthenticated) {
@@ -489,7 +510,14 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className={`flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 ${isOwnerAuthenticated ? 'pb-24 sm:pb-6' : ''}`}>
+      <main
+        className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6"
+        style={{
+          paddingBottom: isOwnerAuthenticated
+            ? 'max(calc(env(safe-area-inset-bottom, 0px) + 80px), 110px)'
+            : undefined,
+        }}
+      >
         <AnimatePresence mode="wait">
           {!isOwnerAuthenticated && !guestInitialDebtor ? (
             <motion.div
