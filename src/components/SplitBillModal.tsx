@@ -22,6 +22,9 @@ import {
   Eye,
   EyeOff,
   Check,
+  User,
+  KeyRound,
+  FileText,
 } from 'lucide-react';
 import { Debtor, PartySplit, Transaction } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -332,98 +335,112 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
   const payerDebtor = debtors.find((d) => d.id === payerDebtorId);
 
   const renderAddDebtorForm = () => (
-    <div className="p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl space-y-3 animate-in fade-in shadow-2xs">
+    <div className="p-3.5 sm:p-4 bg-amber-50/70 border border-amber-200/90 rounded-2xl space-y-3 animate-in fade-in shadow-2xs">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-bold text-amber-950 uppercase flex items-center gap-1.5">
+        <span className="font-bold text-slate-900 uppercase flex items-center gap-1.5 tracking-wider">
           <UserPlus className="w-4 h-4 text-amber-600" />
-          Thêm Người Mới &amp; Cấp Pass:
+          Thêm Danh Bạ Mới:
         </span>
         <button
           type="button"
           onClick={() => setShowAddDebtorForm(false)}
-          className="text-amber-700 hover:text-amber-900 p-1 cursor-pointer"
+          className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+          title="Đóng form thêm người"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {addDebtorError && (
-        <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
+        <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold">
           {addDebtorError}
         </div>
       )}
 
       <div className="space-y-2.5">
         <div>
-          <label className="block text-xs font-bold text-amber-950 mb-1">
-            Tên người mới <span className="text-amber-700 font-normal">/ Bạn bè (*)</span>:
+          <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <User className="w-3.5 h-3.5 text-amber-600" />
+            <span>Tên</span>
+            <span className="text-rose-500 font-bold">*</span>
           </label>
-          <input
-            type="text"
-            value={newDebtorName}
-            onChange={(e) => setNewDebtorName(e.target.value)}
-            placeholder="VD: Nguyễn Văn Nam, Bạn Linh..."
-            className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-amber-800/35 transition-all"
-          />
+          <div className="relative flex items-center bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-500/10 transition-all">
+            <input
+              type="text"
+              value={newDebtorName}
+              onChange={(e) => setNewDebtorName(e.target.value)}
+              placeholder="Ví dụ: Nguyễn Văn Nam, Bạn Tuấn..."
+              className="w-full px-3.5 py-2.5 bg-transparent text-slate-900 font-semibold placeholder:text-slate-400 outline-none text-xs sm:text-sm"
+            />
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-bold text-amber-950">
-              Mật khẩu tra cứu (Pass) <span className="text-amber-700 font-normal">(*)</span>:
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+              <span>Mật Khẩu</span>
+              <span className="text-rose-500 font-bold">*</span>
             </label>
             <button
               type="button"
               onClick={handleGenerateNewPin}
-              className="text-[11px] text-amber-700 hover:text-amber-900 font-bold flex items-center gap-1 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-amber-50 active:scale-95 text-amber-700 font-bold text-[11px] rounded-lg border border-amber-200 transition-all cursor-pointer shadow-2xs"
+              title="Tạo ngẫu nhiên mật khẩu dễ nhớ"
             >
-              <Dices className="w-3 h-3" />
+              <Dices className="w-3.5 h-3.5 text-amber-600" />
               <span>Ngẫu nhiên</span>
             </button>
           </div>
-          <div className="relative">
+          <div className="relative flex items-center bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-500/10 transition-all">
             <input
               type={showNewPin ? 'text' : 'password'}
               value={newDebtorPin}
               onChange={(e) => setNewDebtorPin(e.target.value)}
-              placeholder="VD: 7k9a..."
-              className="w-full pl-3 pr-8 py-2 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 tracking-wider transition-all"
+              placeholder="Ví dụ: nam123 hoặc 1234"
+              className="w-full pl-3.5 pr-10 py-2.5 bg-transparent font-mono font-bold tracking-wider text-slate-900 placeholder:text-slate-400 text-xs sm:text-sm outline-none"
             />
             <button
               type="button"
               onClick={() => setShowNewPin(!showNewPin)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+              className="absolute right-2.5 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              title={showNewPin ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
             >
-              {showNewPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {showNewPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-amber-600" />}
             </button>
           </div>
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-amber-950 mb-1">
-            Ghi chú cá nhân (tùy chọn):
+          <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5 text-slate-400" />
+            <span>Ghi Chú</span>
+            <span className="text-slate-400 font-normal">(Tùy chọn)</span>
           </label>
-          <input
-            type="text"
-            value={newDebtorNote}
-            onChange={(e) => setNewDebtorNote(e.target.value)}
-            placeholder="Bạn cấp 3 / Đồng nghiệp..."
-            className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all"
-          />
+          <div className="relative flex items-center bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-500/10 transition-all">
+            <input
+              type="text"
+              value={newDebtorNote}
+              onChange={(e) => setNewDebtorNote(e.target.value)}
+              placeholder="Bạn cấp 3 / Đồng nghiệp / Nhóm đá banh..."
+              className="w-full px-3.5 py-2.5 bg-transparent text-slate-900 font-medium placeholder:text-slate-400 text-xs sm:text-sm outline-none"
+            />
+          </div>
         </div>
       </div>
 
-      <p className="text-[11px] text-amber-800/80 leading-tight">
-        Bạn cấp mật khẩu này cho người đó để họ tự vào tra cứu sao kê riêng (hỗ trợ cả chữ và số).
-      </p>
+      <div className="flex items-start gap-2 p-2.5 bg-white/90 rounded-xl border border-amber-100 text-[11px] text-amber-800 font-medium">
+        <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+        <span>Mật khẩu riêng để người này tự đăng nhập và xem sao kê.</span>
+      </div>
 
-      <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 pt-1 border-t border-amber-200/70">
+      <div className="flex items-center justify-end gap-2 pt-1 border-t border-amber-200/60">
         <button
           type="button"
           onClick={() => setShowAddDebtorForm(false)}
-          className="px-3 py-1.5 text-xs text-amber-800 hover:text-amber-950 font-semibold cursor-pointer whitespace-nowrap"
+          className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer whitespace-nowrap"
         >
           Hủy
         </button>
@@ -431,9 +448,10 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           type="button"
           onClick={handleSaveNewDebtor}
           disabled={isAddingDebtor || !newDebtorName.trim()}
-          className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 active:from-amber-700 active:to-orange-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
+          className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-teal-600 hover:from-amber-700 hover:to-teal-700 active:from-amber-800 active:to-teal-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
         >
-          {isAddingDebtor ? 'Đang thêm...' : 'Lưu & Chọn Ngay'}
+          <Check className="w-3.5 h-3.5" />
+          <span>{isAddingDebtor ? 'Đang thêm...' : 'Lưu & Chọn Ngay'}</span>
         </button>
       </div>
     </div>
@@ -483,7 +501,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                   <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
                     {initialParty
                       ? 'Cập nhật thông tin & tự động tính toán lại phần chia'
-                      : 'Nhập số người chia & chọn người nợ tôi hoặc tôi nợ họ'}
+                      : 'Nhập số người chia & tự động tính toán lại phần chia'}
                   </p>
                 </div>
               </div>
@@ -600,7 +618,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                 onClick={() => setPayerType('ME')}
                 className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                   payerType === 'ME'
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/20 shadow-xs'
+                    ? 'bg-amber-50 border-amber-500 text-amber-950 ring-2 ring-amber-500/20 shadow-xs'
                     : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
                 }`}
               >
@@ -608,7 +626,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                   <span className="font-bold text-xs uppercase tracking-wide">
                     👑 Người nợ tôi
                   </span>
-                  {payerType === 'ME' && <Check className="w-4 h-4 text-emerald-600" />}
+                  {payerType === 'ME' && <Check className="w-4 h-4 text-amber-600" />}
                 </div>
                 <p className="text-[11px] text-slate-500 leading-tight">
                   Tôi đã trả tiền toàn bộ hóa đơn. Các bạn nợ tôi.
@@ -680,7 +698,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                     className="hidden sm:inline-flex text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
                   >
                     <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>{showAddDebtorForm ? 'Đóng' : '+ Thêm người mới'}</span>
+                    <span>{showAddDebtorForm ? 'Đóng' : 'Thêm người mới'}</span>
                   </button>
                 </div>
               </div>
@@ -764,7 +782,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                   className="text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
                 >
                   <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>{showAddDebtorForm ? 'Đóng' : '+ Thêm mới'}</span>
+                  <span>{showAddDebtorForm ? 'Đóng' : 'Thêm mới'}</span>
                 </button>
               </div>
 
@@ -823,7 +841,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             <div className="pt-2 border-t border-amber-200/60 text-slate-700 text-[11px] leading-relaxed">
               {payerType === 'ME' ? (
                 <>
-                  <span className="text-emerald-700 font-bold">• Sẽ ghi nhận nợ (+): </span>
+                  <span className="text-amber-700 font-bold">• Sẽ ghi nhận nợ (+): </span>
                   {selectedDebtorIds.length > 0 ? (
                     selectedDebtorIds
                       .map((id) => {

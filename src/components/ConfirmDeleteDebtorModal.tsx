@@ -9,6 +9,7 @@
  */
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, AlertTriangle, X } from 'lucide-react';
 import { Debtor } from '../types';
@@ -46,17 +47,18 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
     onClose();
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && debtor && (
-        <motion.div
-          id="confirm-delete-debtor-backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
-        >
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <AnimatePresence>
+          {isOpen && debtor && (
+            <motion.div
+              id="confirm-delete-debtor-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+            >
           <motion.div
             id="confirm-delete-debtor-card"
             initial={{ opacity: 0, scale: 0.95, y: 12 }}
@@ -73,7 +75,7 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
                 </div>
                 <div>
                   <h2 className="font-bold text-base tracking-wide uppercase">
-                    Xác Nhận Xóa Người Nợ
+                    Xác Nhận Xóa Danh Bạ
                   </h2>
                   <p className="text-[11px] text-rose-100">
                     Hành động này không thể hoàn tác
@@ -93,11 +95,11 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
             <div className="p-5 sm:p-6 space-y-4 text-xs text-slate-600 leading-relaxed">
               <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl space-y-1.5 text-rose-950">
                 <div className="font-bold flex items-center gap-1.5 text-rose-900 text-sm">
-                  <span>Bạn có chắc chắn muốn xóa người nợ:</span>
+                  <span>Bạn có chắc chắn muốn xóa:</span>
                   <span className="underline underline-offset-2">{debtor.name}</span>?
                 </div>
                 <p className="text-rose-800 text-[11px]">
-                  Mật khẩu tra cứu của người này: <strong className="font-mono">{debtor.pin}</strong>
+                  Mật khẩu: <strong className="font-mono">{debtor.pin}</strong>
                 </p>
               </div>
 
@@ -143,13 +145,15 @@ export const ConfirmDeleteDebtorModal: React.FC<ConfirmDeleteDebtorModalProps> =
                   className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
-                  <span>Xác Nhận Xóa Người Nợ</span>
+                  <span>Xác Nhận Xóa</span>
                 </button>
               </div>
             </div>
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
-  );
+    </AnimatePresence>,
+    document.body
+  )
+: null;
 };

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Trash2, AlertTriangle, X, Users } from 'lucide-react';
 import { PartySplit } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -35,15 +36,16 @@ export const ConfirmDeletePartyModal: React.FC<ConfirmDeletePartyModalProps> = (
     onClose();
   };
 
-  return (
-    <div
-      id="confirm-delete-party-backdrop"
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-    >
-      <div
-        id="confirm-delete-party-card"
-        className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative"
-      >
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          id="confirm-delete-party-backdrop"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+        >
+          <div
+            id="confirm-delete-party-card"
+            className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative"
+          >
         {/* Header */}
         <div className="bg-rose-600 text-white px-5 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -121,6 +123,8 @@ export const ConfirmDeletePartyModal: React.FC<ConfirmDeletePartyModalProps> = (
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>,
+    document.body
+  )
+: null;
 };

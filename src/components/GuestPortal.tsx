@@ -41,6 +41,7 @@ import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
 import { AnimatedCounter } from './AnimatedCounter';
 import { triggerSettledCelebration } from '../utils/confetti';
 import { PWAInstallButton } from './PWAInstallButton';
+import { triggerHaptic } from '../utils/haptic';
 
 interface GuestPortalProps {
   debtor?: Debtor | null;
@@ -134,6 +135,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   const copyAccountNumber = () => {
     const acc = activeSettings?.accountNumber;
     if (acc) {
+      triggerHaptic('success');
       navigator.clipboard.writeText(acc);
       setCopiedAcc(true);
       setTimeout(() => setCopiedAcc(false), 2000);
@@ -142,6 +144,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   const copyAmountToPay = (amt: number) => {
     if (amt > 0) {
+      triggerHaptic('success');
       navigator.clipboard.writeText(String(amt));
       setCopiedAmount(true);
       setTimeout(() => setCopiedAmount(false), 2000);

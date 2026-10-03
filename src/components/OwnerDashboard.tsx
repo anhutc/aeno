@@ -33,12 +33,14 @@ import {
   Filter,
   X,
   LayoutGrid,
+  List,
   Table as TableIcon,
   ArrowUpDown,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance } from '../utils/storage';
+import { triggerHaptic } from '../utils/haptic';
 import { AnimatedCounter } from './AnimatedCounter';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
@@ -85,7 +87,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'DEBTORS' | 'TRANSACTIONS' | 'PARTIES'>('DEBTORS');
-  const [viewMode, setViewMode] = useState<'GRID' | 'TABLE'>('GRID');
+  const [viewMode, setViewMode] = useState<'GRID' | 'LIST' | 'TABLE'>('GRID');
   const [sortBy, setSortBy] = useState<'BALANCE_DESC' | 'BALANCE_ASC' | 'NAME' | 'RECENT'>('BALANCE_DESC');
   const [debtorStatusFilter, setDebtorStatusFilter] = useState<'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'SETTLED'>('ALL');
   const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
@@ -168,6 +170,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
   const handleCopyPin = (e: React.MouseEvent, debtor: Debtor) => {
     e.stopPropagation();
+    triggerHaptic('success');
     navigator.clipboard.writeText(debtor.pin);
     setCopiedPinId(debtor.id);
     showToast(`Đã sao chép mật khẩu "${debtor.pin}" của ${debtor.name}`, 'success');
@@ -449,7 +452,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center gap-1 sm:gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
             <button
               type="button"
-              onClick={() => setActiveTab('DEBTORS')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setActiveTab('DEBTORS');
+              }}
               className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'DEBTORS'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
@@ -465,7 +471,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveTab('TRANSACTIONS')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setActiveTab('TRANSACTIONS');
+              }}
               className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'TRANSACTIONS'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
@@ -481,7 +490,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveTab('PARTIES')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setActiveTab('PARTIES');
+              }}
               className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'PARTIES'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
@@ -500,24 +512,46 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           {activeTab === 'DEBTORS' && (
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:w-auto">
               <div className="flex items-center gap-2">
-                {/* Chuyển đổi Bố Cục Thẻ Bento vs Bảng Kế Toán Pro */}
+                {/* Chuyển đổi Bố Cục Thẻ Bento vs Danh Sách Apple vs Bảng Kế Toán Pro */}
                 <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setViewMode('GRID')}
+                    onClick={() => {
+                      triggerHaptic('selection');
+                      setViewMode('GRID');
+                    }}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       viewMode === 'GRID'
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                         : 'text-slate-500 hover:text-slate-800'
                     }`}
-                    title="Xem dạng Thẻ 3D"
+                    title="Xem dạng Thẻ Bento"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">Thẻ</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setViewMode('TABLE')}
+                    onClick={() => {
+                      triggerHaptic('selection');
+                      setViewMode('LIST');
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      viewMode === 'LIST'
+                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Xem dạng Danh sách Apple"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Danh sách</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic('selection');
+                      setViewMode('TABLE');
+                    }}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       viewMode === 'TABLE'
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
@@ -591,7 +625,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </span>
             <button
               type="button"
-              onClick={() => setDebtorStatusFilter('ALL')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setDebtorStatusFilter('ALL');
+              }}
               className={`px-3 py-1 rounded-xl font-bold transition-all whitespace-nowrap cursor-pointer ${
                 debtorStatusFilter === 'ALL'
                   ? 'bg-emerald-600 text-white shadow-2xs'
@@ -602,7 +639,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setDebtorStatusFilter('RECEIVABLE')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setDebtorStatusFilter('RECEIVABLE');
+              }}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl font-bold transition-all whitespace-nowrap cursor-pointer ${
                 debtorStatusFilter === 'RECEIVABLE'
                   ? 'bg-emerald-600 text-white shadow-2xs'
@@ -614,7 +654,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setDebtorStatusFilter('PAYABLE')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setDebtorStatusFilter('PAYABLE');
+              }}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl font-bold transition-all whitespace-nowrap cursor-pointer ${
                 debtorStatusFilter === 'PAYABLE'
                   ? 'bg-rose-600 text-white shadow-2xs'
@@ -626,7 +669,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setDebtorStatusFilter('SETTLED')}
+              onClick={() => {
+                triggerHaptic('selection');
+                setDebtorStatusFilter('SETTLED');
+              }}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl font-bold transition-all whitespace-nowrap cursor-pointer ${
                 debtorStatusFilter === 'SETTLED'
                   ? 'bg-slate-700 text-white shadow-2xs'
@@ -657,7 +703,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <button
                     type="button"
                     onClick={onOpenAddDebtor}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
                     <UserPlus className="w-4 h-4" />
                     <span>Thêm Người</span>
@@ -831,7 +877,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100/90 hover:bg-slate-200/90 text-slate-700 font-semibold rounded-xl transition-all text-[11px] cursor-pointer border border-slate-200/60"
                           title="Xem tin nhắn và đường link tra cứu gửi cho người này"
                         >
-                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                          <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
                           <span>Tra Cứu</span>
                         </button>
 
@@ -855,6 +901,104 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         <span>Chi tiết</span>
                         <ChevronRight className="w-3.5 h-3.5" />
                       </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : viewMode === 'LIST' ? (
+            /* BỐ CỤC CHẾ ĐỘ 2: DANH SÁCH APPLE INSET GROUPED (iOS NATIVE LIST) */
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden divide-y divide-slate-100/90">
+              {sortedDebtors.map((debtor) => {
+                const balance = getDebtorBalance(debtor.id, transactions);
+
+                return (
+                  <div
+                    key={debtor.id}
+                    onClick={() => {
+                      triggerHaptic('light');
+                      onSelectDebtor(debtor);
+                    }}
+                    className="p-3.5 sm:p-4 hover:bg-slate-50/80 active:bg-slate-100/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
+                  >
+                    {/* Left: Squircle Avatar & Info */}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 shadow-2xs select-none ${
+                          balance > 0
+                            ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/80 text-emerald-700 border border-emerald-200/70'
+                            : balance < 0
+                            ? 'bg-gradient-to-br from-rose-50 to-rose-100/80 text-rose-700 border border-rose-200/70'
+                            : 'bg-gradient-to-br from-slate-100 to-slate-200 text-slate-700 border border-slate-200/70'
+                        }`}
+                      >
+                        {debtor.name.charAt(0).toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-sm sm:text-base text-slate-900 group-hover:text-emerald-700 transition-colors truncate">
+                            {debtor.name}
+                          </h4>
+                          {debtor.note && (
+                            <span className="hidden sm:inline-block text-[11px] text-slate-400 font-medium truncate max-w-[150px]">
+                              • {debtor.note}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyPin(e, debtor);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg font-mono text-[10px] font-bold border border-amber-200/70 transition-colors cursor-pointer"
+                            title="Chạm để sao chép PIN"
+                          >
+                            <KeyRound className="w-2.5 h-2.5 text-amber-600" />
+                            <span>{debtor.pin}</span>
+                            {copiedPinId === debtor.id ? (
+                              <Check className="w-2.5 h-2.5 text-emerald-600" />
+                            ) : null}
+                          </span>
+
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] font-bold ${
+                              balance > 0
+                                ? 'text-emerald-700'
+                                : balance < 0
+                                ? 'text-rose-700'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {balance > 0 ? 'Họ nợ bạn' : balance < 0 ? 'Bạn nợ họ' : 'Đã thanh toán'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Balance & Chevron */}
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <div className="text-right">
+                        <div
+                          className={`text-sm sm:text-base font-extrabold font-mono tracking-tight ${
+                            balance > 0
+                              ? 'text-emerald-700'
+                              : balance < 0
+                              ? 'text-rose-600'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {balance > 0
+                            ? `+${formatVND(balance)}`
+                            : balance < 0
+                            ? `-${formatVND(Math.abs(balance))}`
+                            : '0 đ'}
+                        </div>
+                      </div>
+
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-0.5 transition-all" />
                     </div>
                   </div>
                 );
@@ -985,7 +1129,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
                                 title="Xem mẫu gửi tra cứu"
                               >
-                                <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                                <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
                               </button>
 
                               {onDeleteDebtor && (
@@ -1072,7 +1216,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 text-sm break-words">
-                        <span className="text-blue-700 font-bold">{debtor?.name || 'Người dùng'}</span>
+                        <span className="text-emerald-700 font-bold">{debtor?.name || 'Người dùng'}</span>
                         {' • '}
                         <span className="font-medium text-slate-700">{tx.note}</span>
                       </div>
@@ -1097,7 +1241,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewImage(tx.billImage!, tx.note)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
                         title="Xem ảnh chứng từ"
                       >
                         <Receipt className="w-4 h-4" />
@@ -1137,7 +1281,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           <button
                             type="button"
                             onClick={() => onEditTx(tx)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
                             title="Chỉnh sửa giao dịch này"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -1236,7 +1380,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         <button
                           type="button"
                           onClick={() => onViewImage(party.billImage!, party.name)}
-                          className="inline-flex items-center gap-1 text-blue-600 hover:underline font-semibold cursor-pointer"
+                          className="inline-flex items-center gap-1 text-emerald-600 hover:underline font-semibold cursor-pointer"
                         >
                           <Receipt className="w-3.5 h-3.5" />
                           <span>Hóa đơn</span>

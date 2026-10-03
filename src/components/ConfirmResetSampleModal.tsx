@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, X, Lock, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { apiResetSampleData } from '../utils/api';
 
@@ -54,15 +55,16 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
     onClose();
   };
 
-  return (
-    <div
-      id="confirm-reset-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-    >
-      <div
-        id="confirm-reset-modal-card"
-        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative"
-      >
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          id="confirm-reset-modal-backdrop"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+        >
+          <div
+            id="confirm-reset-modal-card"
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative"
+          >
         {/* Header */}
         <div className="bg-amber-600 text-white px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -170,6 +172,8 @@ export const ConfirmResetSampleModal: React.FC<ConfirmResetSampleModalProps> = (
           </div>
         </form>
       </div>
-    </div>
-  );
+    </div>,
+    document.body
+  )
+: null;
 };

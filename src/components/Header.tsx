@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { AppSettings, Debtor } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
+import { triggerHaptic } from '../utils/haptic';
 
 interface HeaderProps {
   currentView: 'OWNER' | 'GUEST' | 'SETTINGS';
@@ -34,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
 
   const copyGuestLink = () => {
+    triggerHaptic('success');
     const url = `${window.location.origin}${window.location.pathname}`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
@@ -41,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 text-slate-800 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all">
+    <header className="shrink-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 text-slate-800 shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all pt-[env(safe-area-inset-top,0px)]">
       <div className="max-w-6xl mx-auto px-3 sm:px-6">
         <div className="h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
           
@@ -50,6 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div
               onClick={() => {
                 if (isOwnerAuthenticated) {
+                  triggerHaptic('selection');
                   onViewChange('OWNER');
                 }
               }}
@@ -140,7 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <Settings className={`w-4 h-4 shrink-0 ${currentView === 'SETTINGS' ? 'text-blue-600' : 'text-slate-500'}`} />
+                    <Settings className={`w-4 h-4 shrink-0 ${currentView === 'SETTINGS' ? 'text-emerald-600' : 'text-slate-500'}`} />
                     <span className="hidden sm:inline">Cài Đặt</span>
                   </button>
                 </div>

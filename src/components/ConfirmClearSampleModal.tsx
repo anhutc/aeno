@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Trash2, X, Eye, EyeOff, AlertTriangle, RefreshCw } from 'lucide-react';
 import { apiClearAllSampleData } from '../utils/api';
 
@@ -52,15 +53,16 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
     onClose();
   };
 
-  return (
-    <div
-      id="confirm-clear-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-    >
-      <div
-        id="confirm-clear-modal-card"
-        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative"
-      >
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          id="confirm-clear-modal-backdrop"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+        >
+          <div
+            id="confirm-clear-modal-card"
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative"
+          >
         {/* Header */}
         <div className="bg-rose-600 text-white px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -167,6 +169,8 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
           </div>
         </form>
       </div>
-    </div>
-  );
+    </div>,
+    document.body
+  )
+: null;
 };

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Upload,
   X,
@@ -45,15 +46,16 @@ export const ConfirmRestoreModal: React.FC<ConfirmRestoreModalProps> = ({
     await onConfirm(mode);
   };
 
-  return (
-    <div
-      id="confirm-restore-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
-    >
-      <div
-        id="confirm-restore-modal-card"
-        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative flex flex-col max-h-[90vh]"
-      >
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          id="confirm-restore-modal-backdrop"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+        >
+          <div
+            id="confirm-restore-modal-card"
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 relative flex flex-col max-h-[90vh]"
+          >
         {/* Header */}
         <div className="bg-emerald-700 text-white px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -219,6 +221,8 @@ export const ConfirmRestoreModal: React.FC<ConfirmRestoreModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
-  );
+    </div>,
+    document.body
+  )
+: null;
 };

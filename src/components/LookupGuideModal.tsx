@@ -7,6 +7,7 @@
  */
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Copy, Check, QrCode, BookOpen } from 'lucide-react';
 import { Debtor, AppSettings } from '../types';
@@ -81,52 +82,53 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
     directLink
   )}`;
 
-  return (
-    <AnimatePresence>
-      {isOpen && debtor && (
-        <motion.div
-          id="lookup-guide-modal-backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) onClose();
-          }}
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
-        >
-          <motion.div
-            id="lookup-guide-modal-card"
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 12 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-        {/* Header - Sáng & Tinh tế */}
-        <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-100 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0 shadow-2xs">
-              <BookOpen className="w-4 h-4" />
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <AnimatePresence>
+          {isOpen && debtor && (
+            <motion.div
+              id="lookup-guide-modal-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              onClick={(e) => {
+                if (e.target === e.currentTarget) onClose();
+              }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+            >
+              <motion.div
+                id="lookup-guide-modal-card"
+                initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+            {/* Header - Sáng & Tinh tế */}
+            <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-800 flex items-center justify-center shrink-0 shadow-2xs">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-sm sm:text-base leading-tight text-slate-900">
+                    Hướng Dẫn Cho {debtor.name}
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Gửi thông tin này để người nợ tự tra cứu và chuyển khoản
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div>
-              <h2 className="font-bold text-sm sm:text-base leading-tight text-slate-900">
-                Hướng Dẫn Cho {debtor.name}
-              </h2>
-              <p className="text-[11px] text-slate-500">
-                Gửi thông tin này để người nợ tự tra cứu và chuyển khoản
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
         {/* Modal Body */}
         <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 text-xs sm:text-sm">
@@ -168,6 +170,8 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
-  );
+    </AnimatePresence>,
+    document.body
+  )
+: null;
 };

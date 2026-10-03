@@ -493,8 +493,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased">
-      {/* Top Navigation - Sáng sạch & Tối giản */}
+    <div className="h-full h-dvh flex flex-col bg-slate-100/70 text-slate-800 font-sans antialiased overflow-hidden">
+      {/* Top Navigation - Cố định ở trên cùng, không bị trôi khi cuộn */}
       <Header
         currentView={currentView}
         isOwnerAuthenticated={isOwnerAuthenticated}
@@ -509,16 +509,10 @@ export default function App() {
         }}
       />
 
-      {/* Main Container */}
-      <main
-        className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6"
-        style={{
-          paddingBottom: isOwnerAuthenticated
-            ? 'max(calc(env(safe-area-inset-bottom, 0px) + 80px), 110px)'
-            : undefined,
-        }}
-      >
-        <AnimatePresence mode="wait">
+      {/* Vùng cuộn nội dung độc lập - Thanh scroll chỉ giới hạn ở đây, KHÔNG chèn qua Header hay BottomNavBar */}
+      <div id="main-scroll-container" className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+        <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 py-3.5 sm:py-5 pb-5 sm:pb-6">
+          <AnimatePresence mode="wait">
           {!isOwnerAuthenticated && !guestInitialDebtor ? (
             <motion.div
               key="view-login"
@@ -644,7 +638,8 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-      </main>
+        </main>
+      </div>
 
       {/* Base Level Modal: Debtor Full Statement & Detail Modal */}
       <DebtorDetailModal

@@ -169,17 +169,17 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                 {/* Header */}
                 <div className="px-5 sm:px-6 pt-1 sm:pt-5 pb-4 flex items-center justify-between shrink-0 border-b border-slate-100 bg-white">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0 shadow-xs">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 shadow-xs">
                       {initialDebtor ? <Pencil className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
                     </div>
                     <div className="min-w-0">
                       <h2 className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900 leading-tight truncate">
-                        {initialDebtor ? 'Chỉnh Sửa Người Nợ' : 'Thêm Người Nợ Mới'}
+                        {initialDebtor ? 'Chỉnh Sửa Danh Bạ' : 'Thêm Danh Bạ Mới'}
                       </h2>
                       <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
                         {initialDebtor
                           ? `Cập nhật thông tin: ${initialDebtor.name}`
-                          : 'Cấp mã PIN để họ tự vào tra cứu sao kê'}
+                          : 'Cấp mật khẩu để họ tự vào tra cứu sao kê'}
                       </p>
                     </div>
                   </div>
@@ -205,11 +205,11 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                     {/* Tên người nợ */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Tên Người Nợ</span>
+                        <User className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Tên</span>
                         <span className="text-rose-500 font-bold">*</span>
                       </label>
-                      <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
+                      <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
                         <input
                           id="input-debtor-name"
                           type="text"
@@ -226,23 +226,23 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <KeyRound className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Mật Khẩu Tra Cứu (PIN)</span>
+                          <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Mật Khẩu</span>
                           <span className="text-rose-500 font-bold">*</span>
                         </label>
                         <button
                           type="button"
                           id="btn-random-pin"
                           onClick={generateRandomPin}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-700 font-bold text-[11px] rounded-lg border border-blue-200/80 transition-all cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-700 font-bold text-[11px] rounded-lg border border-emerald-200/80 transition-all cursor-pointer"
                           title="Tạo ngẫu nhiên mật khẩu dễ nhớ"
                         >
-                          <Dices className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Đổi mã khác</span>
+                          <Dices className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Ngẫu nhiên</span>
                         </button>
                       </div>
 
-                      <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
+                      <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
                         <input
                           id="input-debtor-pin"
                           type={showPassword ? 'text' : 'password'}
@@ -258,13 +258,13 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                           className="absolute right-3.5 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                           title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                         >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-blue-600" />}
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-emerald-600" />}
                         </button>
                       </div>
 
-                      <div className="flex items-start gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-100 text-[11px] text-blue-800 mt-2 font-medium">
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                        <span>Mật khẩu riêng để người nợ tự đăng nhập và xem sao kê trên điện thoại của họ.</span>
+                      <div className="flex items-start gap-2 p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-100 text-[11px] text-emerald-800 mt-2 font-medium">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                        <span>Mật khẩu riêng để người này tự đăng nhập và xem sao kê.</span>
                       </div>
                     </div>
 
@@ -272,9 +272,9 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                         <FileText className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Ghi Chú Phụ (Tùy chọn)</span>
+                        <span>Ghi Chú</span>
                       </label>
-                      <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
+                      <div className="relative flex items-center bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
                         <input
                           id="input-debtor-note"
                           type="text"
@@ -308,10 +308,10 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
                       type="submit"
                       id="btn-save-debtor"
                       disabled={isSubmitting}
-                      className="flex-[1.6] inline-flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-sm rounded-2xl shadow-md shadow-blue-500/25 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
+                      className="flex-[1.6] inline-flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-sm rounded-2xl shadow-md shadow-emerald-600/25 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
                     >
                       <Save className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
-                      <span>{isSubmitting ? 'Đang lưu...' : initialDebtor ? 'Lưu Thay Đổi' : 'Tạo Người Nợ'}</span>
+                      <span>{isSubmitting ? 'Đang lưu...' : initialDebtor ? 'Lưu Thay Đổi' : 'Tạo Danh Bạ'}</span>
                     </button>
                   </div>
                 </form>

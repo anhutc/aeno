@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -34,6 +35,7 @@ import {
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
+import { triggerHaptic } from '../utils/haptic';
 import { AnimatedCounter } from './AnimatedCounter';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
@@ -77,6 +79,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   const handleCopyPin = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!debtor) return;
+    triggerHaptic('success');
     navigator.clipboard.writeText(debtor.pin);
     setCopiedPin(true);
     setTimeout(() => setCopiedPin(false), 2000);
@@ -93,37 +96,40 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
 
   return (
     <>
-      <AnimatePresence>
-        {debtor && (
-          <motion.div
-            id="debtor-detail-modal-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            onClick={(e) => {
-              if (e.target === e.currentTarget) onClose();
-            }}
-            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-sm p-0 sm:p-4"
-          >
-            <motion.div
-              id="debtor-detail-modal-card"
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={{ top: 0, bottom: 0.5 }}
-              onDragEnd={(_e, info) => {
-                if (info.offset.y > 100 || info.velocity.y > 350) {
-                  onClose();
-                }
-              }}
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 12 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="bg-white w-full max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden max-h-[90vh] sm:max-h-[92vh] flex flex-col"
-            >
-          {/* Mobile Drag Pill Handle */}
-          <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto my-2.5 sm:hidden shrink-0 cursor-grab active:cursor-grabbing" />
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {debtor && (
+              <div
+                id="debtor-detail-modal-backdrop"
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) {
+                    triggerHaptic('selection');
+                    onClose();
+                  }
+                }}
+                className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-md p-0 sm:p-4 overflow-y-auto overflow-x-hidden overscroll-contain"
+              >
+                <motion.div
+                  id="debtor-detail-modal-card"
+                  drag="y"
+                  dragConstraints={{ top: 0, bottom: 0 }}
+                  dragElastic={{ top: 0, bottom: 0.5 }}
+                  onDragEnd={(_e, info) => {
+                    if (info.offset.y > 100 || info.velocity.y > 350) {
+                      triggerHaptic('selection');
+                      onClose();
+                    }
+                  }}
+                  initial={{ opacity: 0, scale: 0.96, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: 20 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="bg-white w-full max-w-2xl rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-slate-100 overflow-hidden max-h-[88dvh] sm:max-h-[92vh] flex flex-col shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+              {/* Mobile Drag Pill Handle */}
+              <div className="w-10 h-1.5 bg-slate-200/90 rounded-full mx-auto my-3 sm:hidden shrink-0 cursor-grab active:cursor-grabbing" />
 
           {/* Header - Sáng & Tinh tế */}
           <div className="bg-slate-50 text-slate-900 px-5 sm:px-6 py-4 flex items-center justify-between shrink-0 border-b border-slate-200">
@@ -155,7 +161,10 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => onEditDebtor(debtor)}
+                onClick={() => {
+                  triggerHaptic('light');
+                  onEditDebtor(debtor);
+                }}
                 title="Chỉnh sửa thông tin"
                 className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
               >
@@ -163,7 +172,10 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setIsConfirmDeleteOpen(true)}
+                onClick={() => {
+                  triggerHaptic('warning');
+                  setIsConfirmDeleteOpen(true);
+                }}
                 title="Xóa người nợ này"
                 className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
               >
@@ -172,7 +184,10 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
               <button
                 id="close-debtor-detail-btn"
                 type="button"
-                onClick={onClose}
+                onClick={() => {
+                  triggerHaptic('selection');
+                  onClose();
+                }}
                 className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors ml-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -181,7 +196,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
           </div>
 
           {/* Content Body */}
-          <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+          <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden space-y-4 flex-1">
             {/* Celebration banner if settled */}
             {currentBalance === 0 && (
               <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border border-emerald-200/90 rounded-2xl flex items-center gap-3 shadow-2xs">
@@ -273,7 +288,10 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3.5 mt-3.5 border-t border-black/5">
                 <button
                   type="button"
-                  onClick={() => onOpenAddTx(debtor.id)}
+                  onClick={() => {
+                    triggerHaptic('medium');
+                    onOpenAddTx(debtor.id);
+                  }}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   title="Ghi nợ hoặc thu tiền cho người này"
                 >
@@ -283,7 +301,10 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setIsGuideModalOpen(true)}
+                  onClick={() => {
+                    triggerHaptic('light');
+                    setIsGuideModalOpen(true);
+                  }}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
                   title="Xem và sao chép hướng dẫn tra cứu kèm mật khẩu"
                 >
@@ -457,30 +478,35 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Footer */}
-          <div className="px-5 sm:px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
-            <div className="truncate max-w-md text-slate-600">
-              {debtor.note ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <span>📝 Ghi chú:</span>
-                  <strong className="text-slate-800 font-medium">{debtor.note}</strong>
-                </span>
-              ) : (
-                <span className="text-slate-400 italic">Không có ghi chú thêm</span>
-              )}
+            {/* Footer */}
+            <div className="px-5 sm:px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+              <div className="truncate max-w-md text-slate-600">
+                {debtor.note ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>📝 Ghi chú:</span>
+                    <strong className="text-slate-800 font-medium">{debtor.note}</strong>
+                  </span>
+                ) : (
+                  <span className="text-slate-400 italic">Không có ghi chú thêm</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('selection');
+                  onClose();
+                }}
+                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-700 font-semibold transition-colors cursor-pointer shadow-2xs"
+              >
+                Đóng
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-700 font-semibold transition-colors cursor-pointer shadow-2xs"
-            >
-              Đóng
-            </button>
-          </div>
-            </motion.div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body
+  )}
 
       {/* Lookup Guide Modal */}
       <LookupGuideModal

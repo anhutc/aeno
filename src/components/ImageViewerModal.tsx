@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -40,18 +41,19 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     }
   };
 
-  return (
-    <AnimatePresence>
-      {imageUrl && (
-        <motion.div
-          id="image-viewer-modal-backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4"
-          onClick={onClose}
-        >
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <AnimatePresence>
+          {imageUrl && (
+            <motion.div
+              id="image-viewer-modal-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4"
+              onClick={onClose}
+            >
           <motion.div
             id="image-viewer-modal-content"
             initial={{ opacity: 0, scale: 0.95, y: 12 }}
@@ -174,6 +176,8 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
-  );
+    </AnimatePresence>,
+    document.body
+  )
+: null;
 };

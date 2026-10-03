@@ -475,7 +475,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [formData.bankId, formData.accountNumber, formData.accountName, formData.vietQrTemplate]);
 
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-4 pb-28 sm:pb-24 animate-in fade-in duration-150">
+    <div className={`w-full max-w-5xl mx-auto space-y-4 ${isDirty ? 'pb-20 sm:pb-16' : 'pb-2 sm:pb-4'} animate-in fade-in duration-150`}>
       {/* 1. SINGLE HEADER BAR (Clean, no clutter) */}
       <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

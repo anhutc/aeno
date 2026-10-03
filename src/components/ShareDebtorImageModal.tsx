@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import {
   X,
@@ -535,14 +536,15 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
     </div>
   );
 
-  return (
-    <motion.div
-      id="share-debtor-image-modal-backdrop"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
+  return typeof document !== 'undefined'
+    ? createPortal(
+        <motion.div
+          id="share-debtor-image-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       {/* KHUNG CAPTURE CHUẨN XUẤT ẢNH: Kích thước 590px, nằm trong DOM hợp lệ nhưng vô hình để xuất ảnh nét 100% */}
@@ -861,6 +863,8 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
           </div>
         </div>
       </motion.div>
-    </motion.div>
-  );
+    </motion.div>,
+    document.body
+  )
+: null;
 };

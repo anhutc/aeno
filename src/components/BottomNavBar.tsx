@@ -6,6 +6,7 @@ import {
   UserPlus,
   Settings,
 } from 'lucide-react';
+import { triggerHaptic } from '../utils/haptic';
 
 interface BottomNavBarProps {
   currentView: 'OWNER' | 'GUEST' | 'SETTINGS';
@@ -32,9 +33,9 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   return (
     <nav
       aria-label="Thanh điều hướng nhanh trên di động"
-      className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/90 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] pt-1.5 select-none"
+      className="sm:hidden shrink-0 z-30 bg-white/80 backdrop-blur-xl border-t border-slate-200/60 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] pt-1.5 select-none"
       style={{
-        paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 14px), 20px)',
+        paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 10px), 16px)',
       }}
     >
       <div className="max-w-md mx-auto px-2">
@@ -42,8 +43,11 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           {/* 1. Tổng quan */}
           <button
             type="button"
-            onClick={() => onViewChange('OWNER')}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 active:scale-95 transition-all ${
+            onClick={() => {
+              triggerHaptic('selection');
+              onViewChange('OWNER');
+            }}
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 active:scale-95 transition-all cursor-pointer ${
               currentView === 'OWNER'
                 ? 'text-emerald-700 font-bold'
                 : 'text-slate-500 hover:text-slate-800'
@@ -60,8 +64,11 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           {/* 2. Chia tiền */}
           <button
             type="button"
-            onClick={onOpenSplitParty}
-            className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-500 hover:text-emerald-700 active:scale-95 transition-all"
+            onClick={() => {
+              triggerHaptic('light');
+              onOpenSplitParty();
+            }}
+            className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-500 hover:text-emerald-700 active:scale-95 transition-all cursor-pointer"
           >
             <Users className="w-5 h-5 stroke-[1.8]" />
             <span className="text-[10px] tracking-tight leading-none">Chia tiền</span>
@@ -71,7 +78,10 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           <div className="flex flex-col items-center justify-center relative -top-3">
             <button
               type="button"
-              onClick={onOpenAddTx}
+              onClick={() => {
+                triggerHaptic('medium');
+                onOpenAddTx();
+              }}
               title="Ghi nợ mới"
               aria-label="Ghi nợ mới"
               className="w-12 h-12 rounded-full bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-600/35 border-4 border-white flex items-center justify-center active:scale-90 hover:scale-105 transition-all cursor-pointer ring-1 ring-emerald-500/20"
@@ -86,8 +96,11 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           {/* 4. Người mới */}
           <button
             type="button"
-            onClick={onOpenAddDebtor}
-            className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-500 hover:text-emerald-700 active:scale-95 transition-all"
+            onClick={() => {
+              triggerHaptic('light');
+              onOpenAddDebtor();
+            }}
+            className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-500 hover:text-emerald-700 active:scale-95 transition-all cursor-pointer"
           >
             <UserPlus className="w-5 h-5 stroke-[1.8]" />
             <span className="text-[10px] tracking-tight leading-none">Thêm người</span>
@@ -96,8 +109,11 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           {/* 5. Cài đặt */}
           <button
             type="button"
-            onClick={() => onViewChange('SETTINGS')}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 active:scale-95 transition-all ${
+            onClick={() => {
+              triggerHaptic('selection');
+              onViewChange('SETTINGS');
+            }}
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 active:scale-95 transition-all cursor-pointer ${
               currentView === 'SETTINGS'
                 ? 'text-emerald-700 font-bold'
                 : 'text-slate-500 hover:text-slate-800'
