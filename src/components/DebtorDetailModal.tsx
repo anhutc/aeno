@@ -420,15 +420,13 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                                   <>
                                     <span aria-hidden="true" className="text-slate-300">·</span>
                                     <span className="font-semibold text-slate-800 font-mono tabular-nums">
-                                      Tổng bill: {formatVND(split.totalAmount)}
+                                      {formatVND(split.totalAmount)} (chia {split.participantCount})
                                     </span>
-                                    <span aria-hidden="true" className="text-slate-300">·</span>
-                                    <span>{split.participantCount} người chia</span>
                                   </>
                                 ) : (
                                   <>
                                     <span aria-hidden="true" className="text-slate-300">·</span>
-                                    <span>{isAdd ? 'Ghi nợ' : 'Đã thanh toán'}</span>
+                                    <span>{isAdd ? 'Ghi nợ' : 'Trả nợ'}</span>
                                   </>
                                 )}
                               </div>
@@ -515,7 +513,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                               )}
                             </span>
                             {split.payerName && (
-                              <span className="text-slate-500 text-[11px] ml-1">
+                              <span className="text-slate-500 font-normal text-[11px] ml-1">
                                 · Người trả: <strong className="text-slate-700">{split.payerName}</strong>
                               </span>
                             )}

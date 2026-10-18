@@ -1408,7 +1408,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             <div className="text-slate-500 text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
                               <span>{party.date}</span>
                               <span aria-hidden="true" className="text-slate-300">·</span>
-                              <span>Người thanh toán: <strong className="text-slate-800">{payer}</strong></span>
+                              <span>Thanh toán: <strong className="text-slate-800">{payer}</strong></span>
                             </div>
                             {party.note && (
                               <div className="text-slate-500 text-xs italic mt-1">
@@ -1422,7 +1422,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               {formatVND(party.totalAmount)}
                             </div>
                             <div className="text-xs text-slate-500 font-medium font-mono tabular-nums">
-                              Mỗi người: {formatVND(party.splitAmountPerPerson)} ({numberOfPeople} người chia)
+                              Chia {numberOfPeople} - {formatVND(party.splitAmountPerPerson)} 
                             </div>
                           </div>
                         </div>
