@@ -31,13 +31,15 @@ import {
   Copy,
   Check,
   Image as ImageIcon,
+  Users,
 } from 'lucide-react';
-import { Debtor, Transaction, AppSettings } from '../types';
+import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
 import { triggerHaptic } from '../utils/haptic';
 import { AnimatedCounter } from './AnimatedCounter';
 import { LookupGuideModal } from './LookupGuideModal';
+import { resolveSplitBillDetails, getCustomSplitNote } from '../utils/splitBillHelper';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { EditTransactionModal } from './EditTransactionModal';
 import { ShareDebtorImageModal } from './ShareDebtorImageModal';
@@ -46,6 +48,8 @@ interface DebtorDetailModalProps {
   debtor: Debtor | null;
   transactions: Transaction[];
   settings: AppSettings;
+  parties?: PartySplit[];
+  allDebtors?: Debtor[];
   onClose: () => void;
   onOpenAddTx: (debtorId: string) => void;
   onEditDebtor: (debtor: Debtor) => void;
@@ -60,6 +64,8 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   debtor,
   transactions,
   settings,
+  parties = [],
+  allDebtors = [],
   onClose,
   onOpenAddTx,
   onEditDebtor,
@@ -373,103 +379,154 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white">
                   {displayedStatement.map(({ transaction: tx, runningBalance }) => {
                     const isAdd = tx.type === 'ADD';
+                    const split = resolveSplitBillDetails(tx, debtor, parties, allDebtors);
+                    const resolvedBillImg = tx.billImage || split.billImage;
+                    const customNote = split.isSplit ? getCustomSplitNote(tx.note, split.partyName, tx.customNote) : '';
+
                     return (
                       <div
                         key={tx.id}
-                        className="p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                        className="p-3.5 hover:bg-slate-50/80 transition-colors space-y-2 text-xs"
                       >
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div
-                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                              isAdd
-                                ? 'bg-rose-100 text-rose-700'
-                                : 'bg-emerald-100 text-emerald-700'
-                            }`}
-                          >
-                            {isAdd ? (
-                              <ArrowUpRight className="w-4 h-4" />
-                            ) : (
-                              <ArrowDownLeft className="w-4 h-4" />
-                            )}
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="font-semibold text-slate-900 text-sm break-words">
-                              {tx.note}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                              <span>📅 {tx.date}</span>
-                              {tx.category === 'PARTY_SPLIT' && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
-                                  Chia tiền
-                                </span>
-                              )}
-                              {tx.category === 'PAYMENT_SETTLED' && (
-                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
-                                  Trả nợ
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                          <div className="text-left sm:text-right">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2.5 min-w-0">
                             <div
-                              className={`font-bold font-mono text-sm ${
-                                isAdd ? 'text-rose-600' : 'text-emerald-600'
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                                split.isSplit
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : isAdd
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : 'bg-emerald-100 text-emerald-700'
                               }`}
                             >
-                              {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
+                              {split.isSplit ? (
+                                <Users className="w-4 h-4" />
+                              ) : isAdd ? (
+                                <ArrowUpRight className="w-4 h-4" />
+                              ) : (
+                                <ArrowDownLeft className="w-4 h-4" />
+                              )}
                             </div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              Số dư: {formatVND(runningBalance)}
+
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-900 text-sm break-words">
+                                {split.isSplit
+                                  ? split.partyName
+                                  : tx.note || (isAdd ? 'Ghi nhận nợ' : 'Đã thanh toán')}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                                <span>{tx.date}</span>
+                                {split.isSplit ? (
+                                  <>
+                                    <span aria-hidden="true" className="text-slate-300">·</span>
+                                    <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                                      Tổng bill: {formatVND(split.totalAmount)}
+                                    </span>
+                                    <span aria-hidden="true" className="text-slate-300">·</span>
+                                    <span>{split.participantCount} người chia</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span aria-hidden="true" className="text-slate-300">·</span>
+                                    <span>{isAdd ? 'Ghi nợ' : 'Đã thanh toán'}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1">
-                            {tx.billImage && (
-                              <button
-                                type="button"
-                                onClick={() => onViewImage(tx.billImage!, tx.note)}
-                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                title="Xem ảnh chứng từ"
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <div className="text-right">
+                              <div
+                                className={`font-bold font-mono text-sm tabular-nums ${
+                                  isAdd ? 'text-rose-600' : 'text-emerald-600'
+                                }`}
                               >
-                                <Receipt className="w-4 h-4" />
-                              </button>
-                            )}
+                                {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono tabular-nums">
+                                Số dư: {formatVND(runningBalance)}
+                              </div>
+                            </div>
 
-                            {tx.partyId || tx.category === 'PARTY_SPLIT' ? (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-[10px] font-semibold cursor-help"
-                                title="Giao dịch từ cuộc vui chia tiền: Không thể sửa hoặc xóa lẻ từng người. Vui lòng sang tab 'Chia đầu người' ở ngoài trang chủ để chỉnh sửa hoặc xóa cuộc vui, hệ thống sẽ tự động đồng bộ lại cho từng người."
-                              >
-                                <Lock className="w-3 h-3 text-amber-600" />
-                                <span>Chia đầu người</span>
-                              </span>
-                            ) : (
-                              <>
+                            <div className="flex items-center gap-1">
+                              {resolvedBillImg && (
                                 <button
                                   type="button"
-                                  onClick={() => setEditingTx(tx)}
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                  title="Chỉnh sửa giao dịch này"
+                                  onClick={() => onViewImage(resolvedBillImg, split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-colors cursor-pointer mr-0.5"
+                                  title="Xem ảnh hóa đơn / chứng từ"
                                 >
-                                  <Pencil className="w-4 h-4" />
+                                  <img src={resolvedBillImg} alt="Hóa đơn" className="w-3.5 h-3.5 rounded object-cover border border-emerald-300 shrink-0" />
+                                  <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="hidden sm:inline">Hóa đơn</span>
                                 </button>
+                              )}
 
-                                <button
-                                  type="button"
-                                  onClick={() => setDeletingTxId(tx.id)}
-                                  className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                                  title="Xóa giao dịch"
+                              {tx.partyId || tx.category === 'PARTY_SPLIT' ? (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-[10px] font-semibold cursor-help"
+                                  title="Giao dịch từ cuộc vui chia tiền: Không thể sửa hoặc xóa lẻ từng người. Vui lòng sang tab 'Chia đầu người' ở ngoài trang chủ để chỉnh sửa hoặc xóa cuộc vui, hệ thống sẽ tự động đồng bộ lại cho từng người."
                                 >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
+                                  <Lock className="w-3 h-3 text-amber-600" />
+                                  <span>Chia đầu người</span>
+                                </span>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingTx(tx)}
+                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Chỉnh sửa giao dịch này"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingTxId(tx.id)}
+                                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Xóa giao dịch"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
+
+                        {split.isSplit && split.participantNames.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-slate-100 text-xs text-slate-600 pl-9">
+                            <span className="text-slate-400 font-medium">Tham gia:</span>
+                            <span className="font-medium text-slate-800">
+                              {split.participantNames.map((p, pIdx) => (
+                                <React.Fragment key={pIdx}>
+                                  {pIdx > 0 && <span className="text-slate-400">, </span>}
+                                  <span className={p.isCurrent ? 'font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]' : ''}>
+                                    {p.name}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                              {split.extraCount > 0 && (
+                                <span className="text-slate-500 font-normal">
+                                  {split.participantNames.length > 0 ? ` và ${split.extraCount} người khác` : `${split.extraCount} người tham gia`}
+                                </span>
+                              )}
+                            </span>
+                            {split.payerName && (
+                              <span className="text-slate-500 text-[11px] ml-1">
+                                · Người trả: <strong className="text-slate-700">{split.payerName}</strong>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {customNote && (
+                          <div className="text-xs text-slate-500 italic pl-9">
+                            Ghi chú: {customNote}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

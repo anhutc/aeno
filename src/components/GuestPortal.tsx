@@ -22,7 +22,10 @@ import {
   Phone,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
+  ArrowUpRight,
+  ArrowDownLeft,
   User,
+  Users,
   PlusCircle,
   MinusCircle,
   TrendingUp,
@@ -32,7 +35,7 @@ import {
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
-import { Debtor, Transaction, AppSettings } from '../types';
+import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement, loadSettings } from '../utils/storage';
 import { subscribeToDebtorTransactions } from '../utils/api';
@@ -42,6 +45,7 @@ import { AnimatedCounter } from './AnimatedCounter';
 import { triggerSettledCelebration } from '../utils/confetti';
 import { PWAInstallButton } from './PWAInstallButton';
 import { triggerHaptic } from '../utils/haptic';
+import { resolveSplitBillDetails, getCustomSplitNote } from '../utils/splitBillHelper';
 
 interface GuestPortalProps {
   debtor?: Debtor | null;
@@ -51,6 +55,8 @@ interface GuestPortalProps {
   isOwnerAuthenticated?: boolean;
   allTransactions?: Transaction[];
   appSettings?: AppSettings;
+  allParties?: PartySplit[];
+  allDebtors?: Debtor[];
 }
 
 export const GuestPortal: React.FC<GuestPortalProps> = ({
@@ -61,6 +67,8 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   isOwnerAuthenticated = false,
   allTransactions = [],
   appSettings,
+  allParties,
+  allDebtors,
 }) => {
   const [debtor, setDebtor] = useState<Debtor | null>(propDebtor || initialDebtor || null);
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -634,123 +642,143 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     ? (item as any).balanceAfter
                     : 0);
                 const isAdd = tx.type === 'ADD';
+                const split = resolveSplitBillDetails(tx, debtor, allParties, allDebtors);
+                const resolvedBillImg = tx.billImage || split.billImage;
+
+                const allImgs = Array.from(new Set([
+                  ...(resolvedBillImg ? [resolvedBillImg] : []),
+                  ...(tx.imageUrls || []),
+                ]));
+                const customNote = split.isSplit ? getCustomSplitNote(tx.note, split.partyName, tx.customNote) : '';
 
                 return (
                   <div
                     key={tx.id || idx}
-                    className={`p-4 sm:p-5 rounded-2xl border transition-all hover:shadow-xs ${
-                      isAdd
-                        ? 'bg-rose-50/30 border-rose-100/80 hover:border-rose-200'
-                        : 'bg-emerald-50/30 border-emerald-100/80 hover:border-emerald-200'
-                    }`}
+                    className="p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 bg-white hover:bg-slate-50/70 transition-all space-y-2.5 shadow-2xs"
                   >
-                    {/* Top Row: Date, Badge, and Action */}
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                            isAdd
-                              ? 'bg-rose-100 text-rose-600'
-                              : 'bg-emerald-100 text-emerald-600'
+                    {/* Top Row: Icon + Main Title & Meta + Amount */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {/* Visual Category Indicator */}
+                        <div
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                            split.isSplit
+                              ? 'bg-amber-100 text-amber-800'
+                              : isAdd
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-emerald-100 text-emerald-700'
                           }`}
                         >
-                          {isAdd ? (
-                            <PlusCircle className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                          {split.isSplit ? (
+                            <Users className="w-4 h-4" />
+                          ) : isAdd ? (
+                            <ArrowUpRight className="w-4 h-4" />
                           ) : (
-                            <MinusCircle className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                            <ArrowDownLeft className="w-4 h-4" />
                           )}
-                        </span>
-                        <div>
-                          <span
-                            className={`text-[10.5px] sm:text-xs font-extrabold uppercase px-2.5 py-0.5 rounded-full ${
-                              isAdd
-                                ? 'bg-rose-100/80 text-rose-800'
-                                : 'bg-emerald-100/80 text-emerald-800'
-                            }`}
-                          >
-                            {isAdd ? 'Ghi nợ' : 'Đã thanh toán'}
-                          </span>
+                        </div>
+
+                        <div className="min-w-0">
+                          {/* Title */}
+                          <h3 className="font-bold text-slate-900 text-sm leading-snug break-words">
+                            {split.isSplit
+                              ? split.partyName
+                              : tx.note || (isAdd ? 'Ghi nhận khoản nợ' : 'Thanh toán tiền')}
+                          </h3>
+
+                          {/* Quiet Meta Line: Date · Total bill (if split) · Category */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                            <span>{tx.date}</span>
+                            {split.isSplit ? (
+                              <>
+                                <span aria-hidden="true" className="text-slate-300">·</span>
+                                <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                                  {formatVND(split.totalAmount)}
+                                </span>
+                                <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]">
+                                  {split.participantCount} người
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span aria-hidden="true" className="text-slate-300">·</span>
+                                <span>{isAdd ? 'Ghi nợ' : 'Trả nợ'}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="text-xs sm:text-sm text-slate-400 font-mono">
-                        {tx.date}
-                      </div>
-                    </div>
-
-                    {/* Middle: Description Note */}
-                    <div className="text-xs sm:text-sm md:text-base text-slate-800 font-medium mb-3 pl-9 sm:pl-10">
-                      {tx.note ? (
-                        <span className="whitespace-pre-line leading-relaxed">{tx.note}</span>
-                      ) : (
-                        <span className="italic text-slate-400">
-                          {isAdd ? 'Ghi nhận khoản nợ' : 'Thanh toán tiền'}
-                        </span>
-                      )}
-
-                      {/* Attachments / Invoice images preview button */}
-                      {tx.imageUrls && tx.imageUrls.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-2.5">
-                          {tx.imageUrls.map((img, imgIdx) => (
-                            <button
-                              key={imgIdx}
-                              type="button"
-                              onClick={() =>
-                                onViewImage(
-                                  img,
-                                  `Hóa đơn: ${tx.note || (isAdd ? 'Ghi nợ' : 'Thanh toán')}`
-                                )
-                              }
-                              className="relative group w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border border-slate-200 shadow-2xs hover:opacity-90 transition-all cursor-pointer"
-                              title="Bấm để xem ảnh hóa đơn phóng to"
-                            >
-                              <img
-                                src={img}
-                                alt="Hóa đơn"
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] sm:text-xs font-bold">
-                                Xem
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Bottom Row: Amount change & Running Balance indicator */}
-                    <div className="flex items-center justify-between gap-2 pt-2 sm:pt-2.5 border-t border-slate-100 text-xs sm:text-sm">
-                      <div>
-                        <span className="text-slate-500 text-xs sm:text-sm font-medium block xs:inline">Biến động: </span>
-                        <strong
-                          className={`font-mono text-sm sm:text-base tracking-tight ${
-                            isAdd ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'
+                      {/* Amount on the right */}
+                      <div className="text-right shrink-0">
+                        <div
+                          className={`font-black font-mono text-base sm:text-lg tabular-nums tracking-tight ${
+                            isAdd ? 'text-rose-600' : 'text-emerald-600'
                           }`}
                         >
                           {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
-                        </strong>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-slate-500 text-xs sm:text-sm font-medium block xs:inline">Dư nợ sau GD: </span>
-                        <strong
-                          className={`font-bold font-mono text-xs sm:text-base ${
-                            runningBalance > 0
-                              ? 'text-rose-600'
-                              : runningBalance < 0
-                              ? 'text-emerald-600'
-                              : 'text-slate-900'
-                          }`}
-                        >
-                          {runningBalance > 0
-                            ? formatVND(runningBalance)
-                            : runningBalance < 0
-                            ? `+${formatVND(Math.abs(runningBalance))}`
-                            : formatVND(0)}
-                        </strong>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+                          Dư nợ: {runningBalance > 0 ? formatVND(runningBalance) : runningBalance < 0 ? `+${formatVND(Math.abs(runningBalance))}` : formatVND(0)}
+                        </div>
                       </div>
                     </div>
+
+                    {/* Participants row for Split Bill - Sleek, Unboxed, Modern */}
+                    {split.isSplit && split.participantNames.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5 text-slate-600">
+                          <span className="font-medium text-slate-800">
+                            {split.participantNames.map((p, pIdx) => (
+                              <React.Fragment key={pIdx}>
+                                {pIdx > 0 && <span className="text-slate-400">, </span>}
+                                <span className={p.isCurrent ? 'font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]' : ''}>
+                                  {p.name}{p.isCurrent ? ' (Bạn)' : ''}
+                                </span>
+                              </React.Fragment>
+                            ))}
+                            {split.extraCount > 0 && (
+                              <span className="text-slate-800 font-medium">
+                                {split.participantNames.length > 0 ? ` và ${split.extraCount} người khác` : `${split.extraCount} người tham gia`}
+                              </span>
+                            )}
+                          </span>
+                          {split.payerName && (
+                            <span className="text-slate-400 font-medium text-[11px] ml-1">
+                              Người trả: <strong className="text-slate-700">{split.payerName}</strong>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Unified Bill / Receipt Row for BOTH Split Bill & Normal Debt */}
+                    {allImgs.length > 0 && (
+                      <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {allImgs.map((img, imgIdx) => (
+                            <button
+                              key={imgIdx}
+                              type="button"
+                              onClick={() => onViewImage(img, split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-2xs group"
+                              title="Bấm để xem rõ hóa đơn chứng từ"
+                            >
+                              <img src={img} alt="Hóa đơn" className="w-4 h-4 rounded object-cover border border-emerald-300 group-hover:scale-105 transition-transform shrink-0" />
+                              <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>Xem ảnh {allImgs.length > 1 ? `#${imgIdx + 1}` : ''}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Custom Note (Only if non-empty and not duplicated from title/split) */}
+                    {customNote && (
+                      <div className="text-xs text-slate-500 italic pl-10">
+                        Ghi chú: {customNote}
+                      </div>
+                    )}
                   </div>
                 );
               })}

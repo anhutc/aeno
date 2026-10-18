@@ -269,7 +269,44 @@ export function loadTransactions(): Transaction[] {
       return INITIAL_TRANSACTIONS;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const txs: Transaction[] = Array.isArray(parsed) ? parsed : [];
+    try {
+      const partiesRaw = localStorage.getItem(STORAGE_KEYS.PARTIES);
+      if (partiesRaw) {
+        const parties: PartySplit[] = JSON.parse(partiesRaw);
+        const debtorsRaw = localStorage.getItem(STORAGE_KEYS.DEBTORS);
+        const debtors: Debtor[] = debtorsRaw ? JSON.parse(debtorsRaw) : [];
+        const settingsRaw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+        const settings: AppSettings = settingsRaw ? JSON.parse(settingsRaw) : DEFAULT_SETTINGS;
+
+        txs.forEach((tx) => {
+          if (tx.partyId && !tx.partyTotalAmount) {
+            const p = parties.find((party) => party.id === tx.partyId);
+            if (p) {
+              const participantNames: string[] = [];
+              if (p.includeMe) participantNames.push(settings.ownerName || 'Tôi (Chủ sổ)');
+              (p.participantDebtorIds || []).forEach((id) => {
+                const d = debtors.find((deb) => deb.id === id);
+                if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
+              });
+              const payerName = p.payerType === 'ME'
+                ? (settings.ownerName || 'Tôi (Chủ sổ)')
+                : (debtors.find((deb) => deb.id === p.payerDebtorId)?.name || 'Người này');
+
+              tx.partyTotalAmount = p.totalAmount;
+              tx.partySplitAmount = p.splitAmountPerPerson;
+              tx.partyParticipants = participantNames;
+              tx.partyPayerName = payerName;
+              tx.partyName = p.name;
+              tx.billImage = tx.billImage || p.billImage;
+            }
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+    return txs;
   } catch (err) {
     console.error('Failed to load transactions', err);
     return [];

@@ -582,6 +582,8 @@ export default function App() {
                   isOwnerAuthenticated={isOwnerAuthenticated}
                   allTransactions={transactions}
                   appSettings={settings}
+                  allParties={parties}
+                  allDebtors={debtors}
                 />
               </motion.div>
             ) : (
@@ -634,6 +636,8 @@ export default function App() {
                 isOwnerAuthenticated={false}
                 allTransactions={transactions}
                 appSettings={settings}
+                allParties={parties}
+                allDebtors={debtors}
               />
             </motion.div>
           )}
@@ -646,6 +650,8 @@ export default function App() {
         debtor={selectedDetailDebtor ? (debtors.find((d) => d.id === selectedDetailDebtor.id) || selectedDetailDebtor) : null}
         transactions={transactions}
         settings={settings}
+        parties={parties}
+        allDebtors={debtors}
         onClose={() => setSelectedDetailDebtor(null)}
         onOpenAddTx={(debtorId) => {
           handleOpenAddTxForDebtor(debtorId);
@@ -710,6 +716,7 @@ export default function App() {
         onConfirmSplit={handleConfirmSplit}
         onUpdateSplit={handleUpdatePartySplit}
         onSaveDebtor={handleSaveDebtor}
+        settings={settings}
       />
 
       {/* Full Size Image Viewer Modal */}

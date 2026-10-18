@@ -1329,8 +1329,38 @@ app.use(async (req, _res, next) => {
       });
     }
 
-    // Filter transactions ONLY for this specific debtor
-    const debtorTransactions = db.transactions.filter((tx) => tx.debtorId === targetDebtor.id);
+    // Filter transactions ONLY for this specific debtor and enrich with split-bill party metadata if needed
+    const debtorTransactions = db.transactions
+      .filter((tx) => tx.debtorId === targetDebtor.id)
+      .map((tx) => {
+        if (tx.partyId || tx.category === 'PARTY_SPLIT') {
+          const party = (db.parties || []).find((p) => p.id === tx.partyId);
+          if (party) {
+            const participantNames: string[] = [];
+            if (party.includeMe) participantNames.push(db.settings.ownerName || 'Tôi (Chủ sổ)');
+            (party.participantDebtorIds || []).forEach((id) => {
+              const d = db.debtors.find((deb) => deb.id === id);
+              if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
+            });
+            const payerName = party.payerType === 'ME'
+              ? (db.settings.ownerName || 'Tôi (Chủ sổ)')
+              : (db.debtors.find((d) => d.id === party.payerDebtorId)?.name || 'Người này');
+
+            return {
+              ...tx,
+              partyTotalAmount: tx.partyTotalAmount || party.totalAmount,
+              partySplitAmount: tx.partySplitAmount || party.splitAmountPerPerson,
+              partyTotalPeople: tx.partyTotalPeople || party.totalPeopleCount,
+              partyParticipants: (tx.partyParticipants && tx.partyParticipants.length > 0) ? tx.partyParticipants : participantNames,
+              partyPayerName: tx.partyPayerName || payerName,
+              partyName: tx.partyName || party.name,
+              customNote: tx.customNote || party.note,
+              billImage: tx.billImage || party.billImage,
+            };
+          }
+        }
+        return tx;
+      });
 
     // Return ONLY this debtor's data and necessary VietQR bank info
     // Never send other debtors' names, counts, or total receivable to the guest!

@@ -25,8 +25,10 @@ import {
   User,
   KeyRound,
   FileText,
+  Upload,
+  Trash2,
 } from 'lucide-react';
-import { Debtor, PartySplit, Transaction } from '../types';
+import { Debtor, PartySplit, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerator';
 import { ThousandAmountInput } from './ThousandAmountInput';
@@ -51,6 +53,7 @@ interface SplitBillModalProps {
     debtorData: Omit<Debtor, 'id' | 'createdAt' | 'updatedAt'>,
     editId?: string
   ) => Promise<Debtor | null>;
+  settings?: AppSettings;
 }
 
 export const SplitBillModal: React.FC<SplitBillModalProps> = ({
@@ -61,15 +64,19 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
   onUpdateSplit,
   initialParty,
   onSaveDebtor,
+  settings,
 }) => {
   const [name, setName] = useState('Đi ăn Lẩu Bò');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [totalAmount, setTotalAmount] = useState<number>(1200000);
   const [peopleCountInput, setPeopleCountInput] = useState('4');
-  const [payerType, setPayerType] = useState<'ME' | 'DEBTOR'>('ME');
+  const [payerType, setPayerType] = useState<'ME' | 'DEBTOR' | 'DEBTOR_ASSIGNED'>('ME');
   const [payerDebtorId, setPayerDebtorId] = useState<string>('');
   const [selectedDebtorIds, setSelectedDebtorIds] = useState<string[]>([]);
+  const [includeMe, setIncludeMe] = useState(true);
+  const [payerIncluded, setPayerIncluded] = useState(true);
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
+  const [noteInput, setNoteInput] = useState('');
   const [error, setError] = useState('');
 
   // Comprehensive Add Debtor form (matching standard AddDebtorModal)
@@ -95,22 +102,36 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         setName(initialParty.name || '');
         setDate(initialParty.date || new Date().toISOString().split('T')[0]);
         setTotalAmount(initialParty.totalAmount || 0);
-        const participantCount = (initialParty.participantDebtorIds?.length || 0) + (initialParty.includeMe ? 1 : 0);
+        // Correctly restore participant count (prioritize totalPeopleCount, then derived from total/split, fallback to participantDebtorIds + includeMe)
+        let participantCount = initialParty.totalPeopleCount;
+        if (!participantCount && initialParty.totalAmount > 0 && initialParty.splitAmountPerPerson > 0) {
+          const derived = Math.round(initialParty.totalAmount / initialParty.splitAmountPerPerson);
+          if (derived > 0) participantCount = derived;
+        }
+        if (!participantCount) {
+          participantCount = (initialParty.participantDebtorIds?.length || 0) + (initialParty.includeMe ? 1 : 0);
+        }
         setPeopleCountInput(String(participantCount || 2));
         setPayerType(initialParty.payerType || 'ME');
+        setIncludeMe(initialParty.includeMe !== false);
+        setPayerIncluded(initialParty.payerIncluded !== false);
         setSelectedDebtorIds(initialParty.participantDebtorIds || []);
         setPayerDebtorId(initialParty.payerDebtorId || (debtors.length > 0 ? debtors[0].id : ''));
         setBillImage(initialParty.billImage);
+        setNoteInput(initialParty.note || '');
       } else {
         setName('');
         setDate(new Date().toISOString().split('T')[0]);
         setTotalAmount(0);
         setPeopleCountInput('2');
         setPayerType('ME');
+        setIncludeMe(true);
+        setPayerIncluded(true);
         // Do not auto-select arbitrary debtors
         setSelectedDebtorIds([]);
         setPayerDebtorId(debtors.length > 0 ? debtors[0].id : '');
         setBillImage(undefined);
+        setNoteInput('');
       }
       setError('');
       setShowAddDebtorForm(false);
@@ -254,29 +275,81 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
       return;
     }
 
+    if (payerType === 'DEBTOR_ASSIGNED') {
+      if (!payerDebtorId) {
+        setError('Vui lòng chọn người đã đứng ra thanh toán thay');
+        return;
+      }
+      const otherSelected = selectedDebtorIds.filter((id) => id !== payerDebtorId);
+      if (otherSelected.length === 0) {
+        setError('Vui lòng chọn ít nhất 1 người cùng tham gia nợ bạn (hoặc bỏ tích "Gán nợ cho tôi" nếu bạn chỉ nợ người đó 1 phần)');
+        return;
+      }
+    }
+
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     setError('');
 
     const targetPartyId = initialParty?.id || `party-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const trimmedCustomNote = noteInput.trim();
     const partyData: PartySplit = {
       id: targetPartyId,
       name: name.trim(),
       date,
       totalAmount,
       payerType,
-      ...(payerType === 'DEBTOR' && payerDebtorId ? { payerDebtorId } : {}),
-      participantDebtorIds: payerType === 'ME' ? selectedDebtorIds : [payerDebtorId],
-      includeMe: true,
+      ...(payerType !== 'ME' && payerDebtorId ? { payerDebtorId } : {}),
+      participantDebtorIds:
+        payerType === 'DEBTOR'
+          ? [payerDebtorId]
+          : payerType === 'DEBTOR_ASSIGNED'
+          ? selectedDebtorIds.filter((id) => id !== payerDebtorId)
+          : selectedDebtorIds,
+      includeMe,
+      payerIncluded: payerType === 'DEBTOR_ASSIGNED' ? payerIncluded : true,
       splitAmountPerPerson,
+      totalPeopleCount: numberOfPeople,
       ...(billImage ? { billImage } : {}),
+      ...(trimmedCustomNote ? { note: trimmedCustomNote } : {}),
       createdAt: initialParty?.createdAt || new Date().toISOString(),
     };
+
+    const ownerDisplayName = settings?.ownerName || 'Tôi (Chủ sổ)';
+    const participantNames: string[] = [];
+    if (includeMe) {
+      participantNames.push(ownerDisplayName);
+    }
+    if (payerType === 'ME') {
+      selectedDebtorIds.forEach((id) => {
+        const d = debtors.find((deb) => deb.id === id);
+        if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
+      });
+    } else if (payerType === 'DEBTOR') {
+      const p = debtors.find((deb) => deb.id === payerDebtorId);
+      if (p && !participantNames.includes(p.name)) participantNames.push(p.name);
+    } else {
+      // DEBTOR_ASSIGNED: Họ trả & gán nợ cho Tôi
+      const p = debtors.find((deb) => deb.id === payerDebtorId);
+      if (p && payerIncluded && !participantNames.includes(p.name)) participantNames.push(p.name);
+      selectedDebtorIds
+        .filter((id) => id !== payerDebtorId)
+        .forEach((id) => {
+          const d = debtors.find((deb) => deb.id === id);
+          if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
+        });
+    }
+    // Tuyệt đối không sinh tên giả lập ("Bạn 1", "Bạn 2"...) khi số người chia lớn hơn số người biết tên
+
+    const payerName = payerType === 'ME'
+      ? ownerDisplayName
+      : (debtors.find((deb) => deb.id === payerDebtorId)?.name || 'Người này');
 
     const generatedTransactions: Transaction[] = [];
     if (payerType === 'ME') {
       // "Người nợ tôi": Each selected debtor owes Me (+)
       selectedDebtorIds.forEach((debtorId) => {
+        const baseNote = `Ăn Chia: ${name.trim()} (Tổng bill: ${formatVND(totalAmount)} chia ${numberOfPeople} người)`;
         generatedTransactions.push({
           id: `tx-party-${targetPartyId}-${debtorId}`,
           partyId: targetPartyId,
@@ -284,17 +357,22 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
           type: 'ADD',
           amount: splitAmountPerPerson,
           date,
-          note: `Ăn Chia: ${name.trim()} (${numberOfPeople} người chia)`,
+          note: trimmedCustomNote ? `${baseNote} - ${trimmedCustomNote}` : baseNote,
           category: 'PARTY_SPLIT',
+          partyTotalAmount: totalAmount,
+          partySplitAmount: splitAmountPerPerson,
+          partyTotalPeople: numberOfPeople,
+          partyParticipants: participantNames,
+          partyPayerName: payerName,
+          partyName: name.trim(),
+          ...(trimmedCustomNote ? { customNote: trimmedCustomNote } : {}),
           ...(billImage ? { billImage } : {}),
           createdAt: new Date().toISOString(),
         });
       });
-    } else {
+    } else if (payerType === 'DEBTOR') {
       // "Tôi nợ họ": Debtor paid upfront -> I owe debtor my share (-)
-      const payerObj = debtors.find((d) => d.id === payerDebtorId);
-      const payerName = payerObj?.name || 'Người này';
-
+      const baseNote = `${payerName} trả tiền cuộc vui: ${name.trim()} (Tổng bill: ${formatVND(totalAmount)} chia ${numberOfPeople} người, phần của Tôi: ${formatVND(splitAmountPerPerson)})`;
       generatedTransactions.push({
         id: `tx-party-${targetPartyId}-${payerDebtorId}`,
         partyId: targetPartyId,
@@ -302,12 +380,70 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         type: 'SUB',
         amount: splitAmountPerPerson,
         date,
-        note: `${payerName} trả tiền cuộc vui: ${name.trim()} (Phần tiền của Tôi: ${formatVND(
-          splitAmountPerPerson
-        )})`,
+        note: trimmedCustomNote ? `${baseNote} - ${trimmedCustomNote}` : baseNote,
         category: 'PARTY_SPLIT',
+        partyTotalAmount: totalAmount,
+        partySplitAmount: splitAmountPerPerson,
+        partyTotalPeople: numberOfPeople,
+        partyParticipants: participantNames,
+        partyPayerName: payerName,
+        partyName: name.trim(),
+        ...(trimmedCustomNote ? { customNote: trimmedCustomNote } : {}),
         ...(billImage ? { billImage } : {}),
         createdAt: new Date().toISOString(),
+      });
+    } else {
+      // "DEBTOR_ASSIGNED": Họ trả bill & gán nợ cho Tôi
+      // 1. Tôi nợ người trả tiền (Nam) số tiền họ đã thanh toán thay cho nhóm
+      const payerUpfrontAmount = payerIncluded
+        ? Math.max(0, totalAmount - splitAmountPerPerson)
+        : totalAmount;
+
+      const payerBaseNote = `${payerName} trả bill & gán nợ: ${name.trim()} (Tổng bill: ${formatVND(totalAmount)} chia ${numberOfPeople} người, ứng hộ: ${formatVND(payerUpfrontAmount)})`;
+      generatedTransactions.push({
+        id: `tx-party-${targetPartyId}-payer-${payerDebtorId}`,
+        partyId: targetPartyId,
+        debtorId: payerDebtorId,
+        type: 'SUB',
+        amount: payerUpfrontAmount,
+        date,
+        note: trimmedCustomNote ? `${payerBaseNote} - ${trimmedCustomNote}` : payerBaseNote,
+        category: 'PARTY_SPLIT',
+        partyTotalAmount: totalAmount,
+        partySplitAmount: splitAmountPerPerson,
+        partyTotalPeople: numberOfPeople,
+        partyParticipants: participantNames,
+        partyPayerName: payerName,
+        partyName: name.trim(),
+        ...(trimmedCustomNote ? { customNote: trimmedCustomNote } : {}),
+        ...(billImage ? { billImage } : {}),
+        createdAt: new Date().toISOString(),
+      });
+
+      // 2. Từng người bạn được chọn nợ Tôi 1 phần để Tôi đi thu
+      selectedDebtorIds
+        .filter((debtorId) => debtorId !== payerDebtorId)
+        .forEach((debtorId) => {
+        const friendBaseNote = `Ăn Chia (gán nợ từ ${payerName}): ${name.trim()} (Tổng bill: ${formatVND(totalAmount)} chia ${numberOfPeople} người)`;
+        generatedTransactions.push({
+          id: `tx-party-${targetPartyId}-${debtorId}`,
+          partyId: targetPartyId,
+          debtorId,
+          type: 'ADD',
+          amount: splitAmountPerPerson,
+          date,
+          note: trimmedCustomNote ? `${friendBaseNote} - ${trimmedCustomNote}` : friendBaseNote,
+          category: 'PARTY_SPLIT',
+          partyTotalAmount: totalAmount,
+          partySplitAmount: splitAmountPerPerson,
+          partyTotalPeople: numberOfPeople,
+          partyParticipants: participantNames,
+          partyPayerName: payerName,
+          partyName: name.trim(),
+          ...(trimmedCustomNote ? { customNote: trimmedCustomNote } : {}),
+          ...(billImage ? { billImage } : {}),
+          createdAt: new Date().toISOString(),
+        });
       });
     }
 
@@ -583,9 +719,6 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                 <Users className="w-4 h-4 text-amber-700 shrink-0" />
                 <span>Số Người Chia Tiền (*):</span>
               </label>
-              <span className="text-[11px] text-amber-800 font-medium whitespace-nowrap">
-                (Tự động chia đều)
-              </span>
             </div>
 
             <div className="flex items-center gap-3">
@@ -599,7 +732,6 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                 className="w-28 px-3.5 py-2.5 bg-white border border-amber-300 rounded-xl text-center text-lg font-bold font-mono text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
               />
               <div className="flex-1 text-xs text-amber-900 leading-snug">
-                <span className="text-slate-500">Mỗi người chịu 1 phần:</span>{' '}
                 <strong className="text-base text-amber-950 block font-mono">
                   {formatVND(splitAmountPerPerson)}
                 </strong>
@@ -607,12 +739,12 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             </div>
           </div>
 
-          {/* CHIỀU NỢ: NGƯỜI NỢ TÔI HOẶC TÔI NỢ HỌ */}
+          {/* CHIỀU NỢ: TÔI ĐÃ THANH TOÁN HOẶC BẠN BÈ ĐÃ THANH TOÁN (GÁN NỢ TÍCH HỢP) */}
           <div className="space-y-2">
             <label className="block font-semibold text-slate-700 text-xs uppercase tracking-wider">
-              Chọn Hướng Ghi Nợ:
+              Người Thanh Toán:
             </label>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <button
                 type="button"
                 onClick={() => setPayerType('ME')}
@@ -624,33 +756,31 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-bold text-xs uppercase tracking-wide">
-                    👑 Người nợ tôi
+                    👑 Tôi đã thanh toán
                   </span>
                   {payerType === 'ME' && <Check className="w-4 h-4 text-amber-600" />}
                 </div>
-                <p className="text-[11px] text-slate-500 leading-tight">
-                  Tôi đã trả tiền toàn bộ hóa đơn. Các bạn nợ tôi.
-                </p>
               </button>
 
               <button
                 type="button"
-                onClick={() => setPayerType('DEBTOR')}
+                onClick={() => {
+                  if (payerType === 'ME') {
+                    setPayerType('DEBTOR');
+                  }
+                }}
                 className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                  payerType === 'DEBTOR'
+                  payerType !== 'ME'
                     ? 'bg-rose-50 border-rose-500 text-rose-950 ring-2 ring-rose-500/20 shadow-xs'
                     : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-bold text-xs uppercase tracking-wide">
-                    🤝 Tôi nợ họ
+                    🤝 Bạn bè đã thanh toán
                   </span>
-                  {payerType === 'DEBTOR' && <Check className="w-4 h-4 text-rose-600" />}
+                  {payerType !== 'ME' && <Check className="w-4 h-4 text-rose-600" />}
                 </div>
-                <p className="text-[11px] text-slate-500 leading-tight">
-                  Bạn bè đã trả thay cho tôi. Tôi nợ bạn 1 phần.
-                </p>
               </button>
             </div>
           </div>
@@ -769,52 +899,193 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             </div>
           )}
 
-          {/* TRƯỜNG HỢP 2: TÔI NỢ HỌ */}
-          {payerType === 'DEBTOR' && (
-            <div className="space-y-2 p-3.5 bg-rose-50/60 border border-rose-200 rounded-2xl">
-              <div className="flex items-center justify-between gap-2">
-                <label className="block font-bold text-xs text-rose-950 uppercase tracking-wider truncate">
-                  Người đã trả thay (*):
-                </label>
-                <button
-                  type="button"
-                  onClick={handleToggleAddDebtor}
-                  className="text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
+          {/* TRƯỜNG HỢP: BẠN BÈ ĐÃ THANH TOÁN (Tôi nợ họ, tích hợp tùy chọn Gán nợ trực tiếp - Không chia mục riêng) */}
+          {payerType !== 'ME' && (
+            <div className="space-y-3 p-3.5 sm:p-4 bg-rose-50/60 border border-rose-200 rounded-2xl">
+              {/* 1. Chọn người đã đứng ra thanh toán */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block font-bold text-xs text-rose-950 uppercase tracking-wider truncate">
+                    1. Người thanh toán (*):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleToggleAddDebtor}
+                    className="text-amber-800 hover:text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>{showAddDebtorForm ? 'Đóng' : 'Thêm mới'}</span>
+                  </button>
+                </div>
+
+                {showAddDebtorForm && renderAddDebtorForm()}
+
+                <select
+                  value={payerDebtorId}
+                  onChange={(e) => setPayerDebtorId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-rose-300 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
                 >
-                  <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>{showAddDebtorForm ? 'Đóng' : 'Thêm mới'}</span>
-                </button>
+                  {debtors.length === 0 ? (
+                    <option value="">-- Sổ chưa có ai, bấm "+ Thêm người mới" --</option>
+                  ) : (
+                    debtors.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} - Pass: {d.pin}
+                      </option>
+                    ))
+                  )}
+                </select>
               </div>
 
-              {/* Unified Add Debtor Box when in "Tôi nợ họ" */}
-              {showAddDebtorForm && renderAddDebtorForm()}
-
-              <select
-                value={payerDebtorId}
-                onChange={(e) => setPayerDebtorId(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-white border border-rose-300 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
-              >
-                {debtors.length === 0 ? (
-                  <option value="">-- Sổ chưa có ai, bấm "+ Thêm người mới" --</option>
-                ) : (
-                  debtors.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} - Pass: {d.pin}
-                    </option>
-                  ))
-                )}
-              </select>
-
-              <div className="p-3 bg-white rounded-xl border border-rose-200 text-xs text-rose-900 space-y-1">
-                <div className="font-bold flex items-center gap-1">
-                  <span>💡 Ghi nhận nợ tự động:</span>
+              {/* Tóm tắt nợ tự động khi chỉ nợ người đó 1 phần */}
+              {payerType === 'DEBTOR' && (
+                <div className="p-3 bg-white rounded-xl border border-rose-200 text-xs text-rose-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <span>💡 Ghi nhận nợ (chia {numberOfPeople}):</span>
+                  </div>
+                  <p className="text-base font-bold font-mono text-rose-600">
+                    -{formatVND(splitAmountPerPerson)}
+                  </p>
                 </div>
-                <p>
-                  Bạn sẽ nợ <strong>{payerDebtor?.name || 'người này'}</strong> đúng 1 phần tiền của bạn:
-                </p>
-                <p className="text-base font-bold font-mono text-rose-600">
-                  -{formatVND(splitAmountPerPerson)}
-                </p>
+              )}
+
+              {/* Tùy chọn Gán nợ trực tiếp - TỐI ƯU KHÔNG CHIA LÀM MỤC RIÊNG */}
+              <div className="pt-2 border-t border-rose-200/70 space-y-2.5">
+                <label className="flex items-start gap-2.5 p-3 bg-white rounded-xl border border-rose-300/80 hover:border-purple-300 cursor-pointer select-none transition-all shadow-2xs">
+                  <input
+                    type="checkbox"
+                    checked={payerType === 'DEBTOR_ASSIGNED'}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setPayerType('DEBTOR_ASSIGNED');
+                      } else {
+                        setPayerType('DEBTOR');
+                      }
+                    }}
+                    className="w-4 h-4 mt-0.5 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 shrink-0"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <span className="text-purple-700">⚡ Họ nhờ tôi thu hộ từ các bạn khác (Gán nợ cho tôi)</span>
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Tích vào đây nếu người thanh toán nhờ bạn đi thu tiền các bạn khác. Bạn nợ người trả tiền khoản ứng hộ, và các bạn được chọn sẽ nợ bạn.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Khi bật Gán nợ: Mở rộng danh sách chọn các bạn cùng tham gia */}
+                {payerType === 'DEBTOR_ASSIGNED' && (
+                  <div className="space-y-3 pt-2 pl-2 border-l-2 border-purple-300">
+                    {/* Tùy chọn người trả tiền có tham gia ăn chia không */}
+                    <label className="flex items-center gap-2.5 p-2.5 bg-white rounded-xl border border-purple-200/80 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={payerIncluded}
+                        onChange={(e) => setPayerIncluded(e.target.checked)}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 shrink-0"
+                      />
+                      <span className="text-xs text-slate-700 font-medium">
+                        {payerDebtor?.name || 'Người thanh toán'} <strong>có tham gia</strong> ăn chia (tự chịu 1 phần của họ)
+                      </span>
+                    </label>
+
+                    {/* Danh sách các bạn cùng tham gia nợ Tôi */}
+                    <div className="space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
+                        <label className="font-bold text-purple-950 text-xs uppercase tracking-wider truncate">
+                          2. Chọn các bạn cùng tham gia nợ Tôi ({selectedDebtorIds.filter((id) => id !== payerDebtorId).length}):
+                        </label>
+                        <div className="flex items-center gap-1.5 text-xs whitespace-nowrap self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDebtorIds(debtors.filter((d) => d.id !== payerDebtorId).map((d) => d.id))}
+                            className="text-purple-700 hover:text-purple-900 font-semibold cursor-pointer px-1.5 py-0.5 rounded hover:bg-purple-100"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <span className="text-purple-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDebtorIds([])}
+                            className="text-slate-500 hover:text-slate-700 font-medium cursor-pointer px-1.5 py-0.5 rounded hover:bg-slate-100"
+                          >
+                            Bỏ chọn
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-44 overflow-y-auto p-2 bg-white border border-purple-200 rounded-xl">
+                        {debtors.filter((d) => d.id !== payerDebtorId).length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">
+                            Chưa có bạn bè khác trong sổ. Hãy bấm "+ Thêm mới" ở trên để thêm người!
+                          </div>
+                        ) : (
+                          debtors
+                            .filter((d) => d.id !== payerDebtorId)
+                            .map((d) => {
+                              const isSelected = selectedDebtorIds.includes(d.id);
+                              return (
+                                <label
+                                  key={d.id}
+                                  className={`flex items-center justify-between p-2 rounded-lg transition-all cursor-pointer border ${
+                                    isSelected
+                                      ? 'bg-purple-50/90 border-purple-300 shadow-2xs'
+                                      : 'hover:bg-slate-50 border-transparent'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => handleToggleDebtor(d.id)}
+                                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 shrink-0"
+                                    />
+                                    <span className="text-xs font-semibold text-slate-800 truncate">
+                                      {d.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs font-bold text-emerald-700 shrink-0 font-mono">
+                                    +{formatVND(splitAmountPerPerson)}
+                                  </span>
+                                </label>
+                              );
+                            })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Tóm tắt dòng tiền gán nợ */}
+                    {(() => {
+                      const payerUpfront = payerIncluded
+                        ? Math.max(0, totalAmount - splitAmountPerPerson)
+                        : totalAmount;
+                      const totalCollectFromFriends = selectedDebtorIds.filter((id) => id !== payerDebtorId).length * splitAmountPerPerson;
+                      return (
+                        <div className="p-3 bg-white rounded-xl border border-purple-200 text-xs space-y-1.5">
+                          <div className="font-bold text-purple-950 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Cơ chế gán nợ tự động:</span>
+                          </div>
+                          <div className="text-[11px] space-y-1 text-slate-700">
+                            <p>
+                              • Tôi nợ <strong>{payerDebtor?.name || 'Người thanh toán'}</strong>:{' '}
+                              <strong className="text-rose-600 font-mono">-{formatVND(payerUpfront)}</strong>
+                            </p>
+                            <p>
+                              • Các bạn nợ <strong>Tôi</strong>:{' '}
+                              <strong className="text-emerald-700 font-mono">+{formatVND(totalCollectFromFriends)}</strong>{' '}
+                              ({selectedDebtorIds.filter((id) => id !== payerDebtorId).length} người x {formatVND(splitAmountPerPerson)})
+                            </p>
+                            <p>
+                              • Bản thân Tôi chịu: <strong className="text-slate-900 font-mono">{formatVND(splitAmountPerPerson)}</strong>
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -853,7 +1124,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                     <span className="italic text-slate-400">Chưa chọn ai</span>
                   )}
                 </>
-              ) : (
+              ) : payerType === 'DEBTOR' ? (
                 <>
                   <span className="text-rose-700 font-bold">• Tôi nợ (-): </span>
                   <span>
@@ -861,40 +1132,89 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                     <strong className="text-rose-600 font-mono">-{formatVND(splitAmountPerPerson)}</strong>.
                   </span>
                 </>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <div>
+                      <span className="text-rose-700 font-bold">• Tôi nợ (-): </span>
+                      <span>
+                        Tôi nợ <strong>{payerDebtor?.name || 'Người thanh toán'}</strong>{' '}
+                        <strong className="text-rose-600 font-mono">
+                          -{formatVND(payerIncluded ? Math.max(0, totalAmount - splitAmountPerPerson) : totalAmount)}
+                        </strong>
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-emerald-700 font-bold">• Các bạn nợ Tôi (+): </span>
+                      {selectedDebtorIds.filter((id) => id !== payerDebtorId).length > 0 ? (
+                        <span>
+                          {selectedDebtorIds
+                            .filter((id) => id !== payerDebtorId)
+                            .map((id) => debtors.find((d) => d.id === id)?.name || id)
+                            .join(', ')}{' '}
+                          (<strong className="text-emerald-700 font-mono">+{formatVND(splitAmountPerPerson)}/người</strong>)
+                        </span>
+                      ) : (
+                        <span className="italic text-slate-400">Chưa chọn bạn nào nợ tôi</span>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
 
-          {/* Ảnh hóa đơn đính kèm */}
-          <div className="p-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-xs">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-                <Receipt className="w-3.5 h-3.5 text-amber-600" />
-                Ảnh chụp hóa đơn
-              </span>
-              {billImage && (
+          {/* Ghi chú thêm (tùy chọn) */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Ghi chú thêm (không bắt buộc)
+            </label>
+            <input
+              type="text"
+              value={noteInput}
+              onChange={(e) => setNoteInput(e.target.value)}
+              placeholder="VD: Liên hoan cuối tuần, kèm tiền xe..."
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-hidden transition-all bg-white placeholder:text-slate-400"
+            />
+          </div>
+
+          {/* Ảnh hóa đơn / Chứng từ (Tùy chọn) - Đồng nhất với form Ghi nợ */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+              Ảnh hóa đơn / Chứng từ (Tùy chọn)
+            </label>
+            {billImage ? (
+              <div className="flex items-center gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <img
+                  src={billImage}
+                  alt="Bill preview"
+                  className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0"
+                />
+                <div className="flex-1 min-w-0 text-xs text-slate-600">
+                  <div className="font-semibold text-slate-800 truncate">Ảnh đính kèm cuộc vui</div>
+                  <div className="text-[11px] text-slate-400">Đã lưu cùng cuộc ăn chia này</div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setBillImage(undefined)}
-                  className="text-red-600 hover:underline cursor-pointer"
+                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                  title="Xóa ảnh này"
                 >
-                  Xóa ảnh
+                  <Trash2 className="w-4 h-4" />
+                  <span>Xóa ảnh</span>
                 </button>
-              )}
-            </div>
-            {billImage ? (
-              <img
-                src={billImage}
-                alt="Receipt"
-                className="w-full max-h-32 object-contain rounded-xl border border-slate-200 bg-white mt-1"
-              />
+              </div>
             ) : (
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer"
-              />
+              <label className="flex items-center justify-center gap-2 p-3.5 border border-dashed border-slate-300 hover:border-amber-500 hover:bg-amber-50/40 rounded-xl text-slate-600 hover:text-amber-800 transition-colors cursor-pointer text-xs font-medium">
+                <Upload className="w-4 h-4 text-slate-400" />
+                <span>Tải ảnh hóa đơn / chuyển khoản</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
             )}
           </div>
 

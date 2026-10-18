@@ -207,9 +207,19 @@ export function smartMergeParties(remoteParties: PartySplit[], _localParties?: P
       if (p && p.id) map.set(p.id, p);
     }
   }
-  return Array.from(map.values()).sort(
-    (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
-  );
+  return Array.from(map.values()).sort((a, b) => {
+    const dateA = a.date || (a.createdAt ? a.createdAt.slice(0, 10) : '');
+    const dateB = b.date || (b.createdAt ? b.createdAt.slice(0, 10) : '');
+    if (dateB !== dateA) {
+      return dateB.localeCompare(dateA);
+    }
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+    return (b.id || '').localeCompare(a.id || '');
+  });
 }
 
 export async function fetchOwnerData(): Promise<{

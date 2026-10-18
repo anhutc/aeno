@@ -31,6 +31,14 @@ export interface Transaction {
   category: TransactionCategory;
   billImage?: string; // base64 or receipt image URL
   partyId?: string;
+  // Chi tiết ăn chia nhóm để người tra cứu biết tổng tiền trước khi chia và danh sách tham gia
+  partyTotalAmount?: number; // Tổng số tiền trước khi chia (VD: 1.200.000đ)
+  partyParticipants?: string[]; // Danh sách tên những người tham gia (VD: ['Tôi (Chủ sổ)', 'Nguyễn Văn Nam', 'Bạn Tuấn'])
+  partySplitAmount?: number; // Số tiền mỗi người (VD: 300.000đ)
+  partyTotalPeople?: number; // Tổng số người chia bill (VD: 5)
+  partyPayerName?: string; // Tên người đã thanh toán trước (VD: 'Tôi (Chủ sổ)')
+  partyName?: string; // Tên cuộc vui (VD: 'Đi ăn Lẩu Bò')
+  customNote?: string; // Ghi chú tùy chọn riêng của người dùng cho cuộc vui / giao dịch
   createdAt: string;
 }
 
@@ -39,12 +47,15 @@ export interface PartySplit {
   name: string; // e.g., "Đi ăn Lẩu Bò"
   date: string;
   totalAmount: number;
-  payerType: 'ME' | 'DEBTOR'; // Who paid upfront
+  payerType: 'ME' | 'DEBTOR' | 'DEBTOR_ASSIGNED'; // Who paid upfront (ME = Tôi trả; DEBTOR = Họ trả phần tôi; DEBTOR_ASSIGNED = Họ trả & gán nợ cho tôi)
   payerDebtorId?: string; // If a debtor paid
   participantDebtorIds: string[]; // List of debtor IDs participating
   includeMe: boolean; // Did "Tôi" also participate
+  payerIncluded?: boolean; // Did the payer also participate in the split
   splitAmountPerPerson: number;
+  totalPeopleCount?: number; // Tổng số người tham gia chia tiền (kể cả khi tôi nợ họ)
   billImage?: string;
+  note?: string; // Ghi chú thêm tùy chọn của cuộc vui
   createdAt: string;
 }
 

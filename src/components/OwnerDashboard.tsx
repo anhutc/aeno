@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   UserPlus,
@@ -48,6 +48,7 @@ import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { ConfirmDeletePartyModal } from './ConfirmDeletePartyModal';
 import { ConfirmDeleteTxModal } from './ConfirmDeleteTxModal';
+import { resolveSplitBillDetails } from '../utils/splitBillHelper';
 
 interface OwnerDashboardProps {
   debtors: Debtor[];
@@ -167,6 +168,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     }
     return 0;
   });
+
+  // Sort parties newest first: Ngày mới nhất ở trên, nếu trùng ngày thì tạo sau ở trên
+  const sortedParties = useMemo(() => {
+    return [...parties].sort((a, b) => {
+      const dateA = a.date || (a.createdAt ? a.createdAt.slice(0, 10) : '');
+      const dateB = b.date || (b.createdAt ? b.createdAt.slice(0, 10) : '');
+      if (dateB !== dateA) {
+        return dateB.localeCompare(dateA);
+      }
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
+  }, [parties]);
 
   const handleCopyPin = (e: React.MouseEvent, debtor: Debtor) => {
     e.stopPropagation();
@@ -889,6 +907,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             title="Xóa người nợ này"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
+                            <span>Xóa</span>
                           </button>
                         )}
                       </div>
@@ -1140,6 +1159,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                   title="Xóa người này"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Xóa</span>
                                 </button>
                               )}
 
@@ -1193,6 +1213,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             {recentTransactions.map((tx) => {
               const debtor = debtors.find((d) => d.id === tx.debtorId);
               const isAdd = tx.type === 'ADD';
+              const split = resolveSplitBillDetails(tx, debtor, parties, debtors);
+              const resolvedBillImg = tx.billImage || split.billImage;
 
               return (
                 <div
@@ -1202,12 +1224,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   <div className="flex items-start gap-3 min-w-0">
                     <div
                       className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                        isAdd
+                        split.isSplit
+                          ? 'bg-amber-100 text-amber-800'
+                          : isAdd
                           ? 'bg-rose-100 text-rose-700'
                           : 'bg-emerald-100 text-emerald-700'
                       }`}
                     >
-                      {isAdd ? (
+                      {split.isSplit ? (
+                        <Users className="w-4 h-4" />
+                      ) : isAdd ? (
                         <ArrowUpRight className="w-4 h-4" />
                       ) : (
                         <ArrowDownLeft className="w-4 h-4" />
@@ -1215,36 +1241,47 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     </div>
 
                     <div className="min-w-0">
-                      <div className="font-semibold text-slate-900 text-sm break-words">
+                      <div className="font-semibold text-slate-900 text-sm break-words flex items-center gap-1.5 flex-wrap">
                         <span className="text-emerald-700 font-bold">{debtor?.name || 'Người dùng'}</span>
-                        {' • '}
-                        <span className="font-medium text-slate-700">{tx.note}</span>
+                        <span className="text-slate-300">·</span>
+                        <span className="font-medium text-slate-800">
+                          {split.isSplit ? split.partyName : tx.note || (isAdd ? 'Ghi nhận nợ' : 'Đã thanh toán')}
+                        </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mt-0.5">
-                        <span>📅 {tx.date}</span>
-                        {tx.category === 'PARTY_SPLIT' && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
-                            Chia tiền
-                          </span>
-                        )}
-                        {tx.category === 'PAYMENT_SETTLED' && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
-                            Đã thanh toán
-                          </span>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                        <span>{tx.date}</span>
+                        {split.isSplit ? (
+                          <>
+                            <span aria-hidden="true" className="text-slate-300">·</span>
+                            <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                              {formatVND(split.totalAmount)}
+                            </span>
+                            <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]">
+                              {split.participantCount} người ({split.participantNames.map((p) => p.name).join(', ')}
+                              {split.extraCount > 0 ? ` và ${split.extraCount} người khác` : ''})
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span aria-hidden="true" className="text-slate-300">·</span>
+                            <span>{isAdd ? 'Ghi nợ' : 'Trả nợ'}</span>
+                          </>
                         )}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                    {tx.billImage && (
+                    {resolvedBillImg && (
                       <button
                         type="button"
-                        onClick={() => onViewImage(tx.billImage!, tx.note)}
-                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                        title="Xem ảnh chứng từ"
+                        onClick={() => onViewImage(resolvedBillImg, split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`)}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                        title="Xem ảnh hóa đơn / chứng từ"
                       >
-                        <Receipt className="w-4 h-4" />
+                        <img src={resolvedBillImg} alt="Hóa đơn" className="w-3.5 h-3.5 rounded object-cover border border-emerald-300 shrink-0" />
+                        <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="hidden sm:inline">Hóa đơn</span>
                       </button>
                     )}
 
@@ -1272,30 +1309,32 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         title="Giao dịch từ chia đầu người - Không thể sửa/xóa lẻ. Bấm để sửa hoặc xóa toàn bộ cuộc vui."
                       >
                         <Lock className="w-3 h-3 text-amber-600" />
-                        <span className="hidden sm:inline">Sửa cuộc vui</span>
+                        <span className="hidden sm:inline">Sửa</span>
                         <span className="sm:hidden">Cuộc vui</span>
                       </button>
                     ) : (
                       <div className="flex items-center gap-0.5">
                         {onEditTx && (
                           <button
-                            type="button"
-                            onClick={() => onEditTx(tx)}
-                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                            title="Chỉnh sửa giao dịch này"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
+                              type="button"
+                              onClick={() => onEditTx(tx)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold rounded-lg border border-amber-200 transition-colors cursor-pointer text-xs"
+                              title="Chỉnh sửa giao dịch này"
+                            >
+                              <Pencil className="w-3 h-3 text-amber-600" />
+                              <span>Sửa</span>
+                            </button>
                         )}
                         {onDeleteTx && (
                           <button
-                            type="button"
-                            onClick={() => setTxToDelete(tx)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="Xóa giao dịch này"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                                type="button"
+                                onClick={() => setTxToDelete(tx)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-semibold rounded-lg transition-colors cursor-pointer text-xs"
+                                title="Xóa giao dịch này"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Xóa</span>
+                              </button>
                         )}
                       </div>
                     )}
@@ -1317,15 +1356,17 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="space-y-3"
           >
-          {parties.length === 0 ? (
+          {sortedParties.length === 0 ? (
             <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
               Chưa có cuộc vui nào được chia tiền.
             </div>
           ) : (
-            parties.map((party) => {
+            sortedParties.map((party) => {
               const payer =
                 party.payerType === 'ME'
                   ? settings.ownerName
+                  : party.payerType === 'DEBTOR_ASSIGNED'
+                  ? `${debtors.find((d) => d.id === party.payerDebtorId)?.name || 'Bạn bè'} (gán nợ cho Tôi)`
                   : debtors.find((d) => d.id === party.payerDebtorId)?.name || 'Người nợ';
 
               return (
@@ -1333,85 +1374,109 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   key={party.id}
                   className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-2 text-xs"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1.5">
-                    <div>
-                      <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                        <PartyPopper className="w-4 h-4 text-amber-600" />
-                        <span>{party.name}</span>
-                      </div>
-                      <div className="text-slate-400 text-[11px] mt-0.5">
-                        Ngày: {party.date} • Người thanh toán: <strong>{payer}</strong>
-                      </div>
-                    </div>
+                  {(() => {
+                    const numberOfPeople =
+                      party.totalPeopleCount ||
+                      (party.totalAmount > 0 && party.splitAmountPerPerson > 0
+                        ? Math.round(party.totalAmount / party.splitAmountPerPerson)
+                        : (party.participantDebtorIds?.length || 0) + (party.includeMe ? 1 : 0));
 
-                    <div className="text-left sm:text-right">
-                      <div className="text-base font-black text-amber-700 font-mono">
-                        {formatVND(party.totalAmount)}
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-medium">
-                        Mỗi người: {formatVND(party.splitAmountPerPerson)}
-                      </div>
-                    </div>
-                  </div>
+                    const payerObj = party.payerDebtorId ? debtors.find((d) => d.id === party.payerDebtorId) : null;
+                    const baseParticipants = [
+                      ...(party.includeMe ? [settings.ownerName] : []),
+                      ...(party.payerType === 'DEBTOR_ASSIGNED' && payerObj && party.payerIncluded !== false
+                        ? [payerObj.name]
+                        : []),
+                      ...party.participantDebtorIds
+                        .filter((id) => party.payerType !== 'DEBTOR_ASSIGNED' || id !== party.payerDebtorId)
+                        .map((id) => debtors.find((d) => d.id === id)?.name || id),
+                    ];
+                    const extraCount = Math.max(0, numberOfPeople - baseParticipants.length);
+                    const allParticipantDisplay = [
+                      ...baseParticipants,
+                      ...(extraCount > 0 ? [`+${extraCount} người khác`] : []),
+                    ].join(', ');
 
-                  <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-slate-500 font-medium">Tham gia:</span>
-                      {party.includeMe && (
-                        <span className="font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300/80 text-[11px]">
-                          {settings.ownerName}
-                        </span>
-                      )}
-                      {party.participantDebtorIds.map((id) => {
-                        const personName = debtors.find((d) => d.id === id)?.name || id;
-                        return (
-                          <span
-                            key={id}
-                            className="font-semibold text-amber-900 bg-amber-50/90 px-2 py-0.5 rounded-md border border-amber-200 text-[11px]"
-                          >
-                            {personName}
-                          </span>
-                        );
-                      })}
-                    </div>
+                    return (
+                      <>
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1.5">
+                          <div>
+                            <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                              <PartyPopper className="w-4 h-4 text-amber-600" />
+                              <span>{party.name}</span>
+                            </div>
+                            <div className="text-slate-500 text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
+                              <span>{party.date}</span>
+                              <span aria-hidden="true" className="text-slate-300">·</span>
+                              <span>Người thanh toán: <strong className="text-slate-800">{payer}</strong></span>
+                            </div>
+                            {party.note && (
+                              <div className="text-slate-500 text-xs italic mt-1">
+                                Ghi chú: {party.note}
+                              </div>
+                            )}
+                          </div>
 
-                    <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                      {party.billImage && (
-                        <button
-                          type="button"
-                          onClick={() => onViewImage(party.billImage!, party.name)}
-                          className="inline-flex items-center gap-1 text-emerald-600 hover:underline font-semibold cursor-pointer"
-                        >
-                          <Receipt className="w-3.5 h-3.5" />
-                          <span>Hóa đơn</span>
-                        </button>
-                      )}
+                          <div className="text-left sm:text-right">
+                            <div className="text-base font-black text-amber-700 font-mono tabular-nums">
+                              {formatVND(party.totalAmount)}
+                            </div>
+                            <div className="text-xs text-slate-500 font-medium font-mono tabular-nums">
+                              Mỗi người: {formatVND(party.splitAmountPerPerson)} ({numberOfPeople} người chia)
+                            </div>
+                          </div>
+                        </div>
 
-                      {onEditParty && (
-                        <button
-                          type="button"
-                          onClick={() => onEditParty(party)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold rounded-lg border border-amber-200 transition-colors cursor-pointer text-xs"
-                          title="Sửa cuộc chia tiền này (hệ thống tự động tính lại cho mọi người)"
-                        >
-                          <Pencil className="w-3 h-3 text-amber-600" />
-                          <span>Sửa cuộc vui</span>
-                        </button>
-                      )}
+                        <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-slate-400 font-medium">Tham gia:</span>
+                            <span className="font-medium text-slate-800">
+                              {allParticipantDisplay}
+                            </span>
+                          </div>
 
-                      {onDeleteParty && (
-                        <button
-                          type="button"
-                          onClick={() => setPartyToDelete(party)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-semibold rounded-lg transition-colors cursor-pointer text-xs"
-                          title="Xóa cuộc chia tiền này (tự động xóa giao dịch và hoàn số dư cho mọi người)"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Xóa</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                            {party.billImage && (
+                              <button
+                                type="button"
+                                onClick={() => onViewImage(party.billImage!, `Hóa đơn: ${party.name}`)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                                title="Xem ảnh hóa đơn cuộc vui"
+                              >
+                                <img src={party.billImage} alt="Hóa đơn" className="w-3.5 h-3.5 rounded object-cover border border-emerald-300 shrink-0" />
+                                <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>Hóa đơn</span>
+                              </button>
+                            )}
+
+                            {onEditParty && (
+                              <button
+                                type="button"
+                                onClick={() => onEditParty(party)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold rounded-lg border border-amber-200 transition-colors cursor-pointer text-xs"
+                                title="Sửa cuộc chia tiền này (hệ thống tự động tính lại cho mọi người)"
+                              >
+                                <Pencil className="w-3 h-3 text-amber-600" />
+                                <span>Sửa</span>
+                              </button>
+                            )}
+
+                            {onDeleteParty && (
+                              <button
+                                type="button"
+                                onClick={() => setPartyToDelete(party)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-semibold rounded-lg transition-colors cursor-pointer text-xs"
+                                title="Xóa cuộc chia tiền này (tự động xóa giao dịch và hoàn số dư cho mọi người)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Xóa</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               );
             })

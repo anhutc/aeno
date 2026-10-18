@@ -422,12 +422,45 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                       </td>
                       <td className="py-2 px-2.5">
                         <div className="font-semibold text-slate-800 break-words leading-tight">
-                          {tx.note || (isAdd ? 'Khoản nợ phát sinh' : 'Thanh toán nợ')}
+                          {tx.partyName || (tx.category === 'PARTY_SPLIT' && tx.note ? tx.note.replace(/^(?:Ăn\s*Chia|Cuộc\s*vui)\s*:\s*/i, '').replace(/\s*\(\s*Tổng\s*bill[\s\S]*?\)\s*$/i, '').replace(/\s*\(\s*\d+\s*(?:người|bạn)\s*chia\s*\)\s*$/i, '') : tx.note) || (isAdd ? 'Khoản nợ phát sinh' : 'Thanh toán nợ')}
                         </div>
                         {tx.category === 'PARTY_SPLIT' && (
-                          <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 mt-0.5">
-                            Chia tiệc
-                          </span>
+                          <div className="mt-0.5 space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                Ăn chia nhóm
+                              </span>
+                              {tx.partyTotalAmount && (
+                                <span className="text-[9.5px] font-extrabold text-amber-900">
+                                  Tổng bill: {formatVND(tx.partyTotalAmount)}
+                                </span>
+                              )}
+                              {tx.billImage && (
+                                <span className="inline-block text-[9px] font-semibold px-1 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                  🧾 Có hóa đơn
+                                </span>
+                              )}
+                            </div>
+                            {Boolean(tx.partyParticipants?.length) && (() => {
+                              const cleanParticipants = (tx.partyParticipants || []).filter((n) => !/^Bạn\s*\d+$/i.test(n.trim()));
+                              const totalCount = tx.partyTotalPeople || tx.partyParticipants?.length || 0;
+                              const extraCount = Math.max(0, totalCount - cleanParticipants.length);
+                              return (
+                                <div className="text-[8.5px] text-slate-500 leading-tight">
+                                  Gồm {totalCount > 0 ? `${totalCount} người: ` : ''}
+                                  {cleanParticipants.join(', ')}
+                                  {extraCount > 0 ? ` và ${extraCount} người khác` : ''}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                        {tx.category !== 'PARTY_SPLIT' && tx.billImage && (
+                          <div className="mt-0.5">
+                            <span className="inline-block text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              🧾 Có hóa đơn đính kèm
+                            </span>
+                          </div>
                         )}
                         {tx.category === 'PAYMENT_SETTLED' && (
                           <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 mt-0.5">

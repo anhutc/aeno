@@ -388,7 +388,38 @@ export async function guestLookupDirect(pin: string): Promise<{
     const txQ = query(collection(db, 'transactions'), where('debtorId', '==', debtor.id));
     const txSnap = await getDocs(txQ);
     const transactions: Transaction[] = [];
-    txSnap.forEach((docSnap) => transactions.push(docSnap.data() as Transaction));
+    const partyIdsToFetch = new Set<string>();
+    txSnap.forEach((docSnap) => {
+      const tx = docSnap.data() as Transaction;
+      transactions.push(tx);
+      if (tx.partyId) {
+        partyIdsToFetch.add(tx.partyId);
+      }
+    });
+
+    if (partyIdsToFetch.size > 0) {
+      for (const pId of Array.from(partyIdsToFetch)) {
+        try {
+          const partyDoc = await getDoc(doc(db, 'parties', pId));
+          if (partyDoc.exists()) {
+            const p = partyDoc.data() as PartySplit;
+            transactions.forEach((t) => {
+              if (t.partyId === pId) {
+                t.partyTotalAmount = t.partyTotalAmount || p.totalAmount;
+                t.partySplitAmount = t.partySplitAmount || p.splitAmountPerPerson;
+                t.partyTotalPeople = t.partyTotalPeople || p.totalPeopleCount;
+                t.partyName = t.partyName || p.name;
+                t.customNote = t.customNote || p.note;
+                t.billImage = t.billImage || p.billImage;
+              }
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     transactions.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
     const settingsDoc = await getDoc(doc(db, 'settings', 'app_settings'));
@@ -660,9 +691,38 @@ export function subscribeToDebtorTransactions(
     const q = query(collection(db, 'transactions'), where('debtorId', '==', debtorId));
     const unsub = onSnapshot(
       q,
-      (snap) => {
+      async (snap) => {
         const txs: Transaction[] = [];
-        snap.forEach((d) => txs.push(d.data() as Transaction));
+        const partyIdsToFetch = new Set<string>();
+        snap.forEach((d) => {
+          const t = d.data() as Transaction;
+          txs.push(t);
+          if (t.partyId && !t.partyTotalAmount) {
+            partyIdsToFetch.add(t.partyId);
+          }
+        });
+
+        if (partyIdsToFetch.size > 0) {
+          for (const pId of Array.from(partyIdsToFetch)) {
+            try {
+              const partyDoc = await getDoc(doc(db, 'parties', pId));
+              if (partyDoc.exists()) {
+                const p = partyDoc.data() as PartySplit;
+                txs.forEach((t) => {
+                  if (t.partyId === pId) {
+                    t.partyTotalAmount = t.partyTotalAmount || p.totalAmount;
+                    t.partySplitAmount = t.partySplitAmount || p.splitAmountPerPerson;
+                    t.partyName = t.partyName || p.name;
+                    t.billImage = t.billImage || p.billImage;
+                  }
+                });
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+
         txs.sort(
           (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
         );
