@@ -398,12 +398,12 @@ export function loadSettings(): AppSettings {
         .filter((l) => !l.toLowerCase().includes('nội dung chuyển khoản') && !l.toLowerCase().includes('noi dung chuyen khoan'))
         .join('\n');
     };
+    const { reminderMessageTemplate, ...restParsed } = parsed;
     return {
       ...DEFAULT_SETTINGS,
-      ...parsed,
+      ...restParsed,
       defaultMemoPrefix: '',
       ownerPhone: parsed.ownerPhone !== undefined ? parsed.ownerPhone : (DEFAULT_SETTINGS.ownerPhone || ''),
-      reminderMessageTemplate: stripMemoLine(parsed.reminderMessageTemplate, DEFAULT_SETTINGS.reminderMessageTemplate || ''),
       lookupGuideTemplate: stripMemoLine(parsed.lookupGuideTemplate || parsed.shareMessageTemplate, DEFAULT_SETTINGS.lookupGuideTemplate || ''),
     };
   } catch (err) {
@@ -414,7 +414,8 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(settings: AppSettings): void {
   try {
-    safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+    const { reminderMessageTemplate, ...cleanedSettings } = settings as any;
+    safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanedSettings));
   } catch (err) {
     console.warn('[Storage] Failed to save settings locally:', err);
   }

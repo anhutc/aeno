@@ -714,7 +714,8 @@ export async function updatePartySplitInFirestore(
 export async function saveSettingsToFirestore(settings: AppSettings): Promise<void> {
   await ensureAuth(firebaseApp);
   const sRef = doc(firestore, 'settings', 'app_settings');
-  await setDoc(sRef, cleanFirestoreObject(settings), { merge: true });
+  const { reminderMessageTemplate, ...cleanedSettings } = settings as any;
+  await setDoc(sRef, cleanFirestoreObject(cleanedSettings), { merge: true });
 }
 
 /**

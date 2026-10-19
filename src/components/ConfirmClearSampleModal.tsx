@@ -97,7 +97,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
               Toàn bộ danh sách người nợ và lịch sử giao dịch mẫu (Bình, Cường, Dũng...) sẽ được xóa hoàn toàn và trở về trạng thái trống ban đầu.
             </p>
             <p className="font-semibold text-emerald-800 pt-0.5">
-              ✓ Thông tin ngân hàng VietQR và mật khẩu quản lý của bạn được giữ nguyên 100%.
+              ✓ Thông tin ngân hàng VietQR và mật khẩu chủ sổ của bạn được giữ nguyên 100%.
             </p>
           </div>
 
@@ -112,7 +112,7 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
               htmlFor="confirm-clear-admin-password"
               className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 text-center"
             >
-              Quản Lý Nhập Mật Khẩu Để Xác Nhận:
+              Chủ Sổ Nhập Mật Khẩu Để Xác Nhận:
             </label>
             <div className="relative">
               <input

@@ -44,7 +44,6 @@ import {
   DEFAULT_APP_TITLE,
   DEFAULT_APP_SUBTITLE,
   DEFAULT_LOOKUP_GUIDE,
-  DEFAULT_REMINDER_TEMPLATE,
   DEFAULT_SHARE_MESSAGE,
   DEFAULT_GUEST_ANNOUNCEMENT,
   DEFAULT_SETTLED_NOTE,
@@ -54,7 +53,6 @@ import {
   TemplateVariables,
 } from '../utils/textTemplate';
 import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
-import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
 import { FirestoreSettingsTab } from './FirestoreSettingsTab';
 
 export type SettingsTabType = 'BANK' | 'SECURITY' | 'TEXTS' | 'CLOUD';
@@ -110,7 +108,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     appSubtitle: s.appSubtitle || DEFAULT_APP_SUBTITLE,
     shareMessageTemplate: cleanTemplate(s.shareMessageTemplate, DEFAULT_SHARE_MESSAGE),
     lookupGuideTemplate: cleanTemplate(s.lookupGuideTemplate || s.shareMessageTemplate, DEFAULT_LOOKUP_GUIDE),
-    reminderMessageTemplate: cleanTemplate(s.reminderMessageTemplate, DEFAULT_REMINDER_TEMPLATE),
     guestAnnouncement:
       s.guestAnnouncement !== undefined
         ? s.guestAnnouncement
@@ -145,7 +142,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         (savedSnapshot.lookupInstructionText || DEFAULT_LOOKUP_INSTRUCTION) ||
       (formData.lookupGuideTemplate || '') !== (savedSnapshot.lookupGuideTemplate || '') ||
       (formData.shareMessageTemplate || '') !== (savedSnapshot.shareMessageTemplate || '') ||
-      (formData.reminderMessageTemplate || '') !== (savedSnapshot.reminderMessageTemplate || '') ||
       (formData.guestAnnouncement || '') !== (savedSnapshot.guestAnnouncement || '') ||
       (formData.settledThankYouNote || DEFAULT_SETTLED_NOTE) !==
         (savedSnapshot.settledThankYouNote || DEFAULT_SETTLED_NOTE)
@@ -178,11 +174,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
-  const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
   const [restorePreview, setRestorePreview] = useState<RestorePayloadPreview | null>(null);
   const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [activeTemplateTab, setActiveTemplateTab] = useState<'LOOKUP' | 'REMINDER'>('LOOKUP');
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ text, type });
@@ -413,21 +407,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleInsertTag = (tag: string, templateType: 'LOOKUP' | 'REMINDER') => {
-    if (templateType === 'LOOKUP') {
-      const current = formData.lookupGuideTemplate || formData.shareMessageTemplate || DEFAULT_LOOKUP_GUIDE;
-      setFormData({
-        ...formData,
-        lookupGuideTemplate: current + ` ${tag} `,
-        shareMessageTemplate: current + ` ${tag} `,
-      });
-    } else {
-      const current = formData.reminderMessageTemplate || DEFAULT_REMINDER_TEMPLATE;
-      setFormData({
-        ...formData,
-        reminderMessageTemplate: current + ` ${tag} `,
-      });
-    }
+  const handleInsertTag = (tag: string) => {
+    const current = formData.lookupGuideTemplate || formData.shareMessageTemplate || DEFAULT_LOOKUP_GUIDE;
+    setFormData({
+      ...formData,
+      lookupGuideTemplate: current + ` ${tag} `,
+      shareMessageTemplate: current + ` ${tag} `,
+    });
   };
 
   // Live realistic preview for messaging templates
@@ -438,7 +424,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     balance: '550.000 đ',
     url: `${window.location.origin}${window.location.pathname}`,
     owner: formData.ownerName || 'Chủ Sổ',
-    ownerPhone: formData.ownerPhone || '0988888888',
+    ownerPhone: formData.ownerPhone || '',
     bank: formData.bankName || 'MB Bank',
     account: formData.accountNumber || '0987654321',
     accountName: formData.accountName || 'NGUYEN VAN B',
@@ -447,7 +433,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     so_du_so: '550000',
     link_tra_cuu: `${window.location.origin}${window.location.pathname}`,
     ten_chu_so: formData.ownerName || 'Chủ Sổ',
-    sdt_chu_no: formData.ownerPhone || '0988888888',
+    sdt_chu_no: formData.ownerPhone || '',
     ten_ngan_hang: formData.bankName || 'MB Bank',
     stk: formData.accountNumber || '0987654321',
     ten_chu_tk: formData.accountName || 'NGUYEN VAN B',
@@ -455,11 +441,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const liveLookupPreview = renderMessageTemplate(
     formData.lookupGuideTemplate || formData.shareMessageTemplate || DEFAULT_LOOKUP_GUIDE,
-    sampleDebtorPreview
-  );
-
-  const liveReminderPreview = renderMessageTemplate(
-    formData.reminderMessageTemplate || DEFAULT_REMINDER_TEMPLATE,
     sampleDebtorPreview
   );
 
@@ -906,33 +887,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setIsConfirmResetOpen(true)}
-                  className="p-3.5 bg-white hover:bg-amber-50 hover:border-amber-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-amber-700">
-                      Nạp Lại Dữ Liệu Mẫu
-                    </span>
-                    <RotateCcw className="w-4 h-4 text-amber-600" />
-                  </div>
-                  <span className="text-[11px] text-slate-500 leading-tight">
-                    Nạp lại bộ 4 người nợ mẫu (Minh, Lan, Hoàng, Thảo) để trải nghiệm thử.
-                  </span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setIsConfirmClearOpen(true)}
                   className="p-3.5 bg-white hover:bg-rose-50 hover:border-rose-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900 group-hover:text-rose-700">
-                      Xóa Sạch Dữ Liệu Mẫu
+                      Dọn Dẹp Dữ Liệu Mẫu / Thử Nghiệm
                     </span>
                     <Trash2 className="w-4 h-4 text-rose-600" />
                   </div>
                   <span className="text-[11px] text-slate-500 leading-tight">
-                    Xóa các giao dịch mẫu để bắt đầu sổ ghi nợ cá nhân mới tinh.
+                    Xóa các bản ghi mẫu hoặc giao dịch thử nghiệm để giữ sổ nợ sạch sẽ.
                   </span>
                 </button>
               </div>
@@ -941,70 +906,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
 
         {/* ==================================================================== */}
-        {/* TAB 3: MẪU TIN & LỜI NHẮN                                            */}
+        {/* TAB 3: MẪU TIN HƯỚNG DẪN TRA CỨU                                    */}
         {/* ==================================================================== */}
         {activeTab === 'TEXTS' && (
           <div className="space-y-6 animate-in fade-in">
             <div className="border-b border-slate-100 pb-4">
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-emerald-600" />
-                <span>Tùy Biến Mẫu Tin Nhắn</span>
+                <span>Mẫu Tin Nhắn Hướng Dẫn Tra Cứu</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Tùy chỉnh nội dung tin nhắn gửi Zalo/SMS khi gửi link sao kê hoặc tin nhắn nhắc nợ lịch sự.
+                Tùy chỉnh nội dung tin nhắn gửi Zalo/SMS kèm đường dẫn và mật khẩu để người nợ tự kiểm tra sao kê giao dịch.
               </p>
-            </div>
-
-            {/* Sub-tabs: Link Tra Cứu vs Nhắc Nợ */}
-            <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-2xl max-w-sm">
-              <button
-                type="button"
-                onClick={() => setActiveTemplateTab('LOOKUP')}
-                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTemplateTab === 'LOOKUP'
-                    ? 'bg-white text-emerald-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                1. Tra Cứu
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTemplateTab('REMINDER')}
-                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTemplateTab === 'REMINDER'
-                    ? 'bg-white text-emerald-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                2. Nhắc Nợ
-              </button>
             </div>
 
             {/* Template editor */}
             <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-xs font-bold text-slate-900">
-                  {activeTemplateTab === 'LOOKUP'
-                    ? 'Nội dung tin gửi Đường dẫn và Mật khẩu tra cứu:'
-                    : 'Nội dung tin nhắn nhắc nợ định kỳ:'}
+                  Nội dung tin gửi Đường dẫn và Mật khẩu tra cứu:
                 </span>
 
                 <button
                   type="button"
                   onClick={() => {
-                    if (activeTemplateTab === 'LOOKUP') {
-                      setFormData({
-                        ...formData,
-                        lookupGuideTemplate: DEFAULT_LOOKUP_GUIDE,
-                        shareMessageTemplate: DEFAULT_LOOKUP_GUIDE,
-                      });
-                    } else {
-                      setFormData({
-                        ...formData,
-                        reminderMessageTemplate: DEFAULT_REMINDER_TEMPLATE,
-                      });
-                    }
+                    setFormData({
+                      ...formData,
+                      lookupGuideTemplate: DEFAULT_LOOKUP_GUIDE,
+                      shareMessageTemplate: DEFAULT_LOOKUP_GUIDE,
+                    });
                     showToast('Đã khôi phục mẫu tin chuẩn!', 'success');
                   }}
                   className="text-slate-500 hover:text-emerald-700 text-xs font-semibold cursor-pointer"
@@ -1023,7 +953,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     key={tag.tag}
                     type="button"
-                    onClick={() => handleInsertTag(tag.tag, activeTemplateTab)}
+                    onClick={() => handleInsertTag(tag.tag)}
                     className="text-[11px] font-mono px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
                     title={tag.label}
                   >
@@ -1033,32 +963,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               {/* Textarea editor */}
-              {activeTemplateTab === 'LOOKUP' ? (
-                <textarea
-                  rows={6}
-                  value={formData.lookupGuideTemplate || formData.shareMessageTemplate || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      lookupGuideTemplate: e.target.value,
-                      shareMessageTemplate: e.target.value,
-                    })
-                  }
-                  className="w-full px-3.5 py-3 bg-white border border-slate-300 rounded-2xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 leading-relaxed"
-                />
-              ) : (
-                <textarea
-                  rows={6}
-                  value={formData.reminderMessageTemplate || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      reminderMessageTemplate: e.target.value,
-                    })
-                  }
-                  className="w-full px-3.5 py-3 bg-white border border-slate-300 rounded-2xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 leading-relaxed"
-                />
-              )}
+              <textarea
+                rows={7}
+                value={formData.lookupGuideTemplate || formData.shareMessageTemplate || ''}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    lookupGuideTemplate: e.target.value,
+                    shareMessageTemplate: e.target.value,
+                  })
+                }
+                className="w-full px-3.5 py-3 bg-white border border-slate-300 rounded-2xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 leading-relaxed"
+                placeholder="Nhập nội dung tin nhắn hướng dẫn..."
+              />
 
               {/* Live Preview Box */}
               <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2">
@@ -1067,7 +984,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span className="text-emerald-700 font-bold">Tự động điền dữ liệu thật</span>
                 </div>
                 <div className="text-xs text-slate-800 whitespace-pre-line leading-relaxed font-sans bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                  {activeTemplateTab === 'LOOKUP' ? liveLookupPreview : liveReminderPreview}
+                  {liveLookupPreview}
                 </div>
               </div>
             </div>
@@ -1127,16 +1044,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         onClose={() => setIsConfirmClearOpen(false)}
         onSuccess={() => {
           handleDataReloadAndSync();
-          showToast('Đã xóa toàn bộ dữ liệu mẫu thành công!', 'success');
-        }}
-      />
-
-      <ConfirmResetSampleModal
-        isOpen={isConfirmResetOpen}
-        onClose={() => setIsConfirmResetOpen(false)}
-        onSuccess={() => {
-          handleDataReloadAndSync();
-          showToast('Đã nạp lại dữ liệu 4 người nợ mẫu thành công!', 'success');
+          showToast('Đã dọn dẹp dữ liệu mẫu thành công!', 'success');
         }}
       />
 

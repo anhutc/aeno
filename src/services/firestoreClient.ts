@@ -313,7 +313,8 @@ export async function updatePartyDirect(
 export async function saveSettingsDirect(settings: AppSettings): Promise<void> {
   await ensureClientAuth();
   const db = getClientFirestore();
-  await setDoc(doc(db, 'settings', 'app_settings'), cleanClientObject(settings), { merge: true });
+  const { reminderMessageTemplate, ...cleanedSettings } = settings as any;
+  await setDoc(doc(db, 'settings', 'app_settings'), cleanClientObject(cleanedSettings), { merge: true });
 }
 
 /**
@@ -423,13 +424,14 @@ export async function guestLookupDirect(pin: string): Promise<{
     transactions.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
     const settingsDoc = await getDoc(doc(db, 'settings', 'app_settings'));
-    const settings = settingsDoc.exists() ? (settingsDoc.data() as AppSettings) : DEFAULT_SETTINGS;
+    const rawSettings = settingsDoc.exists() ? (settingsDoc.data() as AppSettings) : DEFAULT_SETTINGS;
+    const { ownerPassword, reminderMessageTemplate, ...guestSafeSettings } = rawSettings as any;
 
     return {
       success: true,
       debtor,
       transactions,
-      settings,
+      settings: guestSafeSettings,
     };
   } catch (err: any) {
     console.warn('guestLookupDirect error:', err);

@@ -74,9 +74,9 @@ function loadLocalDatabase(): DatabaseSchema {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       return {
-        debtors: parsed.debtors || INITIAL_DEBTORS,
-        transactions: parsed.transactions || INITIAL_TRANSACTIONS,
-        parties: parsed.parties || INITIAL_PARTIES,
+        debtors: parsed.debtors || [],
+        transactions: parsed.transactions || [],
+        parties: parsed.parties || [],
         settings: parsed.settings || DEFAULT_SETTINGS,
       };
     }
@@ -85,9 +85,9 @@ function loadLocalDatabase(): DatabaseSchema {
   }
 
   const initialDb: DatabaseSchema = {
-    debtors: INITIAL_DEBTORS,
-    transactions: INITIAL_TRANSACTIONS,
-    parties: INITIAL_PARTIES,
+    debtors: [],
+    transactions: [],
+    parties: [],
     settings: DEFAULT_SETTINGS,
   };
   saveDatabaseLocal(initialDb);
@@ -232,9 +232,10 @@ app.use(async (req, _res, next) => {
       }
     }
     const db = getDatabase();
+    const { ownerPassword, reminderMessageTemplate, ...publicSettings } = (db.settings || {}) as any;
     res.json({
       success: true,
-      settings: db.settings,
+      settings: publicSettings,
     });
   });
 
@@ -642,9 +643,10 @@ app.use(async (req, _res, next) => {
   app.put('/api/owner/settings', authMiddleware, async (req, res) => {
     const newSettings = req.body;
     const db = getDatabase();
+    const { reminderMessageTemplate, ...cleanedNewSettings } = (newSettings || {}) as any;
     db.settings = {
       ...db.settings,
-      ...newSettings,
+      ...cleanedNewSettings,
     };
     saveDatabase(db);
     try {

@@ -1,8 +1,6 @@
 /**
  * ============================================================================
- * GHI CHÚ CHỈNH SỬA / CHANGELOG:
- * - Thêm biến mẫu {ownerPhone} và {sdt_chu_no} để hiển thị số điện thoại của Chủ Nợ
- *   trong mẫu tin nhắn hướng dẫn và tin nhắn nhắc nợ.
+ * Tùy biến mẫu tin hướng dẫn tra cứu sổ giao dịch
  * ============================================================================
  */
 
@@ -10,7 +8,7 @@ import { formatVND } from './vietqr';
 
 export const DEFAULT_APP_TITLE = 'Sổ Ghi Nợ & Chia Tiền';
 export const DEFAULT_APP_SUBTITLE =
-  'Ghi chép minh bạch, chia tiền ăn chơi, sao kê chi tiết & thanh toán VietQR';
+  'Ghi chép minh bạch, chia tiền cuộc vui, sao kê chi tiết & thanh toán VietQR';
 
 export const DEFAULT_LOOKUP_GUIDE = `📋 HƯỚNG DẪN TRUY CẬP TRA CỨU SỔ GIAO DỊCH
 Chào {name},
@@ -23,21 +21,8 @@ Dưới đây là thông tin để bạn tự kiểm tra lịch sử chi tiêu v
 2. Nhập Mật khẩu: {pass}
 3. Bạn sẽ xem được toàn bộ sao kê chi tiết từng khoản cộng/trừ và mã VietQR để thanh toán nhanh (quét xong tự nhập số tiền tùy ý trên app ngân hàng).`;
 
-export const DEFAULT_REMINDER_TEMPLATE = `👋 Chào {name},
-Mình gửi bạn thông báo số dư nợ hiện tại:
-💰 Số tiền cần thanh toán: {balance}
-🔗 Đường dẫn xem sao kê chi tiết: {url} (Mật khẩu: {pass})
-
-💳 Thông tin chuyển khoản VietQR:
-- Ngân hàng: {bank}
-- Số tài khoản: {account}
-- Chủ tài khoản: {accountName}
-
-Khi nào thuận tiện bạn sắp xếp chuyển khoản giúp mình nhé. Cảm ơn bạn nhiều!`;
-
-// Backward-compatibility aliases
+// Backward-compatibility alias
 export const DEFAULT_SHARE_MESSAGE = DEFAULT_LOOKUP_GUIDE;
-export const DEFAULT_REMINDER_MESSAGE = DEFAULT_REMINDER_TEMPLATE;
 
 export const DEFAULT_GUEST_ANNOUNCEMENT =
   'Sổ giao dịch cập nhật tự động khi chủ sổ ghi nhận các khoản thu/chi.';
@@ -81,8 +66,8 @@ export const TEMPLATE_TAG_DESCRIPTIONS: { tag: string; label: string; example: s
   { tag: '{bank}', label: 'Tên ngân hàng ({NGAN_HANG})', example: 'MB Bank' },
   { tag: '{account}', label: 'Số tài khoản ({SO_TK})', example: '0987654321' },
   { tag: '{accountName}', label: 'Chủ tài khoản ({CHU_TK})', example: 'DANG VAN ANH' },
-  { tag: '{owner}', label: 'Tên quản lý ({CHU_SO})', example: 'Anh' },
-  { tag: '{ownerPhone}', label: 'SĐT quản lý ({SDT_CHU_NO})', example: '0987654321' },
+  { tag: '{owner}', label: 'Tên chủ sổ ({CHU_SO})', example: 'Tôi' },
+  { tag: '{ownerPhone}', label: 'SĐT chủ sổ ({SDT_CHU_NO})', example: '0987654321' },
 ];
 
 export function renderMessageTemplate(

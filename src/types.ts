@@ -73,12 +73,11 @@ export interface AppSettings {
   defaultQrMode?: 'MANUAL_AMOUNT' | 'FULL_AMOUNT'; // MANUAL_AMOUNT = Tự nhập trên app ngân hàng khi quét (mặc định)
   vietQrTemplate?: 'compact2' | 'compact' | 'qr_only';
 
-  // Tùy biến văn bản & Hướng dẫn tra cứu (thay thế cho lời nhắc/Zalo cũ)
+  // Tùy biến văn bản & Hướng dẫn tra cứu
   appTitle?: string; // Tên hiển thị sổ nợ / tiêu đề chính
   appSubtitle?: string; // Slogan / Mô tả phụ
   lookupGuideTemplate?: string; // Mẫu hướng dẫn truy cập tra cứu gửi cho người nợ
   shareMessageTemplate?: string; // Tương thích ngược
-  reminderMessageTemplate?: string; // Tương thích ngược
   guestAnnouncement?: string; // Lời nhắn ghim của chủ sổ gửi đến khách
   settledThankYouNote?: string; // Lời cảm ơn khi đã hoàn tất thanh toán
   lookupInstructionText?: string; // Hướng dẫn 3 bước ở trang đăng nhập của khách

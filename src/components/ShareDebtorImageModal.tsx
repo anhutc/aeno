@@ -286,7 +286,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
 
         <div className="text-right space-y-0.5">
           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-            Bên gửi (Chủ nợ)
+            Bên gửi (Chủ sổ)
           </span>
           <span className="text-sm font-bold text-slate-900 block">
             {settings.ownerName || 'Chủ Sổ'}
@@ -299,11 +299,11 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
         </div>
       </div>
 
-      {/* Thông tin đối tượng nợ */}
+      {/* Thông tin người nợ */}
       <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
         <div>
           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-            Khách hàng / Đối tượng nợ
+            Người nợ
           </span>
           <div className="text-base font-black text-slate-900 mt-0.5">
             {debtor.name}

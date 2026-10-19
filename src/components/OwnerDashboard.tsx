@@ -36,6 +36,11 @@ import {
   List,
   Table as TableIcon,
   ArrowUpDown,
+  SlidersHorizontal,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  Clock,
+  Eye,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -44,7 +49,6 @@ import { triggerHaptic } from '../utils/haptic';
 import { AnimatedCounter } from './AnimatedCounter';
 import { LookupGuideModal } from './LookupGuideModal';
 import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
-import { ConfirmResetSampleModal } from './ConfirmResetSampleModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { ConfirmDeletePartyModal } from './ConfirmDeletePartyModal';
 import { ConfirmDeleteTxModal } from './ConfirmDeleteTxModal';
@@ -97,21 +101,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [partyToDelete, setPartyToDelete] = useState<PartySplit | null>(null);
   const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
-  const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'info' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
-  };
-
-  // Check if current data contains sample mockup data
-  const hasSampleData = debtors.some((d) =>
-    ['debtor-nam', 'debtor-binh', 'debtor-an', 'debtor-cuong', 'd1', 'd2', 'd3', 'd4'].includes(d.id)
-  );
-
-  const handleResetSampleData = () => {
-    setIsConfirmResetOpen(true);
   };
 
   // Calculate totals
@@ -195,42 +189,130 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     setTimeout(() => setCopiedPinId(null), 2000);
   };
 
-  // Recent transactions sorted descending
-  const recentTransactions = [...transactions]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 20);
+  // --- TAB 2: State & Calculations for Lịch Sử Toàn Bộ Biến Động ---
+  const [txSearchTerm, setTxSearchTerm] = useState('');
+  const [txTypeFilter, setTxTypeFilter] = useState<'ALL' | 'ADD' | 'SUB' | 'SPLIT'>('ALL');
+  const [txDebtorFilter, setTxDebtorFilter] = useState<string>('ALL');
+  const [txSortBy, setTxSortBy] = useState<'DATE_DESC' | 'DATE_ASC' | 'AMOUNT_DESC' | 'AMOUNT_ASC'>('DATE_DESC');
+  const [txDateRangeFilter, setTxDateRangeFilter] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH'>('ALL');
+  const [txVisibleLimit, setTxVisibleLimit] = useState<number>(30);
+
+  const now = new Date();
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthStr = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+  const allFilteredTransactions = useMemo(() => {
+    return transactions
+      .filter((tx) => {
+        // 1. Debtor filter
+        if (txDebtorFilter !== 'ALL' && tx.debtorId !== txDebtorFilter) {
+          return false;
+        }
+
+        // 2. Type filter
+        const isSplit = Boolean(tx.partyId || tx.category === 'PARTY_SPLIT');
+        if (txTypeFilter === 'ADD' && (tx.type !== 'ADD' || isSplit)) return false;
+        if (txTypeFilter === 'SUB' && tx.type !== 'SUB') return false;
+        if (txTypeFilter === 'SPLIT' && !isSplit) return false;
+
+        // 3. Date range filter
+        if (txDateRangeFilter === 'THIS_MONTH') {
+          const txMonth = (tx.date || '').slice(0, 7);
+          if (txMonth !== currentMonthStr) return false;
+        } else if (txDateRangeFilter === 'LAST_MONTH') {
+          const txMonth = (tx.date || '').slice(0, 7);
+          if (txMonth !== lastMonthStr) return false;
+        }
+
+        // 4. Search term
+        if (txSearchTerm.trim()) {
+          const query = txSearchTerm.toLowerCase().trim();
+          const debtor = debtors.find((d) => d.id === tx.debtorId);
+          const debtorName = (debtor?.name || '').toLowerCase();
+          const note = (tx.note || '').toLowerCase();
+          const date = (tx.date || '').toLowerCase();
+          const amountStr = tx.amount.toString();
+          const formattedAmount = formatVND(tx.amount).toLowerCase();
+
+          let partyName = '';
+          if (tx.partyId) {
+            const party = parties.find((p) => p.id === tx.partyId);
+            if (party) partyName = party.name.toLowerCase();
+          }
+
+          const match =
+            debtorName.includes(query) ||
+            note.includes(query) ||
+            date.includes(query) ||
+            amountStr.includes(query) ||
+            formattedAmount.includes(query) ||
+            partyName.includes(query);
+
+          if (!match) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (txSortBy === 'DATE_DESC') {
+          const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
+          if (diff !== 0) return diff;
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bTime - aTime;
+        }
+        if (txSortBy === 'DATE_ASC') {
+          const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+          if (diff !== 0) return diff;
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return aTime - bTime;
+        }
+        if (txSortBy === 'AMOUNT_DESC') {
+          return b.amount - a.amount;
+        }
+        if (txSortBy === 'AMOUNT_ASC') {
+          return a.amount - b.amount;
+        }
+        return 0;
+      });
+  }, [
+    transactions,
+    debtors,
+    parties,
+    txDebtorFilter,
+    txTypeFilter,
+    txDateRangeFilter,
+    txSearchTerm,
+    txSortBy,
+    currentMonthStr,
+    lastMonthStr,
+  ]);
+
+  // Statistics of filtered transactions
+  const txFilteredStats = useMemo(() => {
+    let addTotal = 0;
+    let subTotal = 0;
+    allFilteredTransactions.forEach((tx) => {
+      if (tx.type === 'ADD') addTotal += tx.amount;
+      else subTotal += tx.amount;
+    });
+    return {
+      count: allFilteredTransactions.length,
+      addTotal,
+      subTotal,
+      netTotal: addTotal - subTotal,
+    };
+  }, [allFilteredTransactions]);
+
+  const displayedTransactions = useMemo(() => {
+    if (txVisibleLimit <= 0) return allFilteredTransactions;
+    return allFilteredTransactions.slice(0, txVisibleLimit);
+  }, [allFilteredTransactions, txVisibleLimit]);
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      {/* Banner trợ giúp khi đang có dữ liệu mẫu */}
-      {hasSampleData && (
-        <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-50 via-emerald-50 to-teal-50 border border-amber-200/80 rounded-2xl sm:rounded-3xl shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-start gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="font-bold text-slate-900 text-xs sm:text-sm">
-                Bạn muốn sử dụng dữ liệu thực tế của riêng bạn thay vì dữ liệu mẫu?
-              </div>
-              <p className="text-slate-600 mt-0.5 leading-relaxed">
-                Ứng dụng hiện đang nạp một số người nợ mẫu (Bình, Cường, Dũng...). Bạn có thể xóa sạch mẫu trong 1 click để bắt đầu ghi chép sổ thật.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setIsConfirmClearOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Xóa Dữ Liệu Mẫu</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* BỐ CỤC MỚI LẠ 1: BẢNG ĐIỀU KHIỂN TÀI CHÍNH BENTO BẤT ĐỐI XỨNG (EXECUTIVE BENTO COCKPIT - BRIGHT LIGHT THEME) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -481,7 +563,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }`}
             >
               <Users className="w-3.5 h-3.5 shrink-0" />
-              <span>Danh Bạ</span>
+              <span>Người Nợ</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'DEBTORS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {debtors.length}
               </span>
@@ -668,7 +750,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-              Đang nợ bạn ({receivableDebtors.length})
+              Nợ tôi ({receivableDebtors.length})
             </button>
             <button
               type="button"
@@ -683,7 +765,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               }`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-              Bạn nợ họ ({payableDebtors.length})
+              Tôi nợ họ ({payableDebtors.length})
             </button>
             <button
               type="button"
@@ -710,10 +792,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 </div>
                 <div className="max-w-md mx-auto space-y-1.5">
                   <h4 className="font-bold text-base sm:text-lg text-slate-900">
-                    Không Có Người Nào
+                    Chưa Có Người Nợ Nào
                   </h4>
                   <p className="text-slate-500 text-xs leading-relaxed">
-                    Bạn đã xóa dữ liệu mẫu hoặc chưa thêm người nào. Hãy bấm nút dưới đây để tạo thêm người!
+                    Sổ ghi nợ đang trống. Hãy thêm người mới để bắt đầu theo dõi công nợ và chia tiền cuộc vui!
                   </p>
                 </div>
 
@@ -724,16 +806,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
                     <UserPlus className="w-4 h-4" />
-                    <span>Thêm Người</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetSampleData}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-medium transition-colors cursor-pointer"
-                    title="Nạp lại dữ liệu người mẫu để xem lại giao diện"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Nạp lại dữ liệu mẫu</span>
+                    <span>Thêm Người Nợ Mới</span>
                   </button>
                 </div>
               </div>
@@ -1184,7 +1257,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           </motion.div>
         )}
 
-        {/* --- TAB 2: ALL TRANSACTIONS HISTORY (Mobile Optimized) --- */}
+        {/* --- TAB 2: ALL TRANSACTIONS HISTORY (Enhanced Full Display, Filter & Pagination) --- */}
         {activeTab === 'TRANSACTIONS' && (
           <motion.div
             key="tab-transactions"
@@ -1192,141 +1265,378 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs"
+            className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-0"
           >
-          <div className="p-3.5 sm:p-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-800 text-xs sm:text-sm flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-slate-500" />
-              Lịch sử toàn bộ biến động ({transactions.length} giao dịch)
-            </h3>
-            <button
-              type="button"
-              onClick={() => onOpenAddTx()}
-              className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold inline-flex items-center gap-1 cursor-pointer"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>Thêm mới</span>
-            </button>
-          </div>
+            {/* Tab Header & Quick Action */}
+            <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-slate-50 via-white to-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-emerald-600" />
+                  <span>Lịch sử toàn bộ biến động</span>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    {transactions.length} giao dịch
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Tra cứu, lọc và quản lý chi tiết toàn bộ dòng tiền thu/chi, chia tiền trong sổ
+                </p>
+              </div>
 
-          <div className="divide-y divide-slate-100">
-            {recentTransactions.map((tx) => {
-              const debtor = debtors.find((d) => d.id === tx.debtorId);
-              const isAdd = tx.type === 'ADD';
-              const split = resolveSplitBillDetails(tx, debtor, parties, debtors);
-              const resolvedBillImg = tx.billImage || split.billImage;
-
-              return (
-                <div
-                  key={tx.id}
-                  className="p-3 sm:p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => onOpenAddTx()}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                        split.isSplit
-                          ? 'bg-amber-100 text-amber-800'
-                          : isAdd
-                          ? 'bg-rose-100 text-rose-700'
-                          : 'bg-emerald-100 text-emerald-700'
-                      }`}
-                    >
-                      {split.isSplit ? (
-                        <Users className="w-4 h-4" />
-                      ) : isAdd ? (
-                        <ArrowUpRight className="w-4 h-4" />
-                      ) : (
-                        <ArrowDownLeft className="w-4 h-4" />
-                      )}
-                    </div>
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Tạo giao dịch</span>
+                </button>
+              </div>
+            </div>
 
-                    <div className="min-w-0">
-                      <div className="font-semibold text-slate-900 text-sm break-words flex items-center gap-1.5 flex-wrap">
-                        <span className="text-emerald-700 font-bold">{debtor?.name || 'Người dùng'}</span>
-                        <span className="text-slate-300">·</span>
-                        <span className="font-medium text-slate-800">
-                          {split.isSplit ? split.partyName : tx.note || (isAdd ? 'Ghi nhận nợ' : 'Đã thanh toán')}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
-                        <span>{tx.date}</span>
-                        {split.isSplit ? (
-                          <>
-                            <span aria-hidden="true" className="text-slate-300">·</span>
-                            <span className="font-semibold text-slate-800 font-mono tabular-nums">
-                              {formatVND(split.totalAmount)}
-                            </span>
-                            <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]">
-                              {split.participantCount} người ({split.participantNames.map((p) => p.name).join(', ')}
-                              {split.extraCount > 0 ? ` và ${split.extraCount} người khác` : ''})
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span aria-hidden="true" className="text-slate-300">·</span>
-                            <span>{isAdd ? 'Ghi nợ' : 'Trả nợ'}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
+            {/* Filter & Search Toolbar */}
+            <div className="p-3.5 sm:p-4 border-b border-slate-100 bg-slate-50/60 space-y-3">
+              {/* Row 1: Search & Debtor Dropdown */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                <div className="sm:col-span-7 relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={txSearchTerm}
+                    onChange={(e) => {
+                      setTxSearchTerm(e.target.value);
+                      setTxVisibleLimit(30);
+                    }}
+                    placeholder="Tìm theo người nợ, ghi chú, số tiền, ngày..."
+                    className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-slate-900 placeholder:text-slate-400"
+                  />
+                  {txSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setTxSearchTerm('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="sm:col-span-5 flex items-center gap-2">
+                  <select
+                    value={txDebtorFilter}
+                    onChange={(e) => {
+                      setTxDebtorFilter(e.target.value);
+                      setTxVisibleLimit(30);
+                    }}
+                    className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-slate-700 font-medium cursor-pointer"
+                  >
+                    <option value="ALL">Tất cả người nợ ({debtors.length})</option>
+                    {debtors.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 2: Type Filter Pills & Date/Sort Selectors */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxTypeFilter('ALL');
+                      setTxVisibleLimit(30);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                      txTypeFilter === 'ALL'
+                        ? 'bg-slate-900 text-white shadow-2xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxTypeFilter('ADD');
+                      setTxVisibleLimit(30);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 ${
+                      txTypeFilter === 'ADD'
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                    }`}
+                  >
+                    <ArrowUpRight className="w-3 h-3" />
+                    <span>Ghi nợ (+)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxTypeFilter('SUB');
+                      setTxVisibleLimit(30);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 ${
+                      txTypeFilter === 'SUB'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    <ArrowDownLeft className="w-3 h-3" />
+                    <span>Đã trả (-)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxTypeFilter('SPLIT');
+                      setTxVisibleLimit(30);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 ${
+                      txTypeFilter === 'SPLIT'
+                        ? 'bg-amber-600 text-white shadow-2xs'
+                        : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    <Users className="w-3 h-3" />
+                    <span>Chia cuộc vui</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={txDateRangeFilter}
+                    onChange={(e) => {
+                      setTxDateRangeFilter(e.target.value as any);
+                      setTxVisibleLimit(30);
+                    }}
+                    className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-medium cursor-pointer"
+                  >
+                    <option value="ALL">Toàn thời gian</option>
+                    <option value="THIS_MONTH">Tháng này</option>
+                    <option value="LAST_MONTH">Tháng trước</option>
+                  </select>
+
+                  <select
+                    value={txSortBy}
+                    onChange={(e) => {
+                      setTxSortBy(e.target.value as any);
+                      setTxVisibleLimit(30);
+                    }}
+                    className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-medium cursor-pointer"
+                  >
+                    <option value="DATE_DESC">Mới nhất trước</option>
+                    <option value="DATE_ASC">Cũ nhất trước</option>
+                    <option value="AMOUNT_DESC">Số tiền lớn nhất</option>
+                    <option value="AMOUNT_ASC">Số tiền nhỏ nhất</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Statistics Pill Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+                <div className="bg-white p-2 rounded-xl border border-slate-200/80">
+                  <div className="text-[11px] text-slate-500">Khớp bộ lọc</div>
+                  <div className="font-bold text-slate-900 font-mono mt-0.5">
+                    {txFilteredStats.count} / {transactions.length} GD
                   </div>
+                </div>
+                <div className="bg-rose-50/60 p-2 rounded-xl border border-rose-200/70">
+                  <div className="text-[11px] text-rose-700 font-medium">Tổng ghi nợ (+)</div>
+                  <div className="font-bold text-rose-700 font-mono mt-0.5">
+                    +{formatVND(txFilteredStats.addTotal)}
+                  </div>
+                </div>
+                <div className="bg-emerald-50/60 p-2 rounded-xl border border-emerald-200/70">
+                  <div className="text-[11px] text-emerald-700 font-medium">Tổng đã thu (-)</div>
+                  <div className="font-bold text-emerald-700 font-mono mt-0.5">
+                    -{formatVND(txFilteredStats.subTotal)}
+                  </div>
+                </div>
+                <div className="bg-slate-100/70 p-2 rounded-xl border border-slate-200">
+                  <div className="text-[11px] text-slate-600 font-medium">Biến động ròng</div>
+                  <div
+                    className={`font-bold font-mono mt-0.5 ${
+                      txFilteredStats.netTotal > 0
+                        ? 'text-rose-700'
+                        : txFilteredStats.netTotal < 0
+                        ? 'text-emerald-700'
+                        : 'text-slate-700'
+                    }`}
+                  >
+                    {txFilteredStats.netTotal > 0 ? `+${formatVND(txFilteredStats.netTotal)}` : formatVND(txFilteredStats.netTotal)}
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                    {resolvedBillImg && (
-                      <button
-                        type="button"
-                        onClick={() => onViewImage(resolvedBillImg, split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`)}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                        title="Xem ảnh hóa đơn / chứng từ"
-                      >
-                        <img src={resolvedBillImg} alt="Hóa đơn" className="w-3.5 h-3.5 rounded object-cover border border-emerald-300 shrink-0" />
-                        <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="hidden sm:inline">Hóa đơn</span>
-                      </button>
-                    )}
+            {/* List of Transactions */}
+            {allFilteredTransactions.length === 0 ? (
+              <div className="p-10 text-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                  <Search className="w-5 h-5" />
+                </div>
+                <p className="text-xs font-semibold text-slate-700">
+                  Không tìm thấy giao dịch nào phù hợp với bộ lọc hiện tại.
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Thử tìm kiếm từ khóa khác hoặc đặt lại bộ lọc để xem toàn bộ giao dịch.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTxSearchTerm('');
+                    setTxTypeFilter('ALL');
+                    setTxDebtorFilter('ALL');
+                    setTxDateRangeFilter('ALL');
+                    setTxSortBy('DATE_DESC');
+                    setTxVisibleLimit(30);
+                  }}
+                  className="px-3 py-1.5 text-xs text-emerald-700 font-semibold bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 mt-2"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Đặt lại bộ lọc</span>
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {displayedTransactions.map((tx) => {
+                  const debtor = debtors.find((d) => d.id === tx.debtorId);
+                  const isAdd = tx.type === 'ADD';
+                  const split = resolveSplitBillDetails(tx, debtor, parties, debtors);
+                  const resolvedBillImg = tx.billImage || split.billImage;
 
+                  return (
                     <div
-                      className={`font-bold font-mono text-sm text-right min-w-[90px] ${
-                        isAdd ? 'text-rose-600' : 'text-emerald-600'
-                      }`}
+                      key={tx.id}
+                      className="p-3 sm:p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
                     >
-                      {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
-                    </div>
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                            split.isSplit
+                              ? 'bg-amber-100 text-amber-800'
+                              : isAdd
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                          }`}
+                        >
+                          {split.isSplit ? (
+                            <Users className="w-4 h-4" />
+                          ) : isAdd ? (
+                            <ArrowUpRight className="w-4 h-4" />
+                          ) : (
+                            <ArrowDownLeft className="w-4 h-4" />
+                          )}
+                        </div>
 
-                    {/* Transaction Action Controls: strictly lock party split transactions, allow editing normal transactions */}
-                    {tx.partyId || tx.category === 'PARTY_SPLIT' ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const associatedParty = parties.find((p) => p.id === tx.partyId);
-                          if (associatedParty && onEditParty) {
-                            onEditParty(associatedParty);
-                          } else {
-                            setActiveTab('PARTIES');
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
-                        title="Giao dịch từ chia đầu người - Không thể sửa/xóa lẻ. Bấm để sửa hoặc xóa toàn bộ cuộc vui."
-                      >
-                        <Lock className="w-3 h-3 text-amber-600" />
-                        <span className="hidden sm:inline">Sửa</span>
-                        <span className="sm:hidden">Cuộc vui</span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-0.5">
-                        {onEditTx && (
-                          <button
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900 text-sm break-words flex items-center gap-1.5 flex-wrap">
+                            <button
                               type="button"
-                              onClick={() => onEditTx(tx)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold rounded-lg border border-amber-200 transition-colors cursor-pointer text-xs"
-                              title="Chỉnh sửa giao dịch này"
+                              onClick={() => debtor && onSelectDebtor(debtor)}
+                              className="text-emerald-700 hover:text-emerald-800 hover:underline font-bold text-left cursor-pointer transition-colors inline-flex items-center gap-0.5"
+                              title="Bấm để xem chi tiết người này"
                             >
-                              <Pencil className="w-3 h-3 text-amber-600" />
-                              <span>Sửa</span>
+                              <span>{debtor?.name || 'Người dùng'}</span>
+                              <ChevronRight className="w-3.5 h-3.5 text-emerald-500 opacity-70" />
                             </button>
-                        )}
-                        {onDeleteTx && (
+                            <span className="text-slate-300">·</span>
+                            <span className="font-medium text-slate-800">
+                              {split.isSplit ? split.partyName : tx.note || (isAdd ? 'Ghi nhận nợ' : 'Đã thanh toán')}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                            <span className="font-mono">{tx.date}</span>
+                            {split.isSplit ? (
+                              <>
+                                <span aria-hidden="true" className="text-slate-300">·</span>
+                                <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                                  {formatVND(split.totalAmount)}
+                                </span>
+                                <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]">
+                                  {split.participantCount} người ({split.participantNames.map((p) => p.name).join(', ')}
+                                  {split.extraCount > 0 ? ` và ${split.extraCount} người khác` : ''})
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span aria-hidden="true" className="text-slate-300">·</span>
+                                <span className={`font-semibold ${isAdd ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  {isAdd ? 'Ghi nợ' : 'Trả nợ'}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        {resolvedBillImg && (
                           <button
+                            type="button"
+                            onClick={() =>
+                              onViewImage(
+                                resolvedBillImg,
+                                split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`
+                              )
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                            title="Xem ảnh hóa đơn / chứng từ"
+                          >
+                            <img
+                              src={resolvedBillImg}
+                              alt="Hóa đơn"
+                              className="w-3.5 h-3.5 rounded object-cover border border-emerald-300 shrink-0"
+                            />
+                            <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span className="hidden sm:inline">Hóa đơn</span>
+                          </button>
+                        )}
+
+                        <div
+                          className={`font-bold font-mono text-sm text-right min-w-[90px] ${
+                            isAdd ? 'text-rose-600' : 'text-emerald-600'
+                          }`}
+                        >
+                          {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
+                        </div>
+
+                        {/* Transaction Action Controls: strictly lock party split transactions, allow editing normal transactions */}
+                        {tx.partyId || tx.category === 'PARTY_SPLIT' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const associatedParty = parties.find((p) => p.id === tx.partyId);
+                              if (associatedParty && onEditParty) {
+                                onEditParty(associatedParty);
+                              } else {
+                                setActiveTab('PARTIES');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                            title="Giao dịch từ chia đầu người - Không thể sửa/xóa lẻ. Bấm để sửa hoặc xóa toàn bộ cuộc vui."
+                          >
+                            <Lock className="w-3 h-3 text-amber-600" />
+                            <span className="hidden sm:inline">Sửa cuộc vui</span>
+                            <span className="sm:hidden">Cuộc vui</span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-0.5">
+                            {onEditTx && (
+                              <button
+                                type="button"
+                                onClick={() => onEditTx(tx)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold rounded-lg border border-amber-200 transition-colors cursor-pointer text-xs"
+                                title="Chỉnh sửa giao dịch này"
+                              >
+                                <Pencil className="w-3 h-3 text-amber-600" />
+                                <span>Sửa</span>
+                              </button>
+                            )}
+                            {onDeleteTx && (
+                              <button
                                 type="button"
                                 onClick={() => setTxToDelete(tx)}
                                 className="inline-flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-semibold rounded-lg transition-colors cursor-pointer text-xs"
@@ -1335,14 +1645,63 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 <Trash2 className="w-3 h-3" />
                                 <span>Xóa</span>
                               </button>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pagination & Load More Footer */}
+            {allFilteredTransactions.length > 0 && (
+              <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="text-slate-500 font-medium">
+                  Đang hiển thị{' '}
+                  <strong className="text-slate-800">
+                    {displayedTransactions.length}
+                  </strong>{' '}
+                  trên tổng số{' '}
+                  <strong className="text-slate-800">
+                    {allFilteredTransactions.length}
+                  </strong>{' '}
+                  giao dịch khớp bộ lọc
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {allFilteredTransactions.length > displayedTransactions.length && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setTxVisibleLimit((prev) => prev + 30)}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-200 transition-colors cursor-pointer shadow-2xs"
+                      >
+                        Xem thêm 30 giao dịch
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTxVisibleLimit(allFilteredTransactions.length)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold rounded-xl transition-colors cursor-pointer shadow-xs"
+                      >
+                        Hiển thị toàn bộ ({allFilteredTransactions.length})
+                      </button>
+                    </>
+                  )}
+
+                  {displayedTransactions.length >= allFilteredTransactions.length && allFilteredTransactions.length > 30 && (
+                    <button
+                      type="button"
+                      onClick={() => setTxVisibleLimit(30)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 font-semibold rounded-xl border border-slate-200 transition-colors cursor-pointer text-xs"
+                    >
+                      Thu gọn về 30 giao dịch
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -1507,14 +1866,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       />
 
       {/* Admin Password Verification Modal to Reset/Restore Sample Data */}
-      <ConfirmResetSampleModal
-        isOpen={isConfirmResetOpen}
-        onClose={() => setIsConfirmResetOpen(false)}
-        onSuccess={() => {
-          if (onDataReload) onDataReload();
-          showToast('Đã khôi phục dữ liệu mẫu ban đầu thành công!', 'info');
-        }}
-      />
 
       {/* In-App Confirm Delete Debtor Modal */}
       <ConfirmDeleteDebtorModal
