@@ -383,12 +383,18 @@ export function saveParties(parties: PartySplit[]): void {
   }
 }
 
+let _cachedSettingsRaw: string | null = null;
+let _cachedSettingsObj: AppSettings | null = null;
+
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (!raw) {
       saveSettings(DEFAULT_SETTINGS);
       return DEFAULT_SETTINGS;
+    }
+    if (raw === _cachedSettingsRaw && _cachedSettingsObj) {
+      return _cachedSettingsObj;
     }
     const parsed = JSON.parse(raw);
     const stripMemoLine = (text: string | undefined, defaultText: string) => {
@@ -399,13 +405,16 @@ export function loadSettings(): AppSettings {
         .join('\n');
     };
     const { reminderMessageTemplate, ...restParsed } = parsed;
-    return {
+    const result: AppSettings = {
       ...DEFAULT_SETTINGS,
       ...restParsed,
       defaultMemoPrefix: '',
       ownerPhone: parsed.ownerPhone !== undefined ? parsed.ownerPhone : (DEFAULT_SETTINGS.ownerPhone || ''),
       lookupGuideTemplate: stripMemoLine(parsed.lookupGuideTemplate || parsed.shareMessageTemplate, DEFAULT_SETTINGS.lookupGuideTemplate || ''),
     };
+    _cachedSettingsRaw = raw;
+    _cachedSettingsObj = result;
+    return result;
   } catch (err) {
     console.error('Failed to load settings', err);
     return DEFAULT_SETTINGS;
@@ -415,7 +424,10 @@ export function loadSettings(): AppSettings {
 export function saveSettings(settings: AppSettings): void {
   try {
     const { reminderMessageTemplate, ...cleanedSettings } = settings as any;
-    safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cleanedSettings));
+    const serialized = JSON.stringify(cleanedSettings);
+    _cachedSettingsRaw = serialized;
+    _cachedSettingsObj = { ...settings };
+    safeSetItem(STORAGE_KEYS.SETTINGS, serialized);
   } catch (err) {
     console.warn('[Storage] Failed to save settings locally:', err);
   }

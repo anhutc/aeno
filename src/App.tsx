@@ -660,6 +660,7 @@ export default function App() {
         onDeleteDebtor={handleDeleteDebtor}
         onDeleteTx={handleDeleteTransaction}
         onEditTx={handleUpdateTransaction}
+        onEditParty={(party) => setEditingParty(party)}
         onViewImage={handleViewImage}
         onDirectGuestView={handleDirectGuestView}
       />

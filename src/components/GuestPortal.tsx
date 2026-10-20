@@ -32,6 +32,7 @@ import {
   TrendingDown,
   CheckCircle2,
   X,
+  Search,
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
@@ -46,6 +47,7 @@ import { triggerSettledCelebration } from '../utils/confetti';
 import { PWAInstallButton } from './PWAInstallButton';
 import { triggerHaptic } from '../utils/haptic';
 import { resolveSplitBillDetails, getCustomSplitNote } from '../utils/splitBillHelper';
+import { TransactionRow } from './TransactionRow';
 
 interface GuestPortalProps {
   debtor?: Debtor | null;
@@ -79,7 +81,8 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   // Privacy: Hide debtor PIN/Pass by default on screen
   const [showPin, setShowPin] = useState(false);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'ADD' | 'SUB'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'ADD' | 'SUB' | 'SPLIT'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Quick Payment Modal state
   const [showQrModal, setShowQrModal] = useState(false);
@@ -234,12 +237,32 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions, debtor.id]);
 
+  const splitCount = useMemo(() => {
+    return statement.filter((item) =>
+      Boolean(item.transaction.partyId || item.transaction.category === 'PARTY_SPLIT')
+    ).length;
+  }, [statement]);
+
+  const debtorsMap = useMemo(
+    () => new Map((allDebtors || []).map((d) => [d.id, d])),
+    [allDebtors]
+  );
+
   const displayedStatement = useMemo(() => {
     let list = [...statement];
     if (typeFilter === 'ADD') {
-      list = list.filter((item) => item.transaction.type === 'ADD');
+      list = list.filter(
+        (item) =>
+          item.transaction.type === 'ADD' &&
+          !item.transaction.partyId &&
+          item.transaction.category !== 'PARTY_SPLIT'
+      );
     } else if (typeFilter === 'SUB') {
       list = list.filter((item) => item.transaction.type === 'SUB');
+    } else if (typeFilter === 'SPLIT') {
+      list = list.filter((item) =>
+        Boolean(item.transaction.partyId || item.transaction.category === 'PARTY_SPLIT')
+      );
     }
     return sortOrder === 'newest' ? list.reverse() : list;
   }, [statement, typeFilter, sortOrder]);
@@ -564,8 +587,12 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             </div>
           </div>
 
-          {/* 🔘 Segmented Control Bố Cục Đều 3 Cột (Tất cả, Tiền nợ, Đã trả) */}
-          <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100/90 rounded-2xl mb-4 text-xs sm:text-sm font-bold border border-slate-200/60">
+          {/* 🔘 Segmented Control Bố Cục Thống Nhất (Tất cả, Tiền nợ, Đã trả, Cuộc vui) */}
+          <div
+            className={`grid ${
+              splitCount > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'
+            } gap-1.5 p-1 bg-slate-100/90 rounded-2xl mb-4 text-xs sm:text-sm font-bold border border-slate-200/60`}
+          >
             <button
               type="button"
               onClick={() => setTypeFilter('ALL')}
@@ -576,7 +603,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               }`}
             >
               <span>Tất cả</span>
-              <span className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono ${typeFilter === 'ALL' ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/70 text-slate-600'}`}>
+              <span
+                className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono ${
+                  typeFilter === 'ALL' ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/70 text-slate-600'
+                }`}
+              >
                 {statement.length}
               </span>
             </button>
@@ -594,7 +625,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 hidden sm:inline" />
                 <span>Tiền nợ</span>
               </span>
-              <span className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${typeFilter === 'ADD' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'}`}>
+              <span
+                className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${
+                  typeFilter === 'ADD' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
+                }`}
+              >
                 +{formatVND(totalAdded)}
               </span>
             </button>
@@ -612,10 +647,38 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                 <TrendingDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 hidden sm:inline" />
                 <span>Đã trả</span>
               </span>
-              <span className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${typeFilter === 'SUB' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+              <span
+                className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${
+                  typeFilter === 'SUB' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
                 -{formatVND(totalSubtracted)}
               </span>
             </button>
+
+            {splitCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setTypeFilter('SPLIT')}
+                className={`py-2 sm:py-2.5 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
+                  typeFilter === 'SPLIT'
+                    ? 'bg-amber-600 text-white shadow-sm font-black'
+                    : 'text-amber-800 hover:bg-amber-50/70'
+                }`}
+              >
+                <span className="flex items-center gap-1 truncate">
+                  <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 hidden sm:inline" />
+                  <span>Cuộc vui</span>
+                </span>
+                <span
+                  className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${
+                    typeFilter === 'SPLIT' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900'
+                  }`}
+                >
+                  {splitCount}
+                </span>
+              </button>
+            )}
           </div>
 
           {displayedStatement.length === 0 ? (
@@ -626,7 +689,9 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                   ? 'Chưa có phát sinh giao dịch nào'
                   : typeFilter === 'ADD'
                   ? 'Không có khoản nợ nào'
-                  : 'Không có khoản thanh toán nào'}
+                  : typeFilter === 'SUB'
+                  ? 'Không có khoản thanh toán nào'
+                  : 'Không có giao dịch cuộc vui chia tiền nào'}
               </p>
               <p className="text-xs sm:text-sm text-slate-400 mt-1">
                 Mọi khoản cộng và trừ sẽ được hiển thị minh bạch tại đây
@@ -636,150 +701,27 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             <div className="space-y-3 sm:space-y-3.5">
               {displayedStatement.map((item, idx) => {
                 const tx = item.transaction;
-                const runningBalance = typeof item.runningBalance === 'number' && !isNaN(item.runningBalance)
-                  ? item.runningBalance
-                  : (typeof (item as any).balanceAfter === 'number' && !isNaN((item as any).balanceAfter)
+                const runningBalance =
+                  typeof item.runningBalance === 'number' && !isNaN(item.runningBalance)
+                    ? item.runningBalance
+                    : (typeof (item as any).balanceAfter === 'number' &&
+                      !isNaN((item as any).balanceAfter))
                     ? (item as any).balanceAfter
-                    : 0);
-                const isAdd = tx.type === 'ADD';
-                const split = resolveSplitBillDetails(tx, debtor, allParties, allDebtors);
-                const resolvedBillImg = tx.billImage || split.billImage;
-
-                const allImgs = Array.from(new Set([
-                  ...(resolvedBillImg ? [resolvedBillImg] : []),
-                  ...(tx.imageUrls || []),
-                ]));
-                const customNote = split.isSplit ? getCustomSplitNote(tx.note, split.partyName, tx.customNote) : '';
+                    : undefined;
 
                 return (
-                  <div
+                  <TransactionRow
                     key={tx.id || idx}
-                    className="p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 bg-white hover:bg-slate-50/70 transition-all space-y-2.5 shadow-2xs"
-                  >
-                    {/* Top Row: Icon + Main Title & Meta + Amount */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2.5 min-w-0">
-                        {/* Visual Category Indicator */}
-                        <div
-                          className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                            split.isSplit
-                              ? 'bg-amber-100 text-amber-800'
-                              : isAdd
-                              ? 'bg-rose-100 text-rose-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}
-                        >
-                          {split.isSplit ? (
-                            <Users className="w-4 h-4" />
-                          ) : isAdd ? (
-                            <ArrowUpRight className="w-4 h-4" />
-                          ) : (
-                            <ArrowDownLeft className="w-4 h-4" />
-                          )}
-                        </div>
-
-                        <div className="min-w-0">
-                          {/* Title */}
-                          <h3 className="font-bold text-slate-900 text-sm leading-snug break-words">
-                            {split.isSplit
-                              ? split.partyName
-                              : tx.note || (isAdd ? 'Ghi nhận khoản nợ' : 'Thanh toán tiền')}
-                          </h3>
-
-                          {/* Quiet Meta Line: Date · Total bill (if split) · Category */}
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
-                            <span>{tx.date}</span>
-                            {split.isSplit ? (
-                              <>
-                                <span aria-hidden="true" className="text-slate-300">·</span>
-                                <span className="font-semibold text-slate-800 font-mono tabular-nums">
-                                  {formatVND(split.totalAmount)}
-                                </span>
-                                <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]">
-                                  {split.participantCount} người
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span aria-hidden="true" className="text-slate-300">·</span>
-                                <span>{isAdd ? 'Ghi nợ' : 'Trả nợ'}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Amount on the right */}
-                      <div className="text-right shrink-0">
-                        <div
-                          className={`font-black font-mono text-base sm:text-lg tabular-nums tracking-tight ${
-                            isAdd ? 'text-rose-600' : 'text-emerald-600'
-                          }`}
-                        >
-                          {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
-                        </div>
-                        <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
-                          Dư nợ: {runningBalance > 0 ? formatVND(runningBalance) : runningBalance < 0 ? `+${formatVND(Math.abs(runningBalance))}` : formatVND(0)}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Participants row for Split Bill - Sleek, Unboxed, Modern */}
-                    {split.isSplit && split.participantNames.length > 0 && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-                        <div className="flex flex-wrap items-center gap-1.5 text-slate-600">
-                          <span className="font-medium text-slate-800">
-                            {split.participantNames.map((p, pIdx) => (
-                              <React.Fragment key={pIdx}>
-                                {pIdx > 0 && <span className="text-slate-400">, </span>}
-                                <span className={p.isCurrent ? 'font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]' : ''}>
-                                  {p.name}{p.isCurrent ? ' (Bạn)' : ''}
-                                </span>
-                              </React.Fragment>
-                            ))}
-                            {split.extraCount > 0 && (
-                              <span className="text-slate-800 font-medium">
-                                {split.participantNames.length > 0 ? ` và ${split.extraCount} người khác` : `${split.extraCount} người tham gia`}
-                              </span>
-                            )}
-                          </span>
-                          {split.payerName && (
-                            <span className="text-slate-400 font-medium text-[11px] ml-1">
-                              Người trả: <strong className="text-slate-700">{split.payerName}</strong>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Unified Bill / Receipt Row for BOTH Split Bill & Normal Debt */}
-                    {allImgs.length > 0 && (
-                      <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 text-xs">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {allImgs.map((img, imgIdx) => (
-                            <button
-                              key={imgIdx}
-                              type="button"
-                              onClick={() => onViewImage(img, split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-2xs group"
-                              title="Bấm để xem rõ hóa đơn chứng từ"
-                            >
-                              <img src={img} alt="Hóa đơn" className="w-4 h-4 rounded object-cover border border-emerald-300 group-hover:scale-105 transition-transform shrink-0" />
-                              <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span>Xem ảnh {allImgs.length > 1 ? `#${imgIdx + 1}` : ''}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Custom Note (Only if non-empty and not duplicated from title/split) */}
-                    {customNote && (
-                      <div className="text-xs text-slate-500 italic pl-10">
-                        Ghi chú: {customNote}
-                      </div>
-                    )}
-                  </div>
+                    transaction={tx}
+                    currentDebtor={debtor}
+                    debtors={allDebtors}
+                    debtorsMap={debtorsMap}
+                    parties={allParties}
+                    runningBalance={runningBalance}
+                    showDebtorName={false}
+                    onViewImage={onViewImage}
+                    readOnly={true}
+                  />
                 );
               })}
             </div>

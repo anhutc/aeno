@@ -52,6 +52,7 @@ import { ConfirmClearSampleModal } from './ConfirmClearSampleModal';
 import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { ConfirmDeletePartyModal } from './ConfirmDeletePartyModal';
 import { ConfirmDeleteTxModal } from './ConfirmDeleteTxModal';
+import { TransactionRow } from './TransactionRow';
 import { resolveSplitBillDetails } from '../utils/splitBillHelper';
 
 interface OwnerDashboardProps {
@@ -108,60 +109,164 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Calculate totals
-  let totalReceivable = 0; // People owe me (> 0)
-  let totalPayable = 0; // I owe people (< 0)
+  // Pre-calculate debtor statistics in a single O(Debtors + Transactions) pass
+  const {
+    debtorStatsMap,
+    totalReceivable,
+    totalPayable,
+    netBalance,
+    receivableRatio,
+    payableRatio,
+    receivableDebtors,
+    payableDebtors,
+    settledDebtors,
+  } = useMemo(() => {
+    const statsMap = new Map<
+      string,
+      {
+        balance: number;
+        totalDebt: number;
+        totalPaid: number;
+        paidRate: number;
+        lastTxTime: number;
+        txCount: number;
+      }
+    >();
 
-  debtors.forEach((d) => {
-    const bal = getDebtorBalance(d.id, transactions);
-    if (bal > 0) {
-      totalReceivable += bal;
-    } else if (bal < 0) {
-      totalPayable += Math.abs(bal);
+    for (const d of debtors) {
+      statsMap.set(d.id, {
+        balance: 0,
+        totalDebt: 0,
+        totalPaid: 0,
+        paidRate: 0,
+        lastTxTime: d.createdAt ? new Date(d.createdAt).getTime() : 0,
+        txCount: 0,
+      });
     }
-  });
 
-  const netBalance = totalReceivable - totalPayable;
-  const totalVolume = totalReceivable + totalPayable;
-  const receivableRatio = totalVolume > 0 ? Math.round((totalReceivable / totalVolume) * 100) : 50;
-  const payableRatio = totalVolume > 0 ? 100 - receivableRatio : 50;
+    for (const tx of transactions) {
+      let stat = statsMap.get(tx.debtorId);
+      if (!stat) {
+        stat = {
+          balance: 0,
+          totalDebt: 0,
+          totalPaid: 0,
+          paidRate: 0,
+          lastTxTime: 0,
+          txCount: 0,
+        };
+        statsMap.set(tx.debtorId, stat);
+      }
+      stat.txCount++;
+      if (tx.type === 'ADD') {
+        stat.balance += tx.amount;
+        stat.totalDebt += tx.amount;
+      } else {
+        stat.balance -= tx.amount;
+        stat.totalPaid += tx.amount;
+      }
+      if (tx.date) {
+        const tTime = new Date(tx.date).getTime();
+        if (tTime > stat.lastTxTime) {
+          stat.lastTxTime = tTime;
+        }
+      }
+    }
 
-  // Counts by status
-  const receivableDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) > 0);
-  const payableDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) < 0);
-  const settledDebtors = debtors.filter((d) => getDebtorBalance(d.id, transactions) === 0);
+    let recTotal = 0;
+    let payTotal = 0;
+    const recList: Debtor[] = [];
+    const payList: Debtor[] = [];
+    const setlList: Debtor[] = [];
 
-  // Filter debtors by search and status
-  const filteredDebtors = debtors
-    .filter((d) => {
-      if (debtorStatusFilter === 'RECEIVABLE') return getDebtorBalance(d.id, transactions) > 0;
-      if (debtorStatusFilter === 'PAYABLE') return getDebtorBalance(d.id, transactions) < 0;
-      if (debtorStatusFilter === 'SETTLED') return getDebtorBalance(d.id, transactions) === 0;
+    for (const d of debtors) {
+      const stat = statsMap.get(d.id);
+      if (!stat) continue;
+      stat.paidRate =
+        stat.totalDebt > 0 ? Math.min(100, Math.round((stat.totalPaid / stat.totalDebt) * 100)) : 0;
+
+      if (stat.balance > 0) {
+        recTotal += stat.balance;
+        recList.push(d);
+      } else if (stat.balance < 0) {
+        payTotal += Math.abs(stat.balance);
+        payList.push(d);
+      } else {
+        setlList.push(d);
+      }
+    }
+
+    const net = recTotal - payTotal;
+    const vol = recTotal + payTotal;
+    const recRatio = vol > 0 ? Math.round((recTotal / vol) * 100) : 50;
+    const payRatio = vol > 0 ? 100 - recRatio : 50;
+
+    return {
+      debtorStatsMap: statsMap,
+      totalReceivable: recTotal,
+      totalPayable: payTotal,
+      netBalance: net,
+      receivableRatio: recRatio,
+      payableRatio: payRatio,
+      receivableDebtors: recList,
+      payableDebtors: payList,
+      settledDebtors: setlList,
+    };
+  }, [debtors, transactions]);
+
+  // Lookup maps for O(1) instantaneous access
+  const debtorsMap = useMemo(() => new Map(debtors.map((d) => [d.id, d])), [debtors]);
+  const partiesMap = useMemo(() => new Map(parties.map((p) => [p.id, p])), [parties]);
+
+  // Pagination for debtor list to ensure 60fps smooth scrolling
+  const [debtorVisibleLimit, setDebtorVisibleLimit] = useState<number>(30);
+
+  // Filter debtors by search and status (using precomputed O(1) map)
+  const filteredDebtors = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    return debtors.filter((d) => {
+      const stat = debtorStatsMap.get(d.id);
+      const bal = stat ? stat.balance : 0;
+
+      if (debtorStatusFilter === 'RECEIVABLE' && bal <= 0) return false;
+      if (debtorStatusFilter === 'PAYABLE' && bal >= 0) return false;
+      if (debtorStatusFilter === 'SETTLED' && bal !== 0) return false;
+
+      if (term) {
+        const matchName = d.name.toLowerCase().includes(term);
+        const matchPin = d.pin ? d.pin.toLowerCase().includes(term) : false;
+        const matchNote = d.note ? d.note.toLowerCase().includes(term) : false;
+        if (!matchName && !matchPin && !matchNote) return false;
+      }
       return true;
-    })
-    .filter(
-      (d) =>
-        d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (d.pin && d.pin.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (d.note && d.note.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    });
+  }, [debtors, debtorStatusFilter, searchTerm, debtorStatsMap]);
 
   // Sort debtors according to current sortBy
-  const sortedDebtors = [...filteredDebtors].sort((a, b) => {
-    const balA = getDebtorBalance(a.id, transactions);
-    const balB = getDebtorBalance(b.id, transactions);
-    if (sortBy === 'BALANCE_DESC') return balB - balA;
-    if (sortBy === 'BALANCE_ASC') return balA - balB;
-    if (sortBy === 'NAME') return a.name.localeCompare(b.name, 'vi');
-    if (sortBy === 'RECENT') {
-      const txsA = transactions.filter((t) => t.debtorId === a.id);
-      const txsB = transactions.filter((t) => t.debtorId === b.id);
-      const dateA = txsA.length > 0 ? Math.max(...txsA.map((t) => new Date(t.date).getTime())) : new Date(a.createdAt).getTime();
-      const dateB = txsB.length > 0 ? Math.max(...txsB.map((t) => new Date(t.date).getTime())) : new Date(b.createdAt).getTime();
-      return dateB - dateA;
-    }
-    return 0;
-  });
+  const sortedDebtors = useMemo(() => {
+    return [...filteredDebtors].sort((a, b) => {
+      const statA = debtorStatsMap.get(a.id);
+      const statB = debtorStatsMap.get(b.id);
+      const balA = statA ? statA.balance : 0;
+      const balB = statB ? statB.balance : 0;
+
+      if (sortBy === 'BALANCE_DESC') return balB - balA;
+      if (sortBy === 'BALANCE_ASC') return balA - balB;
+      if (sortBy === 'NAME') return a.name.localeCompare(b.name, 'vi');
+      if (sortBy === 'RECENT') {
+        const timeA = statA ? statA.lastTxTime : 0;
+        const timeB = statB ? statB.lastTxTime : 0;
+        return timeB - timeA;
+      }
+      return 0;
+    });
+  }, [filteredDebtors, sortBy, debtorStatsMap]);
+
+  // Slice debtors for viewport pagination
+  const displayedDebtors = useMemo(() => {
+    if (debtorVisibleLimit <= 0) return sortedDebtors;
+    return sortedDebtors.slice(0, debtorVisibleLimit);
+  }, [sortedDebtors, debtorVisibleLimit]);
 
   // Sort parties newest first: Ngày mới nhất ở trên, nếu trùng ngày thì tạo sau ở trên
   const sortedParties = useMemo(() => {
@@ -228,7 +333,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         // 4. Search term
         if (txSearchTerm.trim()) {
           const query = txSearchTerm.toLowerCase().trim();
-          const debtor = debtors.find((d) => d.id === tx.debtorId);
+          const debtor = debtorsMap.get(tx.debtorId);
           const debtorName = (debtor?.name || '').toLowerCase();
           const note = (tx.note || '').toLowerCase();
           const date = (tx.date || '').toLowerCase();
@@ -237,7 +342,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
           let partyName = '';
           if (tx.partyId) {
-            const party = parties.find((p) => p.id === tx.partyId);
+            const party = partiesMap.get(tx.partyId);
             if (party) partyName = party.name.toLowerCase();
           }
 
@@ -256,18 +361,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       })
       .sort((a, b) => {
         if (txSortBy === 'DATE_DESC') {
-          const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
-          if (diff !== 0) return diff;
-          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return bTime - aTime;
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          if (dateB !== dateA) return dateB.localeCompare(dateA);
+          const aTime = a.createdAt || '';
+          const bTime = b.createdAt || '';
+          return bTime.localeCompare(aTime);
         }
         if (txSortBy === 'DATE_ASC') {
-          const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
-          if (diff !== 0) return diff;
-          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return aTime - bTime;
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          if (dateA !== dateB) return dateA.localeCompare(dateB);
+          const aTime = a.createdAt || '';
+          const bTime = b.createdAt || '';
+          return aTime.localeCompare(bTime);
         }
         if (txSortBy === 'AMOUNT_DESC') {
           return b.amount - a.amount;
@@ -279,8 +386,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       });
   }, [
     transactions,
-    debtors,
-    parties,
+    debtorsMap,
+    partiesMap,
     txDebtorFilter,
     txTypeFilter,
     txDateRangeFilter,
@@ -829,12 +936,18 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           ) : viewMode === 'GRID' ? (
             /* BỐ CỤC CHẾ ĐỘ 1: THẺ BENTO 3D (GRID CARDS VIEW) */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {sortedDebtors.map((debtor) => {
-                const balance = getDebtorBalance(debtor.id, transactions);
-                const debtorTxs = transactions.filter((t) => t.debtorId === debtor.id);
-                const totalDebt = debtorTxs.filter((t) => t.type === 'ADD').reduce((s, t) => s + t.amount, 0);
-                const totalPaid = debtorTxs.filter((t) => t.type === 'SUB').reduce((s, t) => s + t.amount, 0);
-                const paidRate = totalDebt > 0 ? Math.min(100, Math.round((totalPaid / totalDebt) * 100)) : 0;
+              {displayedDebtors.map((debtor) => {
+                const stat = debtorStatsMap.get(debtor.id) || {
+                  balance: 0,
+                  totalDebt: 0,
+                  totalPaid: 0,
+                  paidRate: 0,
+                  txCount: 0,
+                };
+                const balance = stat.balance;
+                const totalDebt = stat.totalDebt;
+                const totalPaid = stat.totalPaid;
+                const paidRate = stat.paidRate;
 
                 return (
                   <div
@@ -1001,8 +1114,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           ) : viewMode === 'LIST' ? (
             /* BỐ CỤC CHẾ ĐỘ 2: DANH SÁCH APPLE INSET GROUPED (iOS NATIVE LIST) */
             <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden divide-y divide-slate-100/90">
-              {sortedDebtors.map((debtor) => {
-                const balance = getDebtorBalance(debtor.id, transactions);
+              {displayedDebtors.map((debtor) => {
+                const stat = debtorStatsMap.get(debtor.id);
+                const balance = stat ? stat.balance : 0;
 
                 return (
                   <div
@@ -1113,11 +1227,17 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {sortedDebtors.map((debtor) => {
-                      const balance = getDebtorBalance(debtor.id, transactions);
-                      const debtorTxs = transactions.filter((t) => t.debtorId === debtor.id);
-                      const totalDebt = debtorTxs.filter((t) => t.type === 'ADD').reduce((s, t) => s + t.amount, 0);
-                      const totalPaid = debtorTxs.filter((t) => t.type === 'SUB').reduce((s, t) => s + t.amount, 0);
+                    {displayedDebtors.map((debtor) => {
+                      const stat = debtorStatsMap.get(debtor.id) || {
+                        balance: 0,
+                        totalDebt: 0,
+                        totalPaid: 0,
+                        paidRate: 0,
+                        txCount: 0,
+                      };
+                      const balance = stat.balance;
+                      const totalDebt = stat.totalDebt;
+                      const totalPaid = stat.totalPaid;
 
                       return (
                         <tr
@@ -1251,6 +1371,54 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Pagination & Load More Footer for Debtors */}
+          {sortedDebtors.length > 0 && (
+            <div className="p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs mt-3">
+              <div className="text-slate-500 font-medium">
+                Đang hiển thị{' '}
+                <strong className="text-slate-800">
+                  {displayedDebtors.length}
+                </strong>{' '}
+                trên tổng số{' '}
+                <strong className="text-slate-800">
+                  {sortedDebtors.length}
+                </strong>{' '}
+                người nợ
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {sortedDebtors.length > displayedDebtors.length && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDebtorVisibleLimit((prev) => prev + 30)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-200 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Xem thêm 30 người
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDebtorVisibleLimit(sortedDebtors.length)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold rounded-xl transition-colors cursor-pointer shadow-xs"
+                    >
+                      Hiển thị toàn bộ ({sortedDebtors.length})
+                    </button>
+                  </>
+                )}
+
+                {displayedDebtors.length >= sortedDebtors.length && sortedDebtors.length > 30 && (
+                  <button
+                    type="button"
+                    onClick={() => setDebtorVisibleLimit(30)}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 font-semibold rounded-xl border border-slate-200 transition-colors cursor-pointer text-xs"
+                  >
+                    Thu gọn về 30 người
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1500,158 +1668,35 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
-                {displayedTransactions.map((tx) => {
-                  const debtor = debtors.find((d) => d.id === tx.debtorId);
-                  const isAdd = tx.type === 'ADD';
-                  const split = resolveSplitBillDetails(tx, debtor, parties, debtors);
-                  const resolvedBillImg = tx.billImage || split.billImage;
-
-                  return (
-                    <div
-                      key={tx.id}
-                      className="p-3 sm:p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
-                    >
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div
-                          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                            split.isSplit
-                              ? 'bg-amber-100 text-amber-800'
-                              : isAdd
-                              ? 'bg-rose-100 text-rose-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}
-                        >
-                          {split.isSplit ? (
-                            <Users className="w-4 h-4" />
-                          ) : isAdd ? (
-                            <ArrowUpRight className="w-4 h-4" />
-                          ) : (
-                            <ArrowDownLeft className="w-4 h-4" />
-                          )}
-                        </div>
-
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-900 text-sm break-words flex items-center gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => debtor && onSelectDebtor(debtor)}
-                              className="text-emerald-700 hover:text-emerald-800 hover:underline font-bold text-left cursor-pointer transition-colors inline-flex items-center gap-0.5"
-                              title="Bấm để xem chi tiết người này"
-                            >
-                              <span>{debtor?.name || 'Người dùng'}</span>
-                              <ChevronRight className="w-3.5 h-3.5 text-emerald-500 opacity-70" />
-                            </button>
-                            <span className="text-slate-300">·</span>
-                            <span className="font-medium text-slate-800">
-                              {split.isSplit ? split.partyName : tx.note || (isAdd ? 'Ghi nhận nợ' : 'Đã thanh toán')}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
-                            <span className="font-mono">{tx.date}</span>
-                            {split.isSplit ? (
-                              <>
-                                <span aria-hidden="true" className="text-slate-300">·</span>
-                                <span className="font-semibold text-slate-800 font-mono tabular-nums">
-                                  {formatVND(split.totalAmount)}
-                                </span>
-                                <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 text-[11px]">
-                                  {split.participantCount} người ({split.participantNames.map((p) => p.name).join(', ')}
-                                  {split.extraCount > 0 ? ` và ${split.extraCount} người khác` : ''})
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span aria-hidden="true" className="text-slate-300">·</span>
-                                <span className={`font-semibold ${isAdd ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                  {isAdd ? 'Ghi nợ' : 'Trả nợ'}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                        {resolvedBillImg && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onViewImage(
-                                resolvedBillImg,
-                                split.isSplit ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`
-                              )
-                            }
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                            title="Xem ảnh hóa đơn / chứng từ"
-                          >
-                            <img
-                              src={resolvedBillImg}
-                              alt="Hóa đơn"
-                              className="w-3.5 h-3.5 rounded object-cover border border-emerald-300 shrink-0"
-                            />
-                            <Receipt className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                            <span className="hidden sm:inline">Hóa đơn</span>
-                          </button>
-                        )}
-
-                        <div
-                          className={`font-bold font-mono text-sm text-right min-w-[90px] ${
-                            isAdd ? 'text-rose-600' : 'text-emerald-600'
-                          }`}
-                        >
-                          {isAdd ? `+${formatVND(tx.amount)}` : `-${formatVND(tx.amount)}`}
-                        </div>
-
-                        {/* Transaction Action Controls: strictly lock party split transactions, allow editing normal transactions */}
-                        {tx.partyId || tx.category === 'PARTY_SPLIT' ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const associatedParty = parties.find((p) => p.id === tx.partyId);
-                              if (associatedParty && onEditParty) {
-                                onEditParty(associatedParty);
-                              } else {
-                                setActiveTab('PARTIES');
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
-                            title="Giao dịch từ chia đầu người - Không thể sửa/xóa lẻ. Bấm để sửa hoặc xóa toàn bộ cuộc vui."
-                          >
-                            <Lock className="w-3 h-3 text-amber-600" />
-                            <span className="hidden sm:inline">Sửa cuộc vui</span>
-                            <span className="sm:hidden">Cuộc vui</span>
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-0.5">
-                            {onEditTx && (
-                              <button
-                                type="button"
-                                onClick={() => onEditTx(tx)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold rounded-lg border border-amber-200 transition-colors cursor-pointer text-xs"
-                                title="Chỉnh sửa giao dịch này"
-                              >
-                                <Pencil className="w-3 h-3 text-amber-600" />
-                                <span>Sửa</span>
-                              </button>
-                            )}
-                            {onDeleteTx && (
-                              <button
-                                type="button"
-                                onClick={() => setTxToDelete(tx)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-semibold rounded-lg transition-colors cursor-pointer text-xs"
-                                title="Xóa giao dịch này"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                <span>Xóa</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="p-3.5 sm:p-4 space-y-2.5">
+                {displayedTransactions.map((tx) => (
+                  <TransactionRow
+                    key={tx.id}
+                    transaction={tx}
+                    debtors={debtors}
+                    debtorsMap={debtorsMap}
+                    parties={parties}
+                    showDebtorName={true}
+                    onSelectDebtor={onSelectDebtor}
+                    onViewImage={onViewImage}
+                    onEditTx={(t) => {
+                      if (t.partyId || t.category === 'PARTY_SPLIT') {
+                        if (onEditParty) {
+                          const p = parties.find(
+                            (party) =>
+                              party.id === t.partyId ||
+                              (party.name && t.note && t.note.includes(party.name))
+                          );
+                          if (p) onEditParty(p);
+                        }
+                        return;
+                      }
+                      if (onEditTx) onEditTx(t);
+                    }}
+                    onDeleteTx={(t) => setTxToDelete(t)}
+                    onEditParty={onEditParty}
+                  />
+                ))}
               </div>
             )}
 
