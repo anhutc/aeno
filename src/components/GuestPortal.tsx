@@ -344,7 +344,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           </div>
         </div>
 
-        {/* 💰 TỔNG SỐ DƯ HIỆN TẠI */}
+        {/* 💰 TỔNG SỐ DƯ HIỆN TẠI. */}
         <div className="p-5 sm:p-7 border-b border-slate-200/80">
           <div
             className={`p-5 sm:p-7 rounded-3xl border transition-all ${
