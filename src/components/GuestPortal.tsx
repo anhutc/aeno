@@ -264,7 +264,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
         Boolean(item.transaction.partyId || item.transaction.category === 'PARTY_SPLIT')
       );
     }
-    return sortOrder === 'newest' ? list.reverse() : list;
+    return sortOrder === 'newest' ? [...list].reverse() : list;
   }, [statement, typeFilter, sortOrder]);
 
   const qrTemplate = activeSettings.vietQrTemplate || 'compact2';
@@ -288,7 +288,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
       className={`max-w-xl md:max-w-2xl w-full mx-auto space-y-4 sm:space-y-6 ${
-        currentBalance !== 0 ? 'pb-28 sm:pb-24' : 'pb-12'
+        currentBalance !== 0 ? 'pb-36 sm:pb-28' : 'pb-16'
       }`}
     >
       {/* Lời nhắn / Thông báo ghim của chủ sổ gửi khách */}
@@ -587,16 +587,12 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             </div>
           </div>
 
-          {/* 🔘 Segmented Control Bố Cục Thống Nhất (Tất cả, Tiền nợ, Đã trả, Cuộc vui) */}
-          <div
-            className={`grid ${
-              splitCount > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'
-            } gap-1.5 p-1 bg-slate-100/90 rounded-2xl mb-4 text-xs sm:text-sm font-bold border border-slate-200/60`}
-          >
+          {/* 🔘 Segmented Control Bố Cục Thống Nhất - Tối Ưu Mobile Vuốt Ngang & Desktop Dàn Đều */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl mb-4 text-xs sm:text-sm font-bold border border-slate-200/60 overflow-x-auto no-scrollbar">
             <button
               type="button"
               onClick={() => setTypeFilter('ALL')}
-              className={`py-2 sm:py-2.5 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
+              className={`py-2 sm:py-2.5 px-3 sm:px-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center shrink-0 sm:flex-1 whitespace-nowrap ${
                 typeFilter === 'ALL'
                   ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80 font-black'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
@@ -604,7 +600,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             >
               <span>Tất cả</span>
               <span
-                className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono ${
+                className={`text-[10.5px] sm:text-xs px-2 py-0.5 rounded-full font-mono ${
                   typeFilter === 'ALL' ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/70 text-slate-600'
                 }`}
               >
@@ -615,18 +611,16 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             <button
               type="button"
               onClick={() => setTypeFilter('ADD')}
-              className={`py-2 sm:py-2.5 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
+              className={`py-2 sm:py-2.5 px-3 sm:px-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center shrink-0 sm:flex-1 whitespace-nowrap ${
                 typeFilter === 'ADD'
                   ? 'bg-rose-500 text-white shadow-sm font-black'
                   : 'text-rose-700 hover:bg-rose-50/70'
               }`}
             >
-              <span className="flex items-center gap-1 truncate">
-                <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 hidden sm:inline" />
-                <span>Tiền nợ</span>
-              </span>
+              <TrendingUp className="w-3.5 h-3.5 shrink-0 hidden xs:inline" />
+              <span>Tiền nợ</span>
               <span
-                className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${
+                className={`text-[10.5px] sm:text-xs px-2 py-0.5 rounded-full font-mono font-bold ${
                   typeFilter === 'ADD' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
                 }`}
               >
@@ -637,18 +631,16 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
             <button
               type="button"
               onClick={() => setTypeFilter('SUB')}
-              className={`py-2 sm:py-2.5 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
+              className={`py-2 sm:py-2.5 px-3 sm:px-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center shrink-0 sm:flex-1 whitespace-nowrap ${
                 typeFilter === 'SUB'
                   ? 'bg-emerald-600 text-white shadow-sm font-black'
                   : 'text-emerald-700 hover:bg-emerald-50/70'
               }`}
             >
-              <span className="flex items-center gap-1 truncate">
-                <TrendingDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 hidden sm:inline" />
-                <span>Đã trả</span>
-              </span>
+              <TrendingDown className="w-3.5 h-3.5 shrink-0 hidden xs:inline" />
+              <span>Đã trả</span>
               <span
-                className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${
+                className={`text-[10.5px] sm:text-xs px-2 py-0.5 rounded-full font-mono font-bold ${
                   typeFilter === 'SUB' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
                 }`}
               >
@@ -660,18 +652,16 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setTypeFilter('SPLIT')}
-                className={`py-2 sm:py-2.5 px-1 rounded-xl transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 text-center ${
+                className={`py-2 sm:py-2.5 px-3 sm:px-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center shrink-0 sm:flex-1 whitespace-nowrap ${
                   typeFilter === 'SPLIT'
                     ? 'bg-amber-600 text-white shadow-sm font-black'
                     : 'text-amber-800 hover:bg-amber-50/70'
                 }`}
               >
-                <span className="flex items-center gap-1 truncate">
-                  <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 hidden sm:inline" />
-                  <span>Cuộc vui</span>
-                </span>
+                <Users className="w-3.5 h-3.5 shrink-0 hidden xs:inline" />
+                <span>Cuộc vui</span>
                 <span
-                  className={`text-[10.5px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono truncate max-w-[90px] ${
+                  className={`text-[10.5px] sm:text-xs px-2 py-0.5 rounded-full font-mono font-bold ${
                     typeFilter === 'SPLIT' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900'
                   }`}
                 >

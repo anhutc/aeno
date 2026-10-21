@@ -1693,7 +1693,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       }
                       if (onEditTx) onEditTx(t);
                     }}
-                    onDeleteTx={(t) => setTxToDelete(t)}
+                    onDeleteTx={(t) => {
+                      if (t.partyId || t.category === 'PARTY_SPLIT') {
+                        return; // Khóa xóa lẻ giao dịch cuộc vui
+                      }
+                      setTxToDelete(t);
+                    }}
                     onEditParty={onEditParty}
                   />
                 ))}

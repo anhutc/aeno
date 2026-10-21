@@ -145,58 +145,55 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
         </div>
       </div>
 
-      {/* 2. Subline Level: Classification Tag, Date, Time & Running Balance */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-500">
-        <div className="flex flex-wrap items-center gap-1.5">
+      {/* 2. Subline Level: Classification Tag, Date, Time & Running Balance - Optimized for Mobile & Desktop */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           {/* Tag phân loại giao dịch */}
           {isParty ? (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100/90 text-amber-900 border border-amber-200/90">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100/90 text-amber-900 border border-amber-200/90 shrink-0">
               Cuộc vui chia tiền
             </span>
           ) : isAdd ? (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100/90 text-rose-800 border border-rose-200/90">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100/90 text-rose-800 border border-rose-200/90 shrink-0">
               Khoản nợ (+)
             </span>
           ) : (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-200/90">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-200/90 shrink-0">
               Đã trả (-)
             </span>
           )}
 
           {/* Ngày tháng */}
-          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-500">
+          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-500 shrink-0">
             <Calendar className="w-3 h-3 text-slate-400" />
             <span>{tx.date}</span>
           </span>
 
           {formattedTime && (
-            <span className="inline-flex items-center gap-0.5 text-slate-400 font-mono text-[10.5px]">
+            <span className="inline-flex items-center gap-0.5 text-slate-400 font-mono text-[10.5px] shrink-0">
               <Clock className="w-2.5 h-2.5" />
               <span>{formattedTime}</span>
             </span>
           )}
 
           {isParty ? (
-            <>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="text-[11px] font-medium text-slate-600">
-                Tổng bill: <strong className="text-slate-800 font-mono">{formatVND(split.totalAmount)}</strong> ({split.participantCount} người)
-              </span>
-            </>
+            <span className="text-[11px] font-medium text-slate-600 truncate">
+              <span aria-hidden="true" className="text-slate-300 mr-1">·</span>
+              Tổng bill: <strong className="text-slate-800 font-mono">{formatVND(split.totalAmount)}</strong> ({split.participantCount} người)
+            </span>
           ) : (
-            <>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className={isAdd ? 'text-rose-600 font-medium text-[11px]' : 'text-emerald-600 font-medium text-[11px]'}>
-                {isAdd ? 'Ghi nợ trực tiếp' : 'Thanh toán trực tiếp'}
-              </span>
-            </>
+            <span className={isAdd ? 'text-rose-600 font-medium text-[11px]' : 'text-emerald-600 font-medium text-[11px]'}>
+              <span aria-hidden="true" className="text-slate-300 mr-1">·</span>
+              {isAdd ? 'Ghi nợ trực tiếp' : 'Thanh toán trực tiếp'}
+            </span>
           )}
         </div>
 
-        {/* Dư nợ sau GD */}
+        {/* Dư nợ sau GD - Luôn căn gọn gàng, không bị rớt chữ lộn xộn */}
         {runningBalance !== undefined && (
-          <div className="inline-block text-[11px] text-slate-500 font-mono tabular-nums bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
-            Dư nợ sau GD: <strong className="text-slate-800 font-semibold">{formatVND(runningBalance)}</strong>
+          <div className="self-start sm:self-auto inline-flex items-center gap-1 text-[11px] text-slate-500 font-mono tabular-nums bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs shrink-0">
+            <span>Dư nợ sau GD:</span>
+            <strong className="text-slate-800 font-semibold">{formatVND(runningBalance)}</strong>
           </div>
         )}
       </div>
@@ -290,10 +287,11 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
         ) : (
           <div className="flex items-center gap-1.5 shrink-0">
             {isParty ? (
-              // Khoản nợ tạo từ Cuộc vui chia tiền -> CHỈ MỞ SplitBillModal, TUYỆT ĐỐI KHÔNG mở EditTransactionModal
+              // Khoản nợ tạo từ Cuộc vui chia tiền -> CHỈ MỞ SplitBillModal, TUYỆT ĐỐI KHÔNG mở EditTransactionModal hay Xóa lẻ
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (onEditParty) {
                     const partyToEdit =
                       associatedParty ||
@@ -304,7 +302,8 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
                         : undefined);
                     if (partyToEdit) {
                       onEditParty(partyToEdit);
-                      return; // CRITICAL: Stop here! Only open SplitBillModal
+                    } else {
+                      alert('Cuộc vui này không còn trong danh sách hoặc đã được cập nhật.');
                     }
                   }
                 }}
@@ -320,7 +319,10 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
                 {onEditTx && (
                   <button
                     type="button"
-                    onClick={() => onEditTx(tx)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditTx(tx);
+                    }}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold rounded-xl border border-slate-200 transition-colors text-xs cursor-pointer shadow-2xs"
                     title="Chỉnh sửa số tiền, ngày hoặc nội dung của giao dịch này"
                   >
@@ -332,7 +334,10 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
                 {onDeleteTx && (
                   <button
                     type="button"
-                    onClick={() => onDeleteTx(tx)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteTx(tx);
+                    }}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-semibold rounded-xl transition-colors text-xs cursor-pointer"
                     title="Xóa giao dịch này"
                   >

@@ -657,20 +657,33 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                       onViewImage={onViewImage}
                       onEditTx={(t) => {
                         if (t.partyId || t.category === 'PARTY_SPLIT') {
+                          setEditingTx(null); // Ensure no edit transaction modal opens
                           if (onEditParty) {
                             const p = parties.find(
                               (party) =>
                                 party.id === t.partyId ||
                                 (party.name && t.note && t.note.includes(party.name))
                             );
-                            if (p) onEditParty(p);
+                            if (p) {
+                              onEditParty(p);
+                            } else {
+                              alert('Cuộc vui này không còn trong danh sách hoặc đã được cập nhật.');
+                            }
                           }
                           return;
                         }
                         setEditingTx(t);
                       }}
-                      onDeleteTx={(t) => setDeletingTxId(t.id)}
-                      onEditParty={onEditParty}
+                      onDeleteTx={(t) => {
+                        if (t.partyId || t.category === 'PARTY_SPLIT') {
+                          return; // Khóa xóa lẻ giao dịch cuộc vui
+                        }
+                        setDeletingTxId(t.id);
+                      }}
+                      onEditParty={(party) => {
+                        setEditingTx(null); // Đảm bảo đóng EditTransactionModal nếu đang mở
+                        if (onEditParty) onEditParty(party);
+                      }}
                     />
                   ))}
                 </div>

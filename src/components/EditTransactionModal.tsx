@@ -183,6 +183,18 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-slate-800 overflow-y-auto overflow-x-hidden flex-1">
+            {Boolean(transaction?.partyId || transaction?.category === 'PARTY_SPLIT') && (
+              <div className="p-3.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-2xl text-xs space-y-1 shadow-2xs">
+                <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                  <Users className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>Khoản nợ chia từ Cuộc vui chung</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Để đảm bảo số liệu luôn khớp giữa tất cả các thành viên, vui lòng chỉnh sửa hóa đơn tại mục <strong>Cuộc vui</strong> thay vì sửa lẻ từng giao dịch.
+                </p>
+              </div>
+            )}
+
             {error && (
               <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium">
                 {error}
