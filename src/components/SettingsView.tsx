@@ -37,7 +37,7 @@ import {
   saveParties,
   saveSettings,
 } from '../utils/storage';
-import { apiUploadJsonToFirestore } from '../utils/api';
+import { apiUploadJsonToFirestore, apiCleanOrphanTransactions } from '../utils/api';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ConfirmRestoreModal, RestorePayloadPreview } from './ConfirmRestoreModal';
 import {
@@ -237,36 +237,87 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  // Export JSON backup
-  const handleExportData = () => {
-    const activeDebtors = debtors && debtors.length > 0 ? debtors : loadDebtors();
-    const activeTransactions = transactions && transactions.length > 0 ? transactions : loadTransactions();
-    const activeParties = parties && parties.length > 0 ? parties : loadParties();
+  const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
+
+  // Quét & Dọn Dẹp Giao Dịch Mồ Côi
+  const handleCleanOrphans = async () => {
+    setIsCleaningOrphans(true);
+    try {
+      const res = await apiCleanOrphanTransactions();
+      if (res.success) {
+        if (res.removedCount > 0) {
+          showToast(`Đã dọn dẹp ${res.removedCount} giao dịch mồ côi thành công!`, 'success');
+          handleDataReloadAndSync();
+        } else {
+          showToast('Dữ liệu hoàn hảo! Không có giao dịch rác hay mồ côi nào.', 'success');
+        }
+      } else {
+        showToast(res.message || 'Lỗi khi quét dữ liệu', 'error');
+      }
+    } catch {
+      showToast('Lỗi kết nối khi quét dọn dữ liệu', 'error');
+    } finally {
+      setIsCleaningOrphans(false);
+    }
+  };
+
+  // Export JSON backup - Đảm bảo lấy bản mới nhất từ Cloud / Server và lọc sạch rác
+  const handleExportData = async () => {
+    let activeDebtors = debtors && debtors.length > 0 ? debtors : loadDebtors();
+    let activeTransactions = transactions && transactions.length > 0 ? transactions : loadTransactions();
+    let activeParties = parties && parties.length > 0 ? parties : loadParties();
+
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('owner_auth_token') || '' : '';
+      const res = await fetch('/api/owner/data', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'x-owner-token': token,
+          'x-admin-password': formData.ownerPassword || '',
+        },
+      });
+      if (res.ok) {
+        const cloudData = await res.json();
+        if (cloudData.success) {
+          activeDebtors = cloudData.debtors || activeDebtors;
+          activeTransactions = cloudData.transactions || activeTransactions;
+          activeParties = cloudData.parties || activeParties;
+        }
+      }
+    } catch {
+      // fallback to state
+    }
+
+    // Filter out orphan transactions
+    const validDebtorIds = new Set(activeDebtors.map((d) => d.id));
+    const cleanTransactions = activeTransactions.filter((t) => validDebtorIds.has(t.debtorId));
 
     const fullBackup = {
-      appName: 'Sổ Ghi Nợ & Chia Tiền',
-      version: 1,
+      appName: formData.appTitle || 'OK Sổ Ghi Nợ',
+      schemaVersion: 2,
+      databaseId: 'ai-studio-oksghin-2f3c913b-30df-45df-80fd-92a0a1760168',
       exportedAt: new Date().toISOString(),
       stats: {
         debtorsCount: activeDebtors.length,
-        transactionsCount: activeTransactions.length,
+        transactionsCount: cleanTransactions.length,
         partiesCount: activeParties.length,
       },
       debtors: activeDebtors,
-      transactions: activeTransactions,
+      transactions: cleanTransactions,
       parties: activeParties,
       settings: formData,
     };
+
     const blob = new Blob([JSON.stringify(fullBackup, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `so-no-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`Đã xuất tệp sao lưu (${activeDebtors.length} người nợ, ${activeTransactions.length} giao dịch)!`, 'success');
+    showToast(`Đã xuất tệp sao lưu chuẩn Cloud (${activeDebtors.length} người nợ, ${cleanTransactions.length} giao dịch)!`, 'success');
   };
 
   const handleImportJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -350,8 +401,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
 
       if (mode === 'replace') {
+        const validDebtorIds = new Set(debtorsFound.map((d) => d.id));
+        const cleanTransactions = transactionsFound.filter((t) => validDebtorIds.has(t.debtorId));
         if (debtorsFound.length > 0) saveDebtors(debtorsFound);
-        if (transactionsFound.length > 0) saveTransactions(transactionsFound);
+        saveTransactions(cleanTransactions);
         if (partiesFound.length > 0) saveParties(partiesFound);
       } else {
         // Merge mode:
@@ -360,14 +413,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         for (const d of debtorsFound) {
           curDebtorMap.set(d.id, d);
         }
-        saveDebtors(Array.from(curDebtorMap.values()));
+        const mergedDebtors = Array.from(curDebtorMap.values());
+        saveDebtors(mergedDebtors);
 
+        const validDebtorIds = new Set(mergedDebtors.map((d) => d.id));
         const curTransactions = loadTransactions();
         const curTxMap = new Map(curTransactions.map((t) => [t.id, t]));
         for (const t of transactionsFound) {
           curTxMap.set(t.id, t);
         }
-        saveTransactions(Array.from(curTxMap.values()));
+        const cleanMergedTxs = Array.from(curTxMap.values()).filter((t) => validDebtorIds.has(t.debtorId));
+        saveTransactions(cleanMergedTxs);
 
         const curParties = loadParties();
         const curPartyMap = new Map(curParties.map((p) => [p.id, p]));
@@ -898,6 +954,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                   <span className="text-[11px] text-slate-500 leading-tight">
                     Xóa các bản ghi mẫu hoặc giao dịch thử nghiệm để giữ sổ nợ sạch sẽ.
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCleanOrphans}
+                  disabled={isCleaningOrphans}
+                  className="p-3.5 bg-white hover:bg-amber-50 hover:border-amber-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs disabled:opacity-50"
+                  title="Quét và phát hiện các giao dịch không có người nợ hoặc sai lệch để dọn dẹp sạch sẽ"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-amber-800">
+                      {isCleaningOrphans ? 'Đang Quét Dữ Liệu...' : 'Quét & Dọn Dữ Liệu Rác'}
+                    </span>
+                    <ShieldCheck className={`w-4 h-4 text-amber-600 ${isCleaningOrphans ? 'animate-spin' : ''}`} />
+                  </div>
+                  <span className="text-[11px] text-slate-500 leading-tight">
+                    Quét toàn bộ sổ để loại bỏ các giao dịch mồ côi và làm sạch Firestore Cloud.
                   </span>
                 </button>
               </div>

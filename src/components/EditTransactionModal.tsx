@@ -11,10 +11,11 @@ import {
   Save,
   Trash2,
   Users,
+  Loader2,
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
 import { ThousandAmountInput } from './ThousandAmountInput';
-import { compressImageFile } from '../utils/imageCompressor';
+import { uploadBillImage } from '../utils/imageUploader';
 import { cleanStorageIfQuotaBloated } from '../utils/storage';
 
 interface EditTransactionModalProps {
@@ -40,6 +41,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -61,17 +63,21 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 15 * 1024 * 1024) {
-        setError('Kích thước ảnh không được vượt quá 15MB');
+      if (file.size > 25 * 1024 * 1024) {
+        setError('Kích thước ảnh gốc không được vượt quá 25MB');
         return;
       }
       try {
         setError('');
-        const compressedBase64 = await compressImageFile(file, 1200, 1200, 0.75);
-        setBillImage(compressedBase64);
-      } catch (err) {
-        console.error('Image compression failed:', err);
-        setError('Không thể xử lý hình ảnh này. Vui lòng chọn ảnh khác.');
+        setIsUploadingImage(true);
+        // Upload original full-resolution image to cloud vault without lossy compression
+        const uploadedUrl = await uploadBillImage(file);
+        setBillImage(uploadedUrl);
+      } catch (err: any) {
+        console.error('Image upload failed:', err);
+        setError(err?.message || 'Không thể tải hình ảnh này. Vui lòng chọn ảnh khác.');
+      } finally {
+        setIsUploadingImage(false);
       }
     }
   };
@@ -330,7 +336,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
               Ảnh hóa đơn / Chứng từ (Tùy chọn)
             </label>
-            {billImage ? (
+            {isUploadingImage ? (
+              <div className="flex items-center justify-center gap-2 p-3.5 border border-slate-200 bg-slate-50 rounded-xl text-slate-600 text-xs font-medium">
+                <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                <span>Đang tải ảnh gốc chất lượng cao lên đám mây...</span>
+              </div>
+            ) : billImage ? (
               <div className="flex items-center gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                 <img
                   src={billImage}
@@ -338,8 +349,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   className="w-14 h-14 object-cover rounded-lg border border-slate-200"
                 />
                 <div className="flex-1 min-w-0 text-xs text-slate-600">
-                  <div className="font-semibold text-slate-800 truncate">Ảnh đính kèm</div>
-                  <div className="text-[11px] text-slate-400">Đã lưu cùng giao dịch này</div>
+                  <div className="font-semibold text-slate-800 truncate">Ảnh đính kèm gốc</div>
+                  <div className="text-[11px] text-emerald-600 font-medium">Lưu trữ đám mây sắc nét 100%</div>
                 </div>
                 <button
                   type="button"
@@ -354,7 +365,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             ) : (
               <label className="flex items-center justify-center gap-2 p-3.5 border border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/40 rounded-xl text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer text-xs font-medium">
                 <Upload className="w-4 h-4 text-slate-400" />
-                <span>Tải ảnh hóa đơn / chuyển khoản</span>
+                <span>Tải ảnh hóa đơn / chuyển khoản (Chất lượng gốc)</span>
                 <input
                   type="file"
                   accept="image/*"

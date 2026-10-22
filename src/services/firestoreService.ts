@@ -820,3 +820,68 @@ export async function resetSampleDataInFirestore(): Promise<void> {
   await clearAllFirestoreData();
   await seedInitialDataToFirestore();
 }
+
+/**
+ * Save an uncompressed full-resolution image into Cloud Firestore safely chunked
+ */
+export async function saveBillImageToFirestore(
+  id: string,
+  base64Data: string,
+  mimeType = 'image/jpeg',
+  filename?: string
+): Promise<void> {
+  const CHUNK_SIZE = 400000; // ~400KB safe chunk limit for Firestore 1MB doc max
+  const chunks: string[] = [];
+  for (let i = 0; i < base64Data.length; i += CHUNK_SIZE) {
+    chunks.push(base64Data.slice(i, i + CHUNK_SIZE));
+  }
+
+  const docRef = doc(firestore, 'bill_images', id);
+  await setDoc(docRef, {
+    id,
+    filename: filename || `${id}.jpg`,
+    mimeType,
+    size: base64Data.length,
+    chunks,
+    totalChunks: chunks.length,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Fetch and reassemble a full-resolution bill image from Cloud Firestore
+ */
+export async function getBillImageFromFirestore(
+  id: string
+): Promise<{ id: string; filename: string; mimeType: string; base64Data: string } | null> {
+  try {
+    const docRef = doc(firestore, 'bill_images', id);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+
+    const data = snap.data();
+    const chunks: string[] = Array.isArray(data.chunks) ? data.chunks : [];
+    const base64Data = chunks.join('');
+    return {
+      id: data.id || id,
+      filename: data.filename || `${id}.jpg`,
+      mimeType: data.mimeType || 'image/jpeg',
+      base64Data,
+    };
+  } catch (err) {
+    console.warn(`Error getting bill image ${id} from Firestore:`, err);
+    return null;
+  }
+}
+
+/**
+ * Delete a bill image from Cloud Firestore
+ */
+export async function deleteBillImageFromFirestore(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(firestore, 'bill_images', id));
+  } catch (err) {
+    console.warn(`Error deleting bill image ${id} from Firestore:`, err);
+  }
+}
+

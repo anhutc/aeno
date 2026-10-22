@@ -1251,13 +1251,15 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
       parsedTransactions = Array.from(tMap.values());
       parsedParties = Array.from(pMap.values());
       parsedSettings = parsedSettings ? { ...currentSettings, ...parsedSettings } : currentSettings;
-    } else {
-      parsedSettings = parsedSettings || loadSettings();
     }
+
+    // Ensure orphan transactions are filtered out in client fallback as well
+    const validDebtorIds = new Set((parsedDebtors || []).map((d: any) => d.id));
+    const cleanTransactions = (parsedTransactions || []).filter((t: any) => validDebtorIds.has(t.debtorId));
 
     const formatted = {
       debtors: parsedDebtors,
-      transactions: parsedTransactions,
+      transactions: cleanTransactions,
       parties: parsedParties,
       settings: parsedSettings,
     };
@@ -1274,6 +1276,27 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
   } catch (err: any) {
     return { success: false, message: err?.message || 'Lỗi khi khôi phục dữ liệu từ tệp JSON' };
   }
+}
+
+export async function apiCleanOrphanTransactions(): Promise<{
+  success: boolean;
+  removedCount: number;
+  message: string;
+  debtorsCount?: number;
+  transactionsCount?: number;
+}> {
+  try {
+    const res = await fetch('/api/owner/clean-orphans', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('apiCleanOrphanTransactions error:', err?.message);
+  }
+  return { success: false, removedCount: 0, message: 'Lỗi kết nối khi dọn dẹp dữ liệu' };
 }
 
 export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise<{

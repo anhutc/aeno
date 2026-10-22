@@ -9,6 +9,9 @@ import {
   ShieldCheck,
   FileText,
   ArrowRight,
+  Trash2,
+  Download,
+  Archive,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import {
@@ -18,6 +21,7 @@ import {
   apiGetFirestoreBackups,
   apiCreateFirestoreBackup,
   apiRestoreFirestoreBackup,
+  apiCleanOrphanTransactions,
   BackupItem,
   FirestoreStatusInfo,
 } from '../utils/api';
@@ -38,6 +42,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   debtors,
   transactions,
   settings,
+  parties = [],
   onDataReload,
   showToast,
   onSwitchToSecurityTab,
@@ -139,6 +144,63 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     } finally {
       setIsCheckingStatus(false);
     }
+  };
+
+  // Quét & Dọn Dẹp Giao Dịch Mồ Côi Cloud
+  const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
+  const handleCleanOrphans = async () => {
+    setIsCleaningOrphans(true);
+    try {
+      const res = await apiCleanOrphanTransactions();
+      if (res.success) {
+        if (res.removedCount > 0) {
+          showToast(`Đã dọn dẹp ${res.removedCount} giao dịch mồ côi thành công!`, 'success');
+          onDataReload();
+          fetchBackups();
+        } else {
+          showToast('Dữ liệu Cloud hoàn hảo! Không có giao dịch rác hay mồ côi nào.', 'success');
+        }
+      } else {
+        showToast(res.message || 'Lỗi khi quét dữ liệu', 'error');
+      }
+    } catch {
+      showToast('Lỗi kết nối khi quét dọn dữ liệu', 'error');
+    } finally {
+      setIsCleaningOrphans(false);
+    }
+  };
+
+  // Xuất tệp sao lưu JSON chuẩn Cloud
+  const handleExportJson = () => {
+    const validDebtorIds = new Set(debtors.map((d) => d.id));
+    const cleanTransactions = transactions.filter((t) => validDebtorIds.has(t.debtorId));
+
+    const fullBackup = {
+      appName: settings.appTitle || 'OK Sổ Ghi Nợ',
+      schemaVersion: 2,
+      databaseId: status?.databaseId || BUILTIN_FIREBASE_CONFIG.firestoreDatabaseId,
+      exportedAt: new Date().toISOString(),
+      stats: {
+        debtorsCount: debtors.length,
+        transactionsCount: cleanTransactions.length,
+        partiesCount: (parties || []).length,
+      },
+      debtors,
+      transactions: cleanTransactions,
+      parties: parties || [],
+      settings,
+    };
+
+    const blob = new Blob([JSON.stringify(fullBackup, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Đã xuất tệp sao lưu (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch)!`, 'success');
   };
 
   // Switch Database ID Logic
@@ -448,6 +510,88 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
             </button>
           </div>
         </div>
+
+      {/* Card 2: Dọn Dẹp Dữ Liệu Rác & Sao Lưu Cloud */}
+      <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4 space-y-3.5">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Dọn Dẹp Dữ Liệu Rác &amp; Sao Lưu Chuẩn Cloud</span>
+          </div>
+          <span className="text-[11px] text-slate-500 font-medium">
+            Hiện có: <strong className="text-slate-800">{debtors.length}</strong> người nợ • <strong className="text-slate-800">{transactions.length}</strong> giao dịch • <strong className="text-slate-800">{parties?.length || 0}</strong> cuộc vui
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Action 1: Quét dọn mồ côi */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-amber-300 transition-all">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900">Quét &amp; Dọn Dữ Liệu Rác</span>
+                <Trash2 className="w-4 h-4 text-amber-500" />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Tự động tìm kiếm các giao dịch mồ côi hoặc không hợp lệ để dọn dẹp sạch sẽ khỏi Cloud Firestore.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCleanOrphans}
+              disabled={isCleaningOrphans}
+              className="mt-3 w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 ${isCleaningOrphans ? 'animate-spin' : ''}`} />
+              <span>{isCleaningOrphans ? 'Đang Quét Dữ Liệu...' : 'Quét Dọn Rác Ngay'}</span>
+            </button>
+          </div>
+
+          {/* Action 2: Xuất Backup JSON */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-300 transition-all">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900">Xuất File JSON Sao Lưu</span>
+                <Download className="w-4 h-4 text-emerald-600" />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Tải tệp JSON chuẩn cấu trúc Cloud lưu đầy đủ người nợ, giao dịch, chia tiền và cài đặt.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportJson}
+              className="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Tải File Sao Lưu (.JSON)</span>
+            </button>
+          </div>
+
+          {/* Action 3: Bản Snapshot Máy Chủ */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-purple-300 transition-all">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900">Bản Snapshot Máy Chủ</span>
+                <Archive className="w-4 h-4 text-purple-600" />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Đang lưu trữ {backups.length} điểm khôi phục snapshot an toàn trên hệ thống máy chủ.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSourceModalTab('SNAPSHOTS');
+                setIsCloudSourceModalOpen(true);
+              }}
+              className="mt-3 w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>Quản Lý Snapshot ({backups.length})</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* =========================================================================
           MODAL 1: NGUỒN DỮ LIỆU ĐÁM MÂY & HƯỚNG DẪN TÍCH HỢP (CLOUD SOURCE MODAL)

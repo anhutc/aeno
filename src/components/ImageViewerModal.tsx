@@ -33,11 +33,16 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const handleRotate = () => setRotation((prev) => (prev + 90) % 360);
 
   const handleOpenNewTab = () => {
-    const win = window.open();
-    if (win) {
-      win.document.write(
-        `<body style="margin:0;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="${imageUrl}" style="max-width:100%;height:auto;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.08);" /></body>`
-      );
+    if (!imageUrl) return;
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://') || imageUrl.startsWith('/')) {
+      window.open(imageUrl, '_blank');
+    } else {
+      const win = window.open();
+      if (win) {
+        win.document.write(
+          `<body style="margin:0;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="${imageUrl}" style="max-width:100%;height:auto;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.08);" /></body>`
+        );
+      }
     }
   };
 

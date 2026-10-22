@@ -30,6 +30,9 @@ import {
   createSnapshotBackup,
   listSnapshotBackups,
   restoreSnapshotBackup,
+  saveBillImageToFirestore,
+  getBillImageFromFirestore,
+  deleteBillImageFromFirestore,
 } from './src/services/firestoreService';
 
 interface DatabaseSchema {
@@ -61,6 +64,14 @@ console.error = (...args: any[]) => {
 };
 const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'debt-app-data') : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch {
+  // safe fallback
+}
 
 let isFirestoreActive = false;
 let inMemoryDb: DatabaseSchema | null = null;
@@ -221,6 +232,99 @@ app.use(async (req, _res, next) => {
       time: new Date().toISOString(),
     });
   });
+
+  // --- UNCOMPRESSED FULL-RESOLUTION IMAGE STORAGE ROUTES (100% FREE & ZERO QUALITY LOSS) ---
+
+  // Upload original bill image
+  app.post('/api/upload-image', async (req, res) => {
+    try {
+      const { image, filename: originalFilename, mimeType: providedMimeType } = req.body;
+      if (!image || typeof image !== 'string') {
+        return res.status(400).json({ success: false, message: 'Dữ liệu hình ảnh không hợp lệ' });
+      }
+
+      let mimeType = providedMimeType || 'image/jpeg';
+      let cleanBase64 = image;
+
+      if (image.startsWith('data:')) {
+        const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          cleanBase64 = matches[2];
+        } else {
+          cleanBase64 = image.split(',')[1] || image;
+        }
+      }
+
+      // Determine clean extension
+      let ext = '.jpg';
+      if (mimeType.includes('png')) ext = '.png';
+      else if (mimeType.includes('webp')) ext = '.webp';
+      else if (mimeType.includes('gif')) ext = '.gif';
+      else if (mimeType.includes('svg')) ext = '.svg';
+
+      const imageId = `bill_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const safeFilename = `${imageId}${ext}`;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+
+      // 1. Save directly to server disk for instant static delivery
+      const localFilePath = path.join(UPLOADS_DIR, safeFilename);
+      fs.writeFileSync(localFilePath, buffer);
+
+      // 2. Persist in Cloud Firestore chunked store asynchronously so it never gets lost across container restarts
+      saveBillImageToFirestore(imageId, cleanBase64, mimeType, safeFilename).catch((err) => {
+        console.warn('Async saveBillImageToFirestore notice:', err?.message);
+      });
+
+      return res.json({
+        success: true,
+        url: `/api/images/${safeFilename}`,
+        filename: safeFilename,
+        size: buffer.length,
+        mimeType,
+      });
+    } catch (err: any) {
+      console.error('Error handling /api/upload-image:', err);
+      return res.status(500).json({ success: false, message: err?.message || 'Lỗi lưu trữ hình ảnh' });
+    }
+  });
+
+  // Serve full-resolution image with automatic disk caching and Cloud Firestore retrieval
+  app.get('/api/images/:filename', async (req, res) => {
+    try {
+      const safeFilename = path.basename(req.params.filename);
+      const localFilePath = path.join(UPLOADS_DIR, safeFilename);
+
+      // Check if file is cached locally on disk
+      if (fs.existsSync(localFilePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.sendFile(localFilePath);
+      }
+
+      // If not on disk (e.g. freshly restarted Cloud Run container), load from Cloud Firestore
+      const imageId = safeFilename.replace(/\.[^/.]+$/, '');
+      const cloudImage = await getBillImageFromFirestore(imageId);
+      if (cloudImage && cloudImage.base64Data) {
+        const buffer = Buffer.from(cloudImage.base64Data, 'base64');
+        try {
+          fs.writeFileSync(localFilePath, buffer);
+        } catch {
+          // ignore cache write error
+        }
+        res.setHeader('Content-Type', cloudImage.mimeType || 'image/jpeg');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.end(buffer);
+      }
+
+      return res.status(404).send('Không tìm thấy hình ảnh chứng từ');
+    } catch (err: any) {
+      console.error('Error serving /api/images/:filename:', err);
+      return res.status(500).send('Lỗi tải hình ảnh');
+    }
+  });
+
+  // Static fallback alias for /uploads
+  app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '365d', immutable: true }));
 
   // Public: App Settings (Available for Guest and initial load)
   app.get('/api/settings', async (_req, res) => {
@@ -511,6 +615,44 @@ app.use(async (req, _res, next) => {
       console.error('Error deleting transaction from Cloud Firestore:', err?.message);
     }
     res.json({ success: true, transactions: db.transactions });
+  });
+
+  // Owner: Clean orphan transactions (transactions without existing debtor)
+  app.post('/api/owner/clean-orphans', authMiddleware, async (_req, res) => {
+    const db = getDatabase();
+    const debtorIdSet = new Set(db.debtors.map((d) => d.id));
+    const orphans = db.transactions.filter((t) => !debtorIdSet.has(t.debtorId));
+
+    if (orphans.length === 0) {
+      return res.json({
+        success: true,
+        removedCount: 0,
+        message: 'Dữ liệu hoàn toàn sạch sẽ, không có giao dịch mồ côi nào!',
+        debtorsCount: db.debtors.length,
+        transactionsCount: db.transactions.length,
+      });
+    }
+
+    createSnapshotBackup(db, 'pre_clean_orphans');
+    db.transactions = db.transactions.filter((t) => debtorIdSet.has(t.debtorId));
+    saveDatabase(db);
+
+    try {
+      for (const orphan of orphans) {
+        await deleteTransactionFromFirestore(orphan.id);
+      }
+      isFirestoreActive = true;
+    } catch (err: any) {
+      console.error('Error deleting orphan transactions from Firestore:', err?.message);
+    }
+
+    res.json({
+      success: true,
+      removedCount: orphans.length,
+      message: `Đã dọn dẹp thành công ${orphans.length} giao dịch mồ côi!`,
+      debtorsCount: db.debtors.length,
+      transactionsCount: db.transactions.length,
+    });
   });
 
   // Owner: Save Party Split
@@ -1246,6 +1388,10 @@ app.use(async (req, _res, next) => {
         finalParties = cleanParties;
         finalSettings = inputSettings ? { ...currentDb.settings, ...inputSettings } : currentDb.settings;
       }
+
+      // Automatic hygiene: Filter out any orphan transactions before saving to Cloud Firestore
+      const validDebtorIds = new Set(finalDebtors.map((d) => d.id));
+      finalTransactions = finalTransactions.filter((t) => validDebtorIds.has(t.debtorId));
 
       const newState: DatabaseSchema = {
         debtors: finalDebtors,

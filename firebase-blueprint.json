@@ -65,6 +65,21 @@
         "transferTitle": { "type": "string" },
         "settledNote": { "type": "string" }
       }
+    },
+    "billImage": {
+      "title": "BillImage",
+      "description": "Represents an uncompressed full-resolution bill or receipt image stored in chunks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "filename": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "size": { "type": "number" },
+        "chunks": { "type": "array", "items": { "type": "string" } },
+        "totalChunks": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "mimeType", "chunks"]
     }
   },
   "firestore": {
@@ -83,6 +98,10 @@
     "/settings/{settingId}": {
       "schema": "appSettings",
       "description": "System settings and owner configuration"
+    },
+    "/bill_images/{imageId}": {
+      "schema": "billImage",
+      "description": "Collection of full-resolution bill and receipt images"
     }
   }
 }
