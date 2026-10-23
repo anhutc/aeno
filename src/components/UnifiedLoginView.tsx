@@ -17,11 +17,19 @@ import {
   ShieldCheck,
   CreditCard,
   User,
+  ScanFace,
+  Fingerprint,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
 import { loadDebtors, loadTransactions, loadSettings, saveSettings } from '../utils/storage';
 import { PWAInstallButton } from './PWAInstallButton';
+import {
+  isBiometricsAvailable,
+  isBiometricsEnrolled,
+  authenticateWithBiometrics,
+  registerBiometrics,
+} from '../utils/webauthn';
 
 interface UnifiedLoginViewProps {
   settings: AppSettings;
@@ -41,6 +49,20 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [isShaking, setIsShaking] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedAcc, setCopiedAcc] = useState(false);
+
+  // Sinh trắc học (FaceID / Touch ID)
+  const [canUseBiometrics, setCanUseBiometrics] = useState(false);
+  const [isBiometricEnrolled, setIsBiometricEnrolled] = useState(false);
+  const [showEnrollPrompt, setShowEnrollPrompt] = useState(false);
+  const [pendingOwnerCode, setPendingOwnerCode] = useState('');
+  const [isBiometricLoading, setIsBiometricLoading] = useState(false);
+
+  useEffect(() => {
+    isBiometricsAvailable().then((avail) => {
+      setCanUseBiometrics(avail);
+      setIsBiometricEnrolled(isBiometricsEnrolled());
+    });
+  }, []);
 
   // If in an InPrivate window and public settings are default, hydrate immediately
   useEffect(() => {
@@ -76,6 +98,37 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     }
   };
 
+  const handleOwnerSuccess = (code: string) => {
+    setPasscode('');
+    if (canUseBiometrics && !isBiometricsEnrolled()) {
+      setPendingOwnerCode(code);
+      setShowEnrollPrompt(true);
+    } else {
+      onLoginOwnerSuccess();
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setIsBiometricLoading(true);
+    setError('');
+    try {
+      const res = await authenticateWithBiometrics();
+      if (res.success) {
+        if (res.passcode) {
+          await executeAuthentication(res.passcode);
+        } else {
+          onLoginOwnerSuccess();
+        }
+      } else if (res.message) {
+        setError(res.message);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Lỗi quét FaceID / Vân tay');
+    } finally {
+      setIsBiometricLoading(false);
+    }
+  };
+
   const executeAuthentication = useCallback(
     async (codeToVerify: string) => {
       const clean = codeToVerify.trim();
@@ -92,8 +145,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         // 1. Kiểm tra xem có phải mật khẩu hoặc SĐT Quản lý hay không
         const ownerRes = await loginOwner(clean);
         if (ownerRes.success) {
-          setPasscode('');
-          onLoginOwnerSuccess();
+          handleOwnerSuccess(clean);
           return;
         }
 
@@ -123,8 +175,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           (localPhone && cleanPhone === localPhone) ||
           clean === '123456'
         ) {
-          setPasscode('');
-          onLoginOwnerSuccess();
+          handleOwnerSuccess(clean);
           return;
         }
 
@@ -294,6 +345,33 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
               </>
             )}
           </button>
+
+          {/* Nút Đăng Nhập FaceID / Vân Tay 1-Chạm */}
+          {canUseBiometrics && (
+            <div className="pt-1">
+              <button
+                type="button"
+                id="btn-faceid-login"
+                onClick={isBiometricEnrolled ? handleBiometricLogin : () => {
+                  setError('Vui lòng nhập mật khẩu quản lý để đăng nhập và kích hoạt FaceID cho thiết bị này.');
+                }}
+                disabled={isLoading || isBiometricLoading}
+                className="w-full py-2.5 sm:py-3 px-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 hover:from-emerald-100 hover:to-teal-100 active:from-emerald-200 active:to-teal-200 border border-emerald-300/80 text-emerald-950 font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] shadow-2xs"
+                title="Đăng nhập bằng FaceID / Vân tay bảo mật"
+              >
+                {isBiometricLoading ? (
+                  <RefreshCw className="w-4 h-4 text-emerald-700 animate-spin" />
+                ) : (
+                  <ScanFace className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700 shrink-0" />
+                )}
+                <span>
+                  {isBiometricEnrolled
+                    ? 'Đăng Nhập Bằng FaceID / Vân Tay'
+                    : 'Kích Hoạt Đăng Nhập FaceID'}
+                </span>
+              </button>
+            </div>
+          )}
         </form>
 
         {/* 3. Khối Thông Tin Tài Khoản Nhận Tiền - Thiết Kế Hài Hòa Tinh Tế (Thanh lịch & Nhẹ nhàng) */}
@@ -384,6 +462,54 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           <PWAInstallButton variant="inline" />
         </div>
       </motion.div>
+
+      {/* Modal Đề Xuất Kích Hoạt FaceID Sau Khi Đăng Nhập Quản Lý */}
+      {showEnrollPrompt && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 max-w-sm w-full shadow-2xl text-center space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-inner">
+              <ScanFace className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">Kích Hoạt FaceID / Vân Tay?</h3>
+              <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                Những lần sau, bạn chỉ cần 1 chạm hoặc 1 cái liếc mắt là mở khóa Sổ Ghi Nợ ngay lập tức, không cần gõ lại mật khẩu.
+              </p>
+            </div>
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsBiometricLoading(true);
+                  const res = await registerBiometrics(pendingOwnerCode);
+                  setIsBiometricLoading(false);
+                  setShowEnrollPrompt(false);
+                  onLoginOwnerSuccess();
+                }}
+                disabled={isBiometricLoading}
+                className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-600/20 active:scale-[0.99]"
+              >
+                {isBiometricLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <ScanFace className="w-4 h-4 text-white" />
+                )}
+                <span>Kích Hoạt FaceID Ngay</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEnrollPrompt(false);
+                  onLoginOwnerSuccess();
+                }}
+                className="w-full py-2.5 px-4 text-slate-500 hover:text-slate-800 font-semibold text-xs cursor-pointer rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                Để Sau
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

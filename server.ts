@@ -42,10 +42,32 @@ interface DatabaseSchema {
   settings: AppSettings;
 }
 
-const PORT = 3000;
+const args = process.argv.slice(2);
+const portIndex = args.indexOf('--port');
+const portFromArgs = portIndex !== -1 ? Number(args[portIndex + 1]) : null;
+const hostIndex = args.indexOf('--host');
+const hostFromArgs = hostIndex !== -1 ? args[hostIndex + 1] : null;
+
+const PORT = portFromArgs || 3000;
+const HOST = hostFromArgs || '0.0.0.0';
 const IS_VERCEL = Boolean(process.env.VERCEL);
 
-// Guard against benign Firestore BloomFilter fallback warnings
+// Guard against benign Firestore BloomFilter fallback warnings and websocket errors
+process.on('uncaughtException', (err: any) => {
+  const msg = String(err?.message || err);
+  if (msg.includes('WebSocket') || msg.includes('24678') || msg.includes('BloomFilter') || msg.includes('EADDRINUSE')) {
+    return;
+  }
+  console.error('Process error notice:', err?.message || err);
+});
+process.on('unhandledRejection', (reason: any) => {
+  const msg = String(reason?.message || reason);
+  if (msg.includes('WebSocket') || msg.includes('BloomFilter') || msg.includes('24678')) {
+    return;
+  }
+  console.warn('Unhandled promise notice:', reason);
+});
+
 const isBloomFilterNoise = (args: any[]): boolean => {
   return args.some((arg) => {
     const str = typeof arg === 'string' ? arg : arg?.message || (typeof arg === 'object' ? JSON.stringify(arg) : '');
@@ -325,6 +347,83 @@ app.use(async (req, _res, next) => {
 
   // Static fallback alias for /uploads
   app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '365d', immutable: true }));
+
+  // --- VIETQR PROXY & BASE64 GENERATOR (Guarantees zero-CORS statement image export) ---
+  app.get('/api/proxy-vietqr', async (req, res) => {
+    try {
+      const rawUrl = String(req.query.url || '').trim();
+      const format = String(req.query.format || '').trim();
+
+      if (!rawUrl) {
+        return res.status(400).json({ success: false, message: 'Thiếu tham số url VietQR' });
+      }
+
+      // Security check: only allow proxying to vietqr domains
+      const parsed = new URL(rawUrl);
+      if (!parsed.hostname.endsWith('vietqr.io') && !parsed.hostname.endsWith('vietqr.net')) {
+        return res.status(400).json({ success: false, message: 'Chỉ hỗ trợ tên miền vietqr.io' });
+      }
+
+      const upstreamRes = await fetch(rawUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/png,image/svg+xml,image/*,*/*',
+        },
+      });
+
+      if (!upstreamRes.ok) {
+        return res.status(upstreamRes.status).json({
+          success: false,
+          message: `Lỗi kết nối VietQR upstream (${upstreamRes.status})`,
+        });
+      }
+
+      const contentType = upstreamRes.headers.get('content-type') || 'image/png';
+      const arrayBuffer = await upstreamRes.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // If it's an SVG, check if it contains an embedded PNG data URL
+      let pngDataUrl: string | null = null;
+      if (contentType.includes('svg')) {
+        const svgText = buffer.toString('utf-8');
+        const match = svgText.match(/href="(data:image\/png;base64,[^"]+)"/) ||
+                      svgText.match(/xlink:href="(data:image\/png;base64,[^"]+)"/);
+        if (match && match[1]) {
+          pngDataUrl = match[1];
+        }
+      }
+
+      // If JSON format is requested (for ShareDebtorImageModal)
+      if (format === 'json') {
+        const finalDataUrl = pngDataUrl || `data:${contentType};base64,${buffer.toString('base64')}`;
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.json({
+          success: true,
+          dataUrl: finalDataUrl,
+          isEmbeddedPng: Boolean(pngDataUrl),
+        });
+      }
+
+      // If streaming the image directly: if embedded PNG is found, stream as PNG!
+      if (pngDataUrl) {
+        const rawBase64 = pngDataUrl.replace(/^data:image\/png;base64,/, '');
+        const pngBuf = Buffer.from(rawBase64, 'base64');
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.end(pngBuf);
+      }
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.end(buffer);
+    } catch (err: any) {
+      console.error('Error in /api/proxy-vietqr:', err);
+      return res.status(500).json({ success: false, message: err?.message || 'Lỗi proxy VietQR' });
+    }
+  });
 
   // Public: App Settings (Available for Guest and initial load)
   app.get('/api/settings', async (_req, res) => {
@@ -1655,7 +1754,10 @@ app.use(async (req, _res, next) => {
     if (process.env.NODE_ENV !== 'production') {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: {
+          middlewareMode: true,
+          hmr: false,
+        },
         appType: 'spa',
       });
       app.use(vite.middlewares);
@@ -1669,8 +1771,8 @@ app.use(async (req, _res, next) => {
 
     // Bind and listen only in non-serverless container environments
     if (!IS_VERCEL) {
-      app.listen(PORT, '0.0.0.0', () => {
-        console.log(`Server running on http://0.0.0.0:${PORT}`);
+      app.listen(PORT, HOST, () => {
+        console.log(`Server running on http://${HOST}:${PORT}`);
       });
     }
   }

@@ -188,6 +188,20 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
 
                   {/* Phần thân có thể cuộn trượt nếu màn hình nhỏ */}
                   <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1 overscroll-contain">
+                    {/* Xem trước biểu tượng ứng dụng */}
+                    <div className="flex items-center gap-3.5 p-3.5 bg-gradient-to-r from-emerald-50/90 to-teal-50/60 rounded-2xl border border-emerald-100">
+                      <img
+                        src="/apple-touch-icon.png"
+                        alt="App Icon"
+                        className="w-14 h-14 rounded-2xl shadow-md border border-emerald-200/60 shrink-0 object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-extrabold text-slate-900 text-sm truncate">Sổ Ghi Nợ</div>
+                        <div className="text-[11px] text-emerald-700 font-medium truncate">Ứng dụng sổ nợ & chia tiền</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Biểu tượng màn hình chính chuẩn HD sắc nét</div>
+                      </div>
+                    </div>
+
                     {isIOS ? (
                       // Hướng dẫn dành riêng cho iPhone / iPad (Safari)
                       <div className="space-y-3 text-xs sm:text-sm text-slate-700">

@@ -24,9 +24,16 @@ import {
   Sparkles,
   QrCode,
   Info,
+  ScanFace,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
 import { POPULAR_BANKS, generateVietQrUrl } from '../utils/vietqr';
+import {
+  isBiometricsAvailable,
+  isBiometricsEnrolled,
+  registerBiometrics,
+  disableBiometrics,
+} from '../utils/webauthn';
 import {
   loadDebtors,
   loadTransactions,
@@ -123,6 +130,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = useState<AppSettings>(() => normalizeSettings(settings));
   const [isSaving, setIsSaving] = useState(false);
   const isSavingRef = useRef(false);
+
+  // Sinh trắc học (FaceID / Touch ID)
+  const [canUseBiometrics, setCanUseBiometrics] = useState(false);
+  const [isBiometricEnrolled, setIsBiometricEnrolled] = useState(false);
+  const [isBiometricProcessing, setIsBiometricProcessing] = useState(false);
+
+  useEffect(() => {
+    isBiometricsAvailable().then((avail) => {
+      setCanUseBiometrics(avail);
+      setIsBiometricEnrolled(isBiometricsEnrolled());
+    });
+  }, []);
+
+  const handleRegisterFaceId = async () => {
+    setIsBiometricProcessing(true);
+    const pass = formData.ownerPassword || 'admin123';
+    const res = await registerBiometrics(pass);
+    setIsBiometricProcessing(false);
+    if (res.success) {
+      setIsBiometricEnrolled(true);
+      showToast(res.message || 'Đã kích hoạt FaceID thành công!', 'success');
+    } else {
+      showToast(res.message || 'Không thể thiết lập FaceID', 'error');
+    }
+  };
+
+  const handleDisableFaceId = () => {
+    disableBiometrics();
+    setIsBiometricEnrolled(false);
+    showToast('Đã hủy liên kết FaceID trên thiết bị này', 'success');
+  };
 
   // Derive dirty state
   const isDirty = useMemo(() => {
@@ -305,7 +343,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       debtors: activeDebtors,
       transactions: cleanTransactions,
       parties: activeParties,
-      settings: formData,
+      settings: (() => {
+        // Loại bỏ trường trùng lặp shareMessageTemplate trong bản sao lưu JSON
+        const { shareMessageTemplate, reminderMessageTemplate, ...cleanSettings } = formData as any;
+        return cleanSettings;
+      })(),
     };
 
     const blob = new Blob([JSON.stringify(fullBackup, null, 2)], {
@@ -464,11 +506,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const handleInsertTag = (tag: string) => {
-    const current = formData.lookupGuideTemplate || formData.shareMessageTemplate || DEFAULT_LOOKUP_GUIDE;
+    const current = formData.lookupGuideTemplate || DEFAULT_LOOKUP_GUIDE;
     setFormData({
       ...formData,
       lookupGuideTemplate: current + ` ${tag} `,
-      shareMessageTemplate: current + ` ${tag} `,
     });
   };
 
@@ -892,6 +933,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
+            {/* Sinh Trắc Học FaceID / Touch ID */}
+            <div className="p-5 bg-gradient-to-r from-emerald-50/80 via-teal-50/50 to-slate-50 rounded-3xl border border-emerald-200/80 space-y-3.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-slate-900 font-bold text-xs uppercase tracking-wider">
+                  <ScanFace className="w-4 h-4 text-emerald-600" />
+                  <span>Bảo Mật Sinh Trắc Học (FaceID / Touch ID)</span>
+                </div>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    isBiometricEnrolled
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-slate-200/80 text-slate-700'
+                  }`}
+                >
+                  {isBiometricEnrolled ? 'Đã kích hoạt' : 'Chưa kích hoạt'}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Đăng nhập 1-chạm hoặc 1 cái liếc mắt bằng khuôn mặt (FaceID) hoặc vân tay (Touch ID / Fingerprint) trên thiết bị này mà không cần nhập lại mật khẩu quản trị.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleRegisterFaceId}
+                  disabled={isBiometricProcessing}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
+                >
+                  <ScanFace className="w-3.5 h-3.5" />
+                  <span>
+                    {isBiometricEnrolled
+                      ? 'Cập Nhật / Đăng Ký Lại FaceID'
+                      : 'Kích Hoạt FaceID Trên Thiết Bị Này'}
+                  </span>
+                </button>
+
+                {isBiometricEnrolled && (
+                  <button
+                    type="button"
+                    onClick={handleDisableFaceId}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 hover:border-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hủy Liên Kết FaceID</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* PWA App Installation Section */}
             <PWAInstallButton variant="settings" />
 
@@ -1007,7 +1098,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     setFormData({
                       ...formData,
                       lookupGuideTemplate: DEFAULT_LOOKUP_GUIDE,
-                      shareMessageTemplate: DEFAULT_LOOKUP_GUIDE,
                     });
                     showToast('Đã khôi phục mẫu tin chuẩn!', 'success');
                   }}
@@ -1039,12 +1129,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {/* Textarea editor */}
               <textarea
                 rows={7}
-                value={formData.lookupGuideTemplate || formData.shareMessageTemplate || ''}
+                value={formData.lookupGuideTemplate || ''}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
                     lookupGuideTemplate: e.target.value,
-                    shareMessageTemplate: e.target.value,
                   })
                 }
                 className="w-full px-3.5 py-3 bg-white border border-slate-300 rounded-2xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 leading-relaxed"
