@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lookupGuideTemplate: DEFAULT_SHARE_MESSAGE,
   guestAnnouncement: DEFAULT_GUEST_ANNOUNCEMENT,
   settledThankYouNote: DEFAULT_SETTLED_NOTE,
+  autoLockTimeout: 'IMMEDIATE',
 };
 
 export const INITIAL_DEBTORS: Debtor[] = [];

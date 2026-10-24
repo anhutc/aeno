@@ -123,6 +123,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     lookupInstructionText: s.lookupInstructionText || DEFAULT_LOOKUP_INSTRUCTION,
     defaultQrMode: s.defaultQrMode || 'MANUAL_AMOUNT',
     vietQrTemplate: s.vietQrTemplate || 'compact2',
+    autoLockTimeout: s.autoLockTimeout || 'IMMEDIATE',
   });
 
   // Dual state tracking to ensure accurate isDirty calculation without ref desync
@@ -182,7 +183,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       (formData.shareMessageTemplate || '') !== (savedSnapshot.shareMessageTemplate || '') ||
       (formData.guestAnnouncement || '') !== (savedSnapshot.guestAnnouncement || '') ||
       (formData.settledThankYouNote || DEFAULT_SETTLED_NOTE) !==
-        (savedSnapshot.settledThankYouNote || DEFAULT_SETTLED_NOTE)
+        (savedSnapshot.settledThankYouNote || DEFAULT_SETTLED_NOTE) ||
+      (formData.autoLockTimeout || 'IMMEDIATE') !==
+        (savedSnapshot.autoLockTimeout || 'IMMEDIATE')
     );
   }, [formData, savedSnapshot]);
 
@@ -980,6 +983,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <span>Hủy Liên Kết FaceID</span>
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* Tự Động Khóa Ứng Dụng (Auto-Lock) */}
+            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-3.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-slate-900 font-bold text-xs uppercase tracking-wider">
+                  <Lock className="w-4 h-4 text-emerald-600" />
+                  <span>Tự Động Khóa Khi Rời Ứng Dụng (Auto-Lock)</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  {formData.autoLockTimeout === 'OFF' ? 'Đã tắt' : 'Đang bật'}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Yêu cầu mở khóa bằng FaceID/Vân tay hoặc mã PIN quản lý khi bạn chuyển sang ứng dụng khác, về màn hình chính hoặc khóa máy.
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+                {[
+                  { id: 'IMMEDIATE', label: 'Khóa ngay', desc: 'Khi rời app' },
+                  { id: '30_SEC', label: 'Sau 30 giây', desc: 'Khuyên dùng' },
+                  { id: '1_MIN', label: 'Sau 1 phút', desc: 'Linh hoạt' },
+                  { id: '5_MIN', label: 'Sau 5 phút', desc: 'Nhiều app' },
+                  { id: 'OFF', label: 'Tắt', desc: 'Không khóa' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        autoLockTimeout: opt.id as any,
+                      })
+                    }
+                    className={`p-2.5 rounded-2xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
+                      (formData.autoLockTimeout || 'IMMEDIATE') === opt.id
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm scale-[1.02]'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    <span className="text-xs font-bold block">{opt.label}</span>
+                    <span
+                      className={`text-[10px] block mt-0.5 ${
+                        (formData.autoLockTimeout || 'IMMEDIATE') === opt.id
+                          ? 'text-emerald-100 font-medium'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {opt.desc}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 

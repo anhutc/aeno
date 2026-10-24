@@ -19,6 +19,8 @@ import {
   User,
   ScanFace,
   Fingerprint,
+  X,
+  Info,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';

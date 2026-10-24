@@ -52,6 +52,7 @@ import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { BottomNavBar } from './components/BottomNavBar';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { AdminAutoLockModal } from './components/AdminAutoLockModal';
 
 export default function App() {
   // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
@@ -74,6 +75,10 @@ export default function App() {
 
   // Luôn bắt đầu với false khi tải hoặc tải lại trang để bắt buộc nhập lại mật khẩu
   const [isOwnerAuthenticated, setIsOwnerAuthenticated] = useState<boolean>(false);
+
+  // Tự động khóa màn hình Admin khi rời ứng dụng
+  const [isAppLocked, setIsAppLocked] = useState(false);
+  const lastLeaveTimeRef = useRef<number | null>(null);
 
   const [guestInitialDebtor, setGuestInitialDebtor] = useState<Debtor | null>(null);
 
@@ -247,6 +252,92 @@ export default function App() {
     setDebtors([]);
     setTransactions([]);
     setParties([]);
+  }, []);
+
+  // Lắng nghe khi Admin rời khỏi ứng dụng và quay lại để tự động khóa
+  useEffect(() => {
+    if (!isOwnerAuthenticated) {
+      setIsAppLocked(false);
+      lastLeaveTimeRef.current = null;
+      return;
+    }
+
+    const autoLockSetting = settings.autoLockTimeout || 'IMMEDIATE';
+    if (autoLockSetting === 'OFF') return;
+
+    const getThresholdMs = (val: string) => {
+      switch (val) {
+        case 'IMMEDIATE':
+          return 0;
+        case '30_SEC':
+          return 30 * 1000;
+        case '1_MIN':
+          return 60 * 1000;
+        case '5_MIN':
+          return 5 * 60 * 1000;
+        default:
+          return 0;
+      }
+    };
+
+    const threshold = getThresholdMs(autoLockSetting);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        lastLeaveTimeRef.current = Date.now();
+        if (threshold === 0) {
+          setIsAppLocked(true);
+        }
+      } else if (document.visibilityState === 'visible') {
+        if (lastLeaveTimeRef.current) {
+          const elapsed = Date.now() - lastLeaveTimeRef.current;
+          if (elapsed >= threshold) {
+            setIsAppLocked(true);
+          }
+        }
+        lastLeaveTimeRef.current = null;
+      }
+    };
+
+    const handlePageHide = () => {
+      lastLeaveTimeRef.current = Date.now();
+      if (threshold === 0) {
+        setIsAppLocked(true);
+      }
+    };
+
+    const handlePageShow = () => {
+      if (lastLeaveTimeRef.current) {
+        const elapsed = Date.now() - lastLeaveTimeRef.current;
+        if (elapsed >= threshold) {
+          setIsAppLocked(true);
+        }
+      }
+      lastLeaveTimeRef.current = null;
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, [isOwnerAuthenticated, settings.autoLockTimeout]);
+
+  const handleLogoutOwner = useCallback(() => {
+    removeStoredOwnerToken();
+    setIsOwnerAuthenticated(false);
+    setIsAppLocked(false);
+    setDebtors([]);
+    setTransactions([]);
+    setParties([]);
+    setCurrentView('GUEST');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
   }, []);
 
   // Handle URL hash changes
@@ -750,6 +841,14 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Tự động khóa màn hình Admin khi rời ứng dụng */}
+      <AdminAutoLockModal
+        isOpen={isOwnerAuthenticated && isAppLocked}
+        settings={settings}
+        onUnlockSuccess={() => setIsAppLocked(false)}
+        onLogout={handleLogoutOwner}
+      />
     </div>
   );
 }
