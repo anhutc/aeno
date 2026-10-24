@@ -68,17 +68,6 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
       ? parties.find((p) => p.id === tx.partyId || (split.partyName && p.name === split.partyName))
       : undefined;
 
-  // Format time if available in createdAt
-  const formattedTime = (() => {
-    if (!tx.createdAt || !tx.createdAt.includes('T')) return null;
-    try {
-      const d = new Date(tx.createdAt);
-      if (isNaN(d.getTime())) return null;
-      return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return null;
-    }
-  })();
 
   return (
     <div
@@ -168,13 +157,6 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
             <Calendar className="w-3 h-3 text-slate-400" />
             <span>{tx.date}</span>
           </span>
-
-          {formattedTime && (
-            <span className="inline-flex items-center gap-0.5 text-slate-400 font-mono text-[10.5px] shrink-0">
-              <Clock className="w-2.5 h-2.5" />
-              <span>{formattedTime}</span>
-            </span>
-          )}
 
           {isParty ? (
             <span className="text-[11px] font-medium text-slate-600 truncate">
