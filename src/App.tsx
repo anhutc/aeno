@@ -36,6 +36,7 @@ import {
   saveTransactions,
   saveParties,
   getDebtorBalance,
+  deepCleanSessionData,
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
 import { subscribeToFirestoreData } from './services/firestoreClient';
@@ -328,13 +329,20 @@ export default function App() {
   }, [isOwnerAuthenticated, settings.autoLockTimeout]);
 
   const handleLogoutOwner = useCallback(() => {
+    deepCleanSessionData();
     removeStoredOwnerToken();
     setIsOwnerAuthenticated(false);
     setIsAppLocked(false);
     setDebtors([]);
     setTransactions([]);
     setParties([]);
+    setGuestInitialDebtor(null);
+    setSelectedDetailDebtor(null);
+    setEditingDebtor(null);
+    setEditingTransaction(null);
+    setEditingParty(null);
     setCurrentView('GUEST');
+    window.location.hash = '';
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', window.location.pathname);
     }
@@ -398,16 +406,7 @@ export default function App() {
     refreshDataFromServer();
   };
 
-  const handleOwnerLogout = () => {
-    removeStoredOwnerToken();
-    setIsOwnerAuthenticated(false);
-    setDebtors([]);
-    setTransactions([]);
-    setParties([]);
-    setGuestInitialDebtor(null);
-    setCurrentView('GUEST');
-    window.location.hash = '';
-  };
+  const handleOwnerLogout = handleLogoutOwner;
 
   // --- Debtor Handlers (Synchronized) ---
   const handleSaveDebtor = async (

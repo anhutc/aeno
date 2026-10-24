@@ -474,3 +474,35 @@ export function getDebtorStatement(
     };
   });
 }
+
+/**
+ * Xóa sạch toàn bộ dấu vết dữ liệu nhạy cảm (Debtors, Txs, Parties, Session Tokens)
+ * khi người dùng bấm Đăng xuất để bảo mật tuyệt đối, ngăn nút Back hoặc người mượn máy xem lại.
+ */
+export function deepCleanSessionData(): void {
+  try {
+    if (typeof window === 'undefined') return;
+
+    const keysToRemove = [
+      STORAGE_KEYS.DEBTORS,
+      STORAGE_KEYS.TRANSACTIONS,
+      STORAGE_KEYS.PARTIES,
+      STORAGE_KEYS.SAMPLE_CLEARED,
+      STORAGE_KEYS.DELETED_TX_IDS,
+      STORAGE_KEYS.DELETED_DEBTOR_IDS,
+      STORAGE_KEYS.DELETED_PARTY_IDS,
+      'so_ghi_no_owner_session_token',
+      'so_ghi_no_saved_guest_pin',
+      'so_ghi_no_saved_guest_name',
+    ];
+
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    sessionStorage.clear();
+
+    // Reset URL và xóa hash/query để người khác không ấn Back xem lại được
+    window.history.replaceState(null, '', window.location.pathname);
+  } catch (err) {
+    console.warn('[Storage] Deep clean session error:', err);
+  }
+}
+

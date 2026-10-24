@@ -56,6 +56,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
   const [showQr, setShowQr] = useState(true);
   const [showRunningBalance, setShowRunningBalance] = useState(true);
   const [showPin, setShowPin] = useState(true);
+  const [showWatermark, setShowWatermark] = useState(true);
   const [noteMessage, setNoteMessage] = useState(
     'Nhờ bạn đối soát lại các giao dịch trên và thanh toán giúp mình sớm nhé. Cảm ơn bạn!'
   );
@@ -81,6 +82,17 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
   }, [debtor, transactions]);
 
   const currentBalance = totalDebt - totalPaid;
+
+  const verificationHash = useMemo(() => {
+    if (!debtor) return 'OK';
+    const raw = `${debtor.id}-${currentBalance}-${statement.length}-${debtor.pin || ''}`;
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      hash = (hash << 5) - hash + raw.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(0, 5);
+  }, [debtor, currentBalance, statement.length]);
 
   // Filter & sort transactions for display in image
   const displayItems = useMemo(() => {
@@ -305,6 +317,24 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
     <div className="w-[590px] bg-white rounded-2xl border border-slate-300 overflow-hidden text-slate-800 font-sans p-5 space-y-4 relative shadow-sm">
       {/* Thanh viền trên trang nhã */}
       <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-600 via-emerald-600 to-teal-600" />
+
+      {/* Lớp vân chìm bảo vệ bản quyền & chống chỉnh sửa cắt ghép số tiền */}
+      {showWatermark && (
+        <div
+          className="absolute inset-0 pointer-events-none select-none overflow-hidden z-0 opacity-[0.038] flex flex-wrap gap-x-10 gap-y-14 items-center justify-around -rotate-12 scale-110"
+          style={{ userSelect: 'none' }}
+          aria-hidden="true"
+        >
+          {Array.from({ length: 28 }).map((_, i) => (
+            <div
+              key={i}
+              className="text-center font-black tracking-widest uppercase font-mono text-[10.5px] whitespace-nowrap text-slate-900"
+            >
+              {settings.appTitle || 'SỔ GHI NỢ'} · XÁC THỰC BẢN KÊ · {settings.ownerName || 'CHỦ SỔ'} · CHỐNG LÀM GIẢ
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Header phiếu */}
       <div className="flex items-start justify-between border-b border-slate-200 pb-3 pt-1">
@@ -592,14 +622,48 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
         </div>
       )}
 
+      {/* Dấu mộc xác thực điện tử chống chỉnh sửa & bản quyền */}
+      {showWatermark && (
+        <div className="p-3 bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-slate-50 border border-emerald-200/90 rounded-2xl flex items-center justify-between gap-3 shadow-2xs relative z-10">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 ring-2 ring-emerald-500/20">
+              <ShieldCheck className="w-6 h-6 stroke-[2.2]" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-950 flex items-center gap-1">
+                  <span>CHỨNG THỰC BẢN KÊ CHÍNH THỨC</span>
+                </span>
+                <span className="text-[9px] font-mono font-extrabold text-emerald-800 bg-white px-2 py-0.5 rounded-md border border-emerald-300 shadow-2xs">
+                  MÃ: #XN-{(debtor.id || 'DEBT').slice(0, 5).toUpperCase()}-{verificationHash}
+                </span>
+              </div>
+              <p className="text-[9.5px] text-slate-600 leading-tight mt-0.5">
+                Trích xuất từ sổ nợ của <strong>{settings.ownerName || 'Chủ Sổ'}</strong> · Thời điểm:{' '}
+                <strong className="text-slate-800">{currentDateStr}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right shrink-0 border-l border-emerald-200/70 pl-3">
+            <div className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">
+              BẢO CHỨNG
+            </div>
+            <div className="text-[8.5px] text-slate-400 font-mono mt-0.5">
+              CHỐNG LÀM GIẢ
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chân trang xác thực */}
-      <div className="border-t border-slate-200 pt-2 text-center text-[10px] text-slate-400 space-y-0.5">
+      <div className="border-t border-slate-200 pt-2 text-center text-[10px] text-slate-400 space-y-0.5 relative z-10">
         <div>
           Tra cứu trực tuyến chi tiết mọi lúc tại đường link cá nhân đã được cung cấp
         </div>
         <div className="font-semibold text-slate-600 flex items-center justify-center gap-1">
           <ShieldCheck className="w-3 h-3 text-emerald-600" />
-          <span>Bảng kê được xuất tự động từ {settings.appTitle || 'Sổ Ghi Nợ'}</span>
+          <span>Bản kê trích xuất tự động · Mọi hành vi tự ý chỉnh sửa số liệu đều không có giá trị đối soát</span>
         </div>
       </div>
     </div>
@@ -800,6 +864,15 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
                     className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
                   />
                   <span>Mã tra cứu</span>
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer select-none text-emerald-800 font-bold">
+                  <input
+                    type="checkbox"
+                    checked={showWatermark}
+                    onChange={(e) => setShowWatermark(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                  />
+                  <span>Dấu mộc &amp; Chống sửa</span>
                 </label>
               </div>
             </div>
