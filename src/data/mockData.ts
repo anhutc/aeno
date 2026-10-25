@@ -23,8 +23,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   guestAnnouncement: DEFAULT_GUEST_ANNOUNCEMENT,
   settledThankYouNote: DEFAULT_SETTLED_NOTE,
   autoLockTimeout: 'IMMEDIATE',
-  blurOnMultitask: true,
-  multitaskShieldStyle: 'BLUR_SHIELD',
 };
 
 export const INITIAL_DEBTORS: Debtor[] = [];

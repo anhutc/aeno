@@ -53,7 +53,6 @@ import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { BottomNavBar } from './components/BottomNavBar';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { MultitaskPrivacyShield } from './components/MultitaskPrivacyShield';
 
 export default function App() {
   // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
@@ -844,11 +843,6 @@ export default function App() {
       )}
 
 
-      {/* Màn che bảo mật & làm mờ chống nhìn trộm khi đa nhiệm (App Switcher) */}
-      <MultitaskPrivacyShield
-        settings={settings}
-        isOwnerAuthenticated={isOwnerAuthenticated}
-      />
     </div>
   );
 }

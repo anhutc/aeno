@@ -91,9 +91,7 @@ export interface AppSettings {
   // Trạng thái hệ thống & đồng bộ
   isInitialized?: boolean;
   lastClearedAt?: string;
-  autoLockTimeout?: 'IMMEDIATE' | '30_SEC' | '1_MIN' | '5_MIN' | 'OFF'; // Tự động khóa khi rời ứng dụng
-  blurOnMultitask?: boolean; // Che mờ và bảo vệ khi đa nhiệm / chuyển ứng dụng (Chống nhìn trộm)
-  multitaskShieldStyle?: 'BLUR_SHIELD' | 'BLUR_ONLY'; // Kiểu che mờ: Làm mờ kèm khiên bảo mật hoặc chỉ làm mờ Gaussian Blur
+  autoLockTimeout?: 'IMMEDIATE' | '30_SEC' | '1_MIN' | '5_MIN' | 'OFF'; // Tự động đăng xuất khi rời ứng dụng
 
   // Cài đặt đồng bộ máy chủ & đám mây (Cloud Sync Server)
   syncServerUrl?: string;

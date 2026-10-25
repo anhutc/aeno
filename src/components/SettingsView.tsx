@@ -124,8 +124,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     defaultQrMode: s.defaultQrMode || 'MANUAL_AMOUNT',
     vietQrTemplate: s.vietQrTemplate || 'compact2',
     autoLockTimeout: s.autoLockTimeout || 'IMMEDIATE',
-    blurOnMultitask: s.blurOnMultitask !== false,
-    multitaskShieldStyle: s.multitaskShieldStyle || 'BLUR_SHIELD',
   });
 
   // Dual state tracking to ensure accurate isDirty calculation without ref desync
@@ -187,11 +185,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       (formData.settledThankYouNote || DEFAULT_SETTLED_NOTE) !==
         (savedSnapshot.settledThankYouNote || DEFAULT_SETTLED_NOTE) ||
       (formData.autoLockTimeout || 'IMMEDIATE') !==
-        (savedSnapshot.autoLockTimeout || 'IMMEDIATE') ||
-      Boolean(formData.blurOnMultitask !== false) !==
-        Boolean(savedSnapshot.blurOnMultitask !== false) ||
-      (formData.multitaskShieldStyle || 'BLUR_SHIELD') !==
-        (savedSnapshot.multitaskShieldStyle || 'BLUR_SHIELD')
+        (savedSnapshot.autoLockTimeout || 'IMMEDIATE')
     );
   }, [formData, savedSnapshot]);
 
@@ -1046,119 +1040,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            {/* Che Mờ Đa Nhiệm - Chống Nhìn Trộm (Gaussian Blur & Privacy Shield) */}
-            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-3.5 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5 text-slate-900 font-bold text-xs uppercase tracking-wider">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Che Mờ Khi Đa Nhiệm (Chống Nhìn Trộm)</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFormData({
-                      ...formData,
-                      blurOnMultitask: formData.blurOnMultitask === false ? true : false,
-                    })
-                  }
-                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-all cursor-pointer flex items-center gap-1.5 ${
-                    formData.blurOnMultitask !== false
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                      : 'bg-slate-200 text-slate-600 border-slate-300'
-                  }`}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      formData.blurOnMultitask !== false ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
-                    }`}
-                  />
-                  <span>{formData.blurOnMultitask !== false ? 'Đang bảo vệ' : 'Đã tắt'}</span>
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Tự động kích hoạt hiệu ứng làm mờ sâu (Gaussian Blur) và màn che bảo vệ ngay khi bạn vuốt màn hình đa nhiệm (App Switcher) hoặc chuyển sang ứng dụng khác, ngăn chặn triệt để việc chụp lén hay nhìn trộm số dư công nợ.
-              </p>
-
-              {formData.blurOnMultitask !== false && (
-                <div className="space-y-2.5 pt-1">
-                  <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-                    Kiểu hiển thị khi đa nhiệm:
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {[
-                      {
-                        id: 'BLUR_SHIELD',
-                        title: 'Làm mờ + Màn che khiên bảo mật',
-                        desc: 'Khuyên dùng: Hiển thị huy hiệu khiên bảo vệ (chuẩn app ngân hàng)',
-                        badge: '⭐ Chuẩn Ngân Hàng',
-                      },
-                      {
-                        id: 'BLUR_ONLY',
-                        title: 'Chỉ làm mờ (Gaussian Blur)',
-                        desc: 'Làm mờ mịn 100% toàn bộ màn hình, tối giản',
-                        badge: 'Mờ Tối Giản',
-                      },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() =>
-                          setFormData({
-                            ...formData,
-                            multitaskShieldStyle: item.id as any,
-                          })
-                        }
-                        className={`p-3 rounded-2xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
-                          (formData.multitaskShieldStyle || 'BLUR_SHIELD') === item.id
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="text-xs font-bold block">{item.title}</span>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                              (formData.multitaskShieldStyle || 'BLUR_SHIELD') === item.id
-                                ? 'bg-emerald-700 text-emerald-100'
-                                : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            {item.badge}
-                          </span>
-                        </div>
-                        <span
-                          className={`text-[10.5px] block ${
-                            (formData.multitaskShieldStyle || 'BLUR_SHIELD') === item.id
-                              ? 'text-emerald-100'
-                              : 'text-slate-500'
-                          }`}
-                        >
-                          {item.desc}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Nút xem thử nghiệm */}
-                  <div className="pt-1 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        window.dispatchEvent(
-                          new CustomEvent('preview-multitask-shield', { detail: { duration: 3000 } })
-                        );
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Xem thử màn che đa nhiệm (3 giây)</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
 
             {/* PWA App Installation Section */}
             <PWAInstallButton variant="settings" />
