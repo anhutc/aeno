@@ -997,7 +997,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5 text-slate-900 font-bold text-xs uppercase tracking-wider">
                   <Lock className="w-4 h-4 text-emerald-600" />
-                  <span>Tự Động Khóa Khi Rời Ứng Dụng (Auto-Lock)</span>
+                  <span>Tự Động Thoát Về Màn Đăng Nhập (Auto-Logout)</span>
                 </div>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
                   {formData.autoLockTimeout === 'OFF' ? 'Đã tắt' : 'Đang bật'}
@@ -1005,12 +1005,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed">
-                Yêu cầu mở khóa bằng FaceID/Vân tay hoặc mã PIN quản lý khi bạn chuyển sang ứng dụng khác, về màn hình chính hoặc khóa máy.
+                Tự động kết thúc phiên và thoát thẳng về màn hình đăng nhập khi bạn chuyển sang ứng dụng khác, về màn hình chính hoặc khóa máy để bảo vệ số liệu tuyệt đối.
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
                 {[
-                  { id: 'IMMEDIATE', label: 'Khóa ngay', desc: 'Khi rời app' },
+                  { id: 'IMMEDIATE', label: 'Thoát ngay', desc: 'Khi rời app' },
                   { id: '30_SEC', label: 'Sau 30 giây', desc: 'Khuyên dùng' },
                   { id: '1_MIN', label: 'Sau 1 phút', desc: 'Linh hoạt' },
                   { id: '5_MIN', label: 'Sau 5 phút', desc: 'Nhiều app' },

@@ -53,7 +53,6 @@ import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { BottomNavBar } from './components/BottomNavBar';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { AdminAutoLockModal } from './components/AdminAutoLockModal';
 import { MultitaskPrivacyShield } from './components/MultitaskPrivacyShield';
 
 export default function App() {
@@ -78,8 +77,7 @@ export default function App() {
   // Luôn bắt đầu với false khi tải hoặc tải lại trang để bắt buộc nhập lại mật khẩu
   const [isOwnerAuthenticated, setIsOwnerAuthenticated] = useState<boolean>(false);
 
-  // Tự động khóa màn hình Admin khi rời ứng dụng
-  const [isAppLocked, setIsAppLocked] = useState(false);
+  // Theo dõi thời điểm rời ứng dụng để tự động đăng xuất
   const lastLeaveTimeRef = useRef<number | null>(null);
 
   const [guestInitialDebtor, setGuestInitialDebtor] = useState<Debtor | null>(null);
@@ -256,10 +254,33 @@ export default function App() {
     setParties([]);
   }, []);
 
-  // Lắng nghe khi Admin rời khỏi ứng dụng và quay lại để tự động khóa
+  // Đăng xuất hoàn toàn về màn hình đăng nhập (xóa token, dữ liệu phiên và chuyển view)
+  const handleLogoutOwner = useCallback(() => {
+    deepCleanSessionData();
+    removeStoredOwnerToken();
+    setIsOwnerAuthenticated(false);
+    setDebtors([]);
+    setTransactions([]);
+    setParties([]);
+    setGuestInitialDebtor(null);
+    setSelectedDetailDebtor(null);
+    setEditingDebtor(null);
+    setEditingTransaction(null);
+    setEditingParty(null);
+    setIsAddDebtorOpen(false);
+    setIsAddTxOpen(false);
+    setIsSplitPartyOpen(false);
+    setViewImageUrl(null);
+    setCurrentView('GUEST');
+    window.location.hash = '';
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
+  // Lắng nghe khi Admin rời khỏi ứng dụng và quay lại để tự động thoát ra màn hình đăng nhập
   useEffect(() => {
     if (!isOwnerAuthenticated) {
-      setIsAppLocked(false);
       lastLeaveTimeRef.current = null;
       return;
     }
@@ -288,13 +309,13 @@ export default function App() {
       if (document.visibilityState === 'hidden') {
         lastLeaveTimeRef.current = Date.now();
         if (threshold === 0) {
-          setIsAppLocked(true);
+          handleLogoutOwner();
         }
       } else if (document.visibilityState === 'visible') {
         if (lastLeaveTimeRef.current) {
           const elapsed = Date.now() - lastLeaveTimeRef.current;
           if (elapsed >= threshold) {
-            setIsAppLocked(true);
+            handleLogoutOwner();
           }
         }
         lastLeaveTimeRef.current = null;
@@ -304,7 +325,7 @@ export default function App() {
     const handlePageHide = () => {
       lastLeaveTimeRef.current = Date.now();
       if (threshold === 0) {
-        setIsAppLocked(true);
+        handleLogoutOwner();
       }
     };
 
@@ -312,7 +333,7 @@ export default function App() {
       if (lastLeaveTimeRef.current) {
         const elapsed = Date.now() - lastLeaveTimeRef.current;
         if (elapsed >= threshold) {
-          setIsAppLocked(true);
+          handleLogoutOwner();
         }
       }
       lastLeaveTimeRef.current = null;
@@ -327,27 +348,7 @@ export default function App() {
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [isOwnerAuthenticated, settings.autoLockTimeout]);
-
-  const handleLogoutOwner = useCallback(() => {
-    deepCleanSessionData();
-    removeStoredOwnerToken();
-    setIsOwnerAuthenticated(false);
-    setIsAppLocked(false);
-    setDebtors([]);
-    setTransactions([]);
-    setParties([]);
-    setGuestInitialDebtor(null);
-    setSelectedDetailDebtor(null);
-    setEditingDebtor(null);
-    setEditingTransaction(null);
-    setEditingParty(null);
-    setCurrentView('GUEST');
-    window.location.hash = '';
-    if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', window.location.pathname);
-    }
-  }, []);
+  }, [isOwnerAuthenticated, settings.autoLockTimeout, handleLogoutOwner]);
 
   // Handle URL hash changes
   useEffect(() => {
@@ -842,13 +843,6 @@ export default function App() {
         />
       )}
 
-      {/* Tự động khóa màn hình Admin khi rời ứng dụng */}
-      <AdminAutoLockModal
-        isOpen={isOwnerAuthenticated && isAppLocked}
-        settings={settings}
-        onUnlockSuccess={() => setIsAppLocked(false)}
-        onLogout={handleLogoutOwner}
-      />
 
       {/* Màn che bảo mật & làm mờ chống nhìn trộm khi đa nhiệm (App Switcher) */}
       <MultitaskPrivacyShield

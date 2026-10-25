@@ -60,8 +60,26 @@ input::-ms-clear {
 }
 
 /* Chế độ làm mờ bảo vệ khi đa nhiệm / chuyển ứng dụng (Gaussian Blur Anti-Snooping) */
-body.multitask-blur-active #root > div:first-child {
-  filter: blur(28px) brightness(0.96) !important;
+html.multitask-blur-active #root,
+body.multitask-blur-active #root {
+  filter: blur(32px) brightness(0.92) !important;
+  -webkit-filter: blur(32px) brightness(0.92) !important;
   pointer-events: none !important;
   user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+#multitask-privacy-shield {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out, visibility 0.12s ease-out;
+  will-change: opacity, visibility;
+}
+
+html.multitask-blur-active #multitask-privacy-shield,
+body.multitask-blur-active #multitask-privacy-shield {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
 }
