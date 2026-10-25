@@ -36,7 +36,7 @@ export const MultitaskPrivacyShield: React.FC<MultitaskPrivacyShieldProps> = ({
     }
 
     // Áp dụng làm mờ VÀ bật màn che bảo mật ngay lập tức (0ms, synchronous)
-    // trước khi hệ điều hành (Android / iOS) chụp ảnh thumbnail cho App Switcher
+    // khi người dùng nhấn nút đa nhiệm (Recent Apps) hoặc chuyển sang ứng dụng khác
     const applyBlur = () => {
       document.documentElement.classList.add('multitask-blur-active');
       document.body.classList.add('multitask-blur-active');
@@ -69,8 +69,16 @@ export const MultitaskPrivacyShield: React.FC<MultitaskPrivacyShieldProps> = ({
       }
     };
 
-    // Khi người dùng nhấn nút đa nhiệm (Recent Apps) hoặc vuốt App Switcher: window.onblur kích hoạt ngay
-    const handleWindowBlur = () => {
+    // Khi người dùng nhấn nút đa nhiệm (Recent Apps) hoặc vuốt App Switcher:
+    // QUAN TRỌNG: Phải bỏ qua hoàn toàn các sự kiện blur phát ra từ thẻ input, button, select...
+    // Tránh việc ấn nút đăng nhập hoặc rời ô nhập mật khẩu bị kích hoạt làm mờ nhầm.
+    const handleWindowBlur = (e: FocusEvent) => {
+      if (e.target && e.target !== window && e.target !== document) {
+        return;
+      }
+      if (typeof document.hasFocus === 'function' && document.hasFocus()) {
+        return;
+      }
       applyBlur();
     };
 
@@ -88,6 +96,14 @@ export const MultitaskPrivacyShield: React.FC<MultitaskPrivacyShieldProps> = ({
 
     const handleFreeze = () => {
       applyBlur();
+    };
+
+    // Khi người dùng tương tác trực tiếp trên màn hình (chạm, click, gõ phím),
+    // ứng dụng chắc chắn đang ở foreground -> lập tức đảm bảo không bị dính làm mờ
+    const handleUserInteraction = () => {
+      if (!isPreviewingRef.current) {
+        removeBlur();
+      }
     };
 
     // Lắng nghe sự kiện xem thử (preview) được kích hoạt từ trang Cài đặt
@@ -114,22 +130,26 @@ export const MultitaskPrivacyShield: React.FC<MultitaskPrivacyShieldProps> = ({
       }, duration);
     };
 
-    // Sử dụng capture: true để chạy trước các event listener khác
-    document.addEventListener('visibilitychange', handleVisibilityChange, true);
-    window.addEventListener('blur', handleWindowBlur, true);
-    window.addEventListener('focus', handleWindowFocus, true);
-    window.addEventListener('pagehide', handlePageHide, true);
-    window.addEventListener('pageshow', handlePageShow, true);
-    document.addEventListener('freeze', handleFreeze, true);
+    // KHÔNG dùng capture cho blur để tránh bắt sự kiện blur của input/button
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur, false);
+    window.addEventListener('focus', handleWindowFocus, false);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('freeze', handleFreeze);
+    window.addEventListener('pointerdown', handleUserInteraction, { passive: true });
+    window.addEventListener('keydown', handleUserInteraction, { passive: true });
     window.addEventListener('preview-multitask-shield', handlePreviewEvent);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange, true);
-      window.removeEventListener('blur', handleWindowBlur, true);
-      window.removeEventListener('focus', handleWindowFocus, true);
-      window.removeEventListener('pagehide', handlePageHide, true);
-      window.removeEventListener('pageshow', handlePageShow, true);
-      document.removeEventListener('freeze', handleFreeze, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur, false);
+      window.removeEventListener('focus', handleWindowFocus, false);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('freeze', handleFreeze);
+      window.removeEventListener('pointerdown', handleUserInteraction);
+      window.removeEventListener('keydown', handleUserInteraction);
       window.removeEventListener('preview-multitask-shield', handlePreviewEvent);
       document.documentElement.classList.remove('multitask-blur-active');
       document.body.classList.remove('multitask-blur-active');
@@ -139,7 +159,7 @@ export const MultitaskPrivacyShield: React.FC<MultitaskPrivacyShieldProps> = ({
     };
   }, [isEnabled]);
 
-  // Luôn giữ phần tử trong DOM (không return null) để sẵn sàng 0ms khi chụp ảnh App Switcher
+  // Luôn giữ phần tử trong DOM để sẵn sàng 0ms khi chụp ảnh App Switcher
   if (typeof document === 'undefined') return null;
 
   return createPortal(
