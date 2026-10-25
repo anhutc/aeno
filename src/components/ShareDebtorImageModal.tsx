@@ -20,6 +20,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { toPng, toBlob } from 'html-to-image';
+import QRCode from 'qrcode';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
 import { getDebtorStatement } from '../utils/storage';
@@ -151,7 +152,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
 
     let isMounted = true;
     const loadQrBase64 = async () => {
-      // 1. Thử qua endpoint proxy cục bộ (trả về trực tiếp Base64 PNG chuẩn)
+      // 1. Thử qua endpoint proxy cục bộ (trả về trực tiếp Base64 PNG chuẩn từ VietQR v2)
       try {
         const proxyUrl = `/api/proxy-vietqr?url=${encodeURIComponent(qrUrl)}&format=json`;
         const res = await fetch(proxyUrl);
@@ -166,7 +167,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
         console.warn('Proxy VietQR notice:', proxyErr);
       }
 
-      // 2. Dự phòng: bóc tách embedded PNG data URL trực tiếp từ response
+      // 2. Dự phòng: bóc tách embedded PNG data URL trực tiếp từ response nếu có
       try {
         const directRes = await fetch(qrUrl);
         if (directRes.ok) {
@@ -180,6 +181,21 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
       } catch (directErr) {
         console.warn('Direct VietQR notice:', directErr);
       }
+
+      // 3. Fallback tức thì hoàn toàn offline bằng thư viện qrcode raster chuẩn
+      try {
+        const offlineDataUrl = await QRCode.toDataURL(qrUrl, {
+          errorCorrectionLevel: 'M',
+          width: 360,
+          margin: 1,
+          color: { dark: '#0f172a', light: '#ffffff' },
+        });
+        if (isMounted) {
+          setQrBase64(offlineDataUrl);
+        }
+      } catch (err) {
+        console.warn('Offline QR generation error:', err);
+      }
     };
 
     loadQrBase64();
@@ -189,22 +205,74 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
     };
   }, [qrUrl]);
 
-  // Đảm bảo mã QR đã được chuyển đổi sang Base64 trước khi html-to-image chụp lại
+  // Đảm bảo mã QR đã được chuyển đổi sang Base64 và decode hoàn chỉnh trước khi html-to-image chụp lại
   const ensureQrReady = async () => {
-    if (qrBase64) return;
     if (!qrUrl) return;
-    try {
-      const proxyUrl = `/api/proxy-vietqr?url=${encodeURIComponent(qrUrl)}&format=json`;
-      const res = await fetch(proxyUrl);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.dataUrl) {
-          setQrBase64(data.dataUrl);
-          await new Promise((r) => setTimeout(r, 180));
+
+    if (!qrBase64) {
+      let resolvedBase64: string | null = null;
+      try {
+        const proxyUrl = `/api/proxy-vietqr?url=${encodeURIComponent(qrUrl)}&format=json`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.dataUrl) {
+            resolvedBase64 = data.dataUrl;
+          }
+        }
+      } catch {
+        // network or timeout
+      }
+
+      if (!resolvedBase64) {
+        try {
+          resolvedBase64 = await QRCode.toDataURL(qrUrl, {
+            errorCorrectionLevel: 'M',
+            width: 360,
+            margin: 1,
+            color: { dark: '#0f172a', light: '#ffffff' },
+          });
+        } catch {
+          // ignore
         }
       }
-    } catch {
-      // safe fallback
+
+      if (resolvedBase64) {
+        setQrBase64(resolvedBase64);
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
+
+    // Đảm bảo toàn bộ thẻ <img> trong khung sao kê đều đã tải và decode xong
+    if (captureCardRef.current) {
+      const imgs = Array.from(captureCardRef.current.querySelectorAll('img')) as HTMLImageElement[];
+      await Promise.all(
+        imgs.map(async (img) => {
+          try {
+            if (img.complete && img.naturalWidth > 0) {
+              if (typeof img.decode === 'function') await img.decode();
+            } else {
+              await new Promise<void>((resolve) => {
+                const onDone = () => {
+                  if (typeof img.decode === 'function') {
+                    img.decode().catch(() => {}).finally(() => resolve());
+                  } else {
+                    resolve();
+                  }
+                };
+                img.addEventListener('load', onDone, { once: true });
+                img.addEventListener('error', onDone, { once: true });
+                setTimeout(resolve, 800);
+              });
+            }
+          } catch {
+            // ignore
+          }
+        })
+      );
     }
   };
 
@@ -591,11 +659,28 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
 
           <div className="flex items-center gap-3.5">
             {(qrBase64 || qrUrl) && (
-              <div className="w-24 h-24 bg-white p-1 rounded-xl border border-slate-300 shadow-2xs shrink-0 flex items-center justify-center">
+              <div className="w-24 h-24 bg-white p-1 rounded-xl border border-slate-300 shadow-2xs shrink-0 flex items-center justify-center overflow-hidden">
                 <img
                   src={qrBase64 || (qrUrl ? `/api/proxy-vietqr?url=${encodeURIComponent(qrUrl)}` : '')}
                   alt="VietQR"
+                  crossOrigin="anonymous"
                   className="w-full h-full object-contain rounded-lg"
+                  onError={async (e) => {
+                    if (qrUrl) {
+                      try {
+                        const fallbackUrl = await QRCode.toDataURL(qrUrl, {
+                          errorCorrectionLevel: 'M',
+                          width: 360,
+                          margin: 1,
+                          color: { dark: '#0f172a', light: '#ffffff' },
+                        });
+                        setQrBase64(fallbackUrl);
+                        (e.target as HTMLImageElement).src = fallbackUrl;
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }}
                 />
               </div>
             )}
@@ -677,7 +762,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
+          className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-slate-900/35 backdrop-blur-xs overflow-y-auto"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       {/* KHUNG CAPTURE CHUẨN XUẤT ẢNH: Kích thước 590px, nằm trong DOM hợp lệ nhưng vô hình để xuất ảnh nét 100% */}

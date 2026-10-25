@@ -839,7 +839,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       <AnimatePresence>
         {showQrModal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs"
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/35 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setShowQrModal(false);
             }}
@@ -940,7 +940,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       <AnimatePresence>
         {showContactModal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs"
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/35 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setShowContactModal(false);
             }}

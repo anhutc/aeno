@@ -228,7 +228,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                     onClose();
                   }
                 }}
-                className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-md p-0 sm:p-4 overflow-y-auto overflow-x-hidden overscroll-contain"
+                className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/35 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto overflow-x-hidden overscroll-contain"
               >
                 <motion.div
                   id="debtor-detail-modal-card"
@@ -796,7 +796,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/35 backdrop-blur-xs p-3 sm:p-4"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}

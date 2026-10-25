@@ -599,7 +599,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
       {isCloudSourceModalOpen && (
         <div
           id="cloud-source-modal-backdrop"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
         >
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full p-5 sm:p-6 space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">

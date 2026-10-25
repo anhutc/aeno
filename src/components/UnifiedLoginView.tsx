@@ -467,7 +467,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
       {/* Modal Đề Xuất Kích Hoạt FaceID Sau Khi Đăng Nhập Quản Lý */}
       {showEnrollPrompt && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/35 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 max-w-sm w-full shadow-2xl text-center space-y-4">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-inner">
               <ScanFace className="w-8 h-8" />

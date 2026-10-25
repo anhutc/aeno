@@ -42,7 +42,7 @@ export const ConfirmDeleteTxModal: React.FC<ConfirmDeleteTxModalProps> = ({
     ? createPortal(
         <div
           id="confirm-delete-tx-backdrop"
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/35 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
         >
           <div
             id="confirm-delete-tx-card"

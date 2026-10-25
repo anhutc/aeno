@@ -151,7 +151,7 @@ export const AdminAutoLockModal: React.FC<AdminAutoLockModalProps> = ({
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl select-none"
+        className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-xl select-none"
         style={{
           paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 20px), 24px)',
         }}

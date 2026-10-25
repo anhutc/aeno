@@ -95,7 +95,7 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
               onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
               }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4"
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 backdrop-blur-xs p-3 sm:p-4"
             >
               <motion.div
                 id="lookup-guide-modal-card"

@@ -158,7 +158,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           <AnimatePresence>
             {showGuideModal && (
               <div
-                className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain"
+                className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-900/35 backdrop-blur-xs overflow-y-auto overscroll-contain"
                 onClick={() => setShowGuideModal(false)}
               >
                 <motion.div

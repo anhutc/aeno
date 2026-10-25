@@ -54,6 +54,7 @@ import { ImageViewerModal } from './components/ImageViewerModal';
 import { BottomNavBar } from './components/BottomNavBar';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminAutoLockModal } from './components/AdminAutoLockModal';
+import { MultitaskPrivacyShield } from './components/MultitaskPrivacyShield';
 
 export default function App() {
   // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
@@ -847,6 +848,12 @@ export default function App() {
         settings={settings}
         onUnlockSuccess={() => setIsAppLocked(false)}
         onLogout={handleLogoutOwner}
+      />
+
+      {/* Màn che bảo mật & làm mờ chống nhìn trộm khi đa nhiệm (App Switcher) */}
+      <MultitaskPrivacyShield
+        settings={settings}
+        isOwnerAuthenticated={isOwnerAuthenticated}
       />
     </div>
   );

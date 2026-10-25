@@ -50,7 +50,7 @@ export const ConfirmRestoreModal: React.FC<ConfirmRestoreModalProps> = ({
     ? createPortal(
         <div
           id="confirm-restore-modal-backdrop"
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/35 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150"
         >
           <div
             id="confirm-restore-modal-card"

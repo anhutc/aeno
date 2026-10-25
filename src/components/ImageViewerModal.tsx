@@ -56,7 +56,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
-              className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4"
+              className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-2 sm:p-4"
               onClick={onClose}
             >
           <motion.div

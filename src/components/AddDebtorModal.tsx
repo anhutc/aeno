@@ -144,7 +144,7 @@ export const AddDebtorModal: React.FC<AddDebtorModalProps> = ({
               onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
               }}
-              className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-md p-0 sm:p-4 overflow-y-auto overflow-x-hidden overscroll-contain"
+              className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/35 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto overflow-x-hidden overscroll-contain"
             >
               <motion.div
                 id="add-debtor-modal-card"

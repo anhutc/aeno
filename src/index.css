@@ -59,3 +59,9 @@ input::-ms-clear {
   background: #94a3b8;
 }
 
+/* Chế độ làm mờ bảo vệ khi đa nhiệm / chuyển ứng dụng (Gaussian Blur Anti-Snooping) */
+body.multitask-blur-active #root > div:first-child {
+  filter: blur(28px) brightness(0.96) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
