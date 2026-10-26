@@ -99,44 +99,19 @@ try {
 let isFirestoreActive = false;
 let inMemoryDb: DatabaseSchema | null = null;
 
+// Pure Cloud Storage: User requested "Tôi không muốn lưu dữ liệu ở file, chỉ lưu ở cloud".
+// No local database files are written to disk. Cloud Firestore is the persistent source of truth.
 function loadLocalDatabase(): DatabaseSchema {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (fs.existsSync(DB_FILE)) {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const parsed = JSON.parse(raw);
-      return {
-        debtors: parsed.debtors || [],
-        transactions: parsed.transactions || [],
-        parties: parsed.parties || [],
-        settings: parsed.settings || DEFAULT_SETTINGS,
-      };
-    }
-  } catch (err) {
-    console.warn('Notice reading local db (safe in serverless):', err);
-  }
-
-  const initialDb: DatabaseSchema = {
+  return {
     debtors: [],
     transactions: [],
     parties: [],
     settings: DEFAULT_SETTINGS,
   };
-  saveDatabaseLocal(initialDb);
-  return initialDb;
 }
 
-function saveDatabaseLocal(db: DatabaseSchema) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
-  } catch (err) {
-    // In serverless, writing to disk may be restricted or ephemeral; in-memory state is preserved
-  }
+function saveDatabaseLocal(_db: DatabaseSchema) {
+  // Pure Cloud Mode: No file persistence on server disk.
 }
 
 // Ensure database state exists
@@ -150,7 +125,7 @@ function getDatabase(): DatabaseSchema {
 
 function saveDatabase(db: DatabaseSchema) {
   inMemoryDb = db;
-  saveDatabaseLocal(db);
+  // Pure Cloud Mode: only keep in memory; persistence is performed directly to Cloud Firestore
 }
 
 // Instantiate Express App for both standalone and serverless (Vercel) runtimes
@@ -160,32 +135,21 @@ const app = express();
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// Initial async Firestore synchronization
+// Initial async Firestore synchronization (100% Pure Cloud)
 let firestoreSyncPromise: Promise<void> | null = null;
 async function ensureFirestoreSync() {
   if (inMemoryDb && isFirestoreActive) return;
   if (!firestoreSyncPromise) {
     firestoreSyncPromise = (async () => {
       try {
-        console.log('Connecting to Cloud Firestore...');
+        console.log('Connecting to Cloud Firestore (100% Pure Cloud)...');
         const remoteData = await loadDataFromFirestore();
-        if (remoteData.debtors.length === 0 && remoteData.transactions.length === 0 && !remoteData.settings?.isInitialized && !remoteData.settings?.lastClearedAt) {
-          const localDb = loadLocalDatabase();
-          if (localDb.debtors.length > 0 || localDb.transactions.length > 0) {
-            console.log('Firestore is clean/empty, seeding from existing local database...');
-            await syncAllDataToFirestore(localDb);
-            inMemoryDb = localDb;
-            isFirestoreActive = true;
-            return;
-          }
-        }
         inMemoryDb = remoteData;
-        saveDatabaseLocal(remoteData);
         isFirestoreActive = true;
-        console.log('Connected to Cloud Firestore successfully.');
+        console.log(`Connected to Cloud Firestore: ${remoteData.debtors.length} debtors, ${remoteData.transactions.length} transactions, ${remoteData.parties.length} parties.`);
       } catch (err: any) {
         firestoreSyncPromise = null; // allow retry on next request
-        console.warn('Cloud Firestore boot sync (using local fallback):', err?.message);
+        console.warn('Cloud Firestore boot sync notice:', err?.message);
         if (!inMemoryDb) {
           inMemoryDb = loadLocalDatabase();
         }

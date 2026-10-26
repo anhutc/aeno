@@ -80,7 +80,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     }
   }, [settings.isInitialized, settings.ownerName]);
 
-  const displayPhone = (settings.ownerPhone || '0987654321').trim();
+  const displayPhone = (settings.ownerPhone || '').trim();
 
   const handleCopyPhone = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -165,17 +165,15 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
         // 3. Dự phòng tra cứu danh bạ bộ nhớ cục bộ (offline cache)
         const localSettings = loadSettings();
-        const localOwnerPass = (localSettings?.ownerPassword || '123456').trim();
+        const localOwnerPass = (localSettings?.ownerPassword || '').trim();
         const localOwnerPhone = (localSettings?.ownerPhone || '').trim();
         const cleanLower = clean.toLowerCase();
         const cleanPhone = clean.replace(/[\s.-]+/g, '');
         const localPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
 
         if (
-          clean === localOwnerPass ||
-          cleanLower === localOwnerPass.toLowerCase() ||
-          (localPhone && cleanPhone === localPhone) ||
-          clean === '123456'
+          (localOwnerPass && (clean === localOwnerPass || cleanLower === localOwnerPass.toLowerCase())) ||
+          (localPhone && cleanPhone === localPhone)
         ) {
           handleOwnerSuccess(clean);
           return;

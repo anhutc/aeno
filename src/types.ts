@@ -98,6 +98,12 @@ export interface AppSettings {
   syncApiKey?: string;
   autoSyncEnabled?: boolean;
   lastSyncTime?: string;
+
+  // Cài đặt đồng bộ Google Sheets & Google Drive (100% Cloud)
+  googleSheetId?: string;
+  googleSheetUrl?: string;
+  lastGoogleSheetSyncAt?: string;
+  autoSyncGoogleSheets?: boolean;
 }
 
 export interface BankOption {

@@ -71,10 +71,10 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
             </div>
             <div>
               <h2 className="font-bold text-base tracking-wide uppercase">
-                Xác Nhận Xóa Sạch Dữ Liệu Mẫu
+                Xác Nhận Xóa Sạch Dữ Liệu
               </h2>
               <p className="text-[11px] text-rose-100">
-                Bắt đầu ghi dữ liệu thực tế
+                Làm mới toàn bộ sổ nợ về trạng thái trống
               </p>
             </div>
           </div>
@@ -94,10 +94,10 @@ export const ConfirmClearSampleModal: React.FC<ConfirmClearSampleModalProps> = (
               <span>⚠️ Lưu ý quan trọng:</span>
             </div>
             <p>
-              Toàn bộ danh sách người nợ và lịch sử giao dịch mẫu (Bình, Cường, Dũng...) sẽ được xóa hoàn toàn và trở về trạng thái trống ban đầu.
+              Toàn bộ danh sách người nợ và lịch sử giao dịch sẽ được xóa sạch hoàn toàn và đưa sổ về trạng thái trống.
             </p>
             <p className="font-semibold text-emerald-800 pt-0.5">
-              ✓ Thông tin ngân hàng VietQR và mật khẩu chủ sổ của bạn được giữ nguyên 100%.
+              ✓ Cấu hình tài khoản ngân hàng VietQR và mật khẩu quản lý của bạn được giữ nguyên 100%.
             </p>
           </div>
 

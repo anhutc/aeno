@@ -41,6 +41,7 @@ import {
   ArrowUpNarrowWide,
   Clock,
   Eye,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -431,11 +432,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           className="lg:col-span-7 bg-white text-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between"
         >
           <div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span>Trung Tâm Tài Chính</span>
               </div>
+              {settings.googleSheetUrl ? (
+                <a
+                  href={settings.googleSheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all shadow-2xs"
+                  title="Mở Google Sheets trên Google Drive"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Google Sheets ↗</span>
+                </a>
+              ) : null}
             </div>
 
             <div className="mt-4">

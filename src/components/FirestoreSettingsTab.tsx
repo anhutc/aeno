@@ -27,6 +27,7 @@ import {
 } from '../utils/api';
 import { pingClientFirestore, reconfigureClientFirestore, getClientFirebaseConfig } from '../firebase';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
+import { GoogleSheetsSyncSection } from './GoogleSheetsSyncSection';
 
 export interface FirestoreSettingsTabProps {
   debtors: Debtor[];
@@ -36,6 +37,7 @@ export interface FirestoreSettingsTabProps {
   onDataReload: () => void;
   showToast: (msg: string, type?: 'success' | 'error') => void;
   onSwitchToSecurityTab?: () => void;
+  onSaveSettings?: (newSettings: AppSettings) => void;
 }
 
 export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
@@ -46,6 +48,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   onDataReload,
   showToast,
   onSwitchToSecurityTab,
+  onSaveSettings,
 }) => {
   // Live Status State
   const [status, setStatus] = useState<FirestoreStatusInfo | null>(null);
@@ -369,6 +372,22 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           </span>
         </div>
       </div>
+
+      {/* =========================================================================
+          GOOGLE SHEETS & DRIVE SYNC SECTION (100% PURE CLOUD)
+         ========================================================================= */}
+      <GoogleSheetsSyncSection
+        debtors={debtors}
+        transactions={transactions}
+        parties={parties}
+        settings={settings}
+        onSaveSettings={(newSettings) => {
+          if (onSaveSettings) {
+            onSaveSettings(newSettings);
+          }
+        }}
+        showToast={showToast}
+      />
 
       {/* Card 1: Thông Tin Hạ Tầng Máy Chủ Đám Mây */}
       <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4 space-y-3">

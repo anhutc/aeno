@@ -27,7 +27,7 @@ import {
   ScanFace,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
-import { POPULAR_BANKS, generateVietQrUrl } from '../utils/vietqr';
+import { POPULAR_BANKS, generateVietQrUrl, formatVND } from '../utils/vietqr';
 import {
   isBiometricsAvailable,
   isBiometricsEnrolled,
@@ -43,6 +43,7 @@ import {
   saveTransactions,
   saveParties,
   saveSettings,
+  getDebtorBalance,
 } from '../utils/storage';
 import { apiUploadJsonToFirestore, apiCleanOrphanTransactions } from '../utils/api';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -516,27 +517,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     });
   };
 
-  // Live realistic preview for messaging templates
+  // Live realistic preview for messaging templates using actual configured data
   const sampleDebtorPreview: TemplateVariables = {
-    name: 'Nguyễn Văn Nam',
-    pin: 'nam123',
-    pass: 'nam123',
-    balance: '550.000 đ',
+    name: debtors.length > 0 ? debtors[0].name : 'Người Nhận Tin',
+    pin: debtors.length > 0 ? debtors[0].pin : 'mật_khẩu',
+    pass: debtors.length > 0 ? debtors[0].pin : 'mật_khẩu',
+    balance: debtors.length > 0 ? `${formatVND(getDebtorBalance(debtors[0].id, transactions))}` : '0 đ',
     url: `${window.location.origin}${window.location.pathname}`,
     owner: formData.ownerName || 'Chủ Sổ',
     ownerPhone: formData.ownerPhone || '',
-    bank: formData.bankName || 'MB Bank',
-    account: formData.accountNumber || '0987654321',
-    accountName: formData.accountName || 'NGUYEN VAN B',
-    ten_nguoi_no: 'Nguyễn Văn Nam',
-    so_du: '550.000 đ',
-    so_du_so: '550000',
+    bank: formData.bankName || 'Ngân hàng',
+    account: formData.accountNumber || '',
+    accountName: formData.accountName || '',
+    ten_nguoi_no: debtors.length > 0 ? debtors[0].name : 'Người Nhận Tin',
+    so_du: debtors.length > 0 ? `${formatVND(getDebtorBalance(debtors[0].id, transactions))}` : '0 đ',
+    so_du_so: '0',
     link_tra_cuu: `${window.location.origin}${window.location.pathname}`,
     ten_chu_so: formData.ownerName || 'Chủ Sổ',
     sdt_chu_no: formData.ownerPhone || '',
-    ten_ngan_hang: formData.bankName || 'MB Bank',
-    stk: formData.accountNumber || '0987654321',
-    ten_chu_tk: formData.accountName || 'NGUYEN VAN B',
+    ten_ngan_hang: formData.bankName || 'Ngân hàng',
+    stk: formData.accountNumber || '',
+    ten_chu_tk: formData.accountName || '',
   };
 
   const liveLookupPreview = renderMessageTemplate(
@@ -1097,12 +1098,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900 group-hover:text-rose-700">
-                      Dọn Dẹp Dữ Liệu Mẫu / Thử Nghiệm
+                      Xóa Sạch Tất Cả Ghi Chép
                     </span>
                     <Trash2 className="w-4 h-4 text-rose-600" />
                   </div>
                   <span className="text-[11px] text-slate-500 leading-tight">
-                    Xóa các bản ghi mẫu hoặc giao dịch thử nghiệm để giữ sổ nợ sạch sẽ.
+                    Xóa toàn bộ người nợ và lịch sử giao dịch để làm mới sổ về trạng thái trống.
                   </span>
                 </button>
 
@@ -1254,6 +1255,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onDataReload={handleDataReloadAndSync}
               showToast={showToast}
               onSwitchToSecurityTab={() => setActiveTab('SECURITY')}
+              onSaveSettings={onSaveSettings}
             />
           </div>
         )}

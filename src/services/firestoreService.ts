@@ -263,32 +263,27 @@ export async function resetToDefaultFirestoreConfig(): Promise<void> {
 const BACKUPS_DIR = path.join(process.cwd(), 'data', 'backups');
 
 /**
- * Create a local snapshot backup of database state
+ * Create a snapshot backup of database state directly in Cloud Firestore (100% Cloud)
  */
 export function createSnapshotBackup(data: DatabaseState, label: string): string {
   try {
-    if (!fs.existsSync(BACKUPS_DIR)) {
-      fs.mkdirSync(BACKUPS_DIR, { recursive: true });
-    }
     const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `backup-${new Date().toISOString().replace(/[:.]/g, '-')}-${safeLabel}.json`;
-    const fullPath = path.join(BACKUPS_DIR, filename);
+    const snapshotId = `snapshot_${Date.now()}_${safeLabel}`;
     const payload = {
+      id: snapshotId,
       backupDate: new Date().toISOString(),
       label,
       databaseId: currentConfig?.firestoreDatabaseId || '(default)',
-      data,
+      data: cleanFirestoreObject(data),
     };
-    fs.writeFileSync(fullPath, JSON.stringify(payload, null, 2), 'utf-8');
-    fs.writeFileSync(
-      path.join(process.cwd(), 'data', 'latest-backup.json'),
-      JSON.stringify(payload, null, 2),
-      'utf-8'
-    );
-    console.log(`Created snapshot backup: ${filename}`);
-    return filename;
+    // Persist to Cloud Firestore asynchronously
+    setDoc(doc(firestore, 'snapshots', snapshotId), payload).catch((e) => {
+      console.warn('Async cloud snapshot notice:', e?.message);
+    });
+    console.log(`Cloud snapshot registered: ${snapshotId}`);
+    return snapshotId;
   } catch (err) {
-    console.warn('Could not save snapshot backup (safe in serverless):', err);
+    console.warn('Cloud snapshot notice:', err);
     return '';
   }
 }
