@@ -1,73 +1,289 @@
 /**
  * Google Sheets & Google Drive Integration Service (100% Cloud)
- * Uses client-side Firebase Auth with in-memory token cache.
+ * Dual-layer authentication:
+ * 1. Google Identity Services (GIS - Token Client) - Robust in iframes and cross-origin popups
+ * 2. Firebase Auth SDK - In-memory token management & fallback
+ *
  * Scopes:
  * - https://www.googleapis.com/auth/spreadsheets
  * - https://www.googleapis.com/auth/drive.file
+ * - https://www.googleapis.com/auth/userinfo.email
+ * - https://www.googleapis.com/auth/userinfo.profile
  */
 
 import {
   getAuth,
   signInWithPopup,
+  signInWithCredential,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
   signOut,
 } from 'firebase/auth';
 import { app } from '../firebase';
+import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
 export const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 WORKSPACE_SCOPES.forEach((scope) => provider.addScope(scope));
-provider.setCustomParameters({
-  prompt: 'select_account',
-});
 
-// Cache access token strictly in-memory (NEVER in localStorage/sessionStorage)
+export interface GoogleUserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+}
+
+// In-memory token caching (NEVER in localStorage/sessionStorage)
 let cachedAccessToken: string | null = null;
-let cachedGoogleUser: User | null = null;
+let cachedGoogleUser: GoogleUserProfile | null = null;
 let isSigningIn = false;
+let authStateListeners: Array<(user: GoogleUserProfile | null, token: string | null) => void> = [];
 
-export const initGoogleAuth = (
-  onSuccess?: (user: User, token: string) => void,
-  onSignedOut?: () => void
-) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      cachedGoogleUser = user;
-      if (cachedAccessToken) {
-        if (onSuccess) onSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // Token not yet acquired in this session
-        if (onSignedOut) onSignedOut();
-      }
-    } else {
-      cachedAccessToken = null;
-      cachedGoogleUser = null;
-      if (onSignedOut) onSignedOut();
+function notifyListeners() {
+  authStateListeners.forEach((listener) => {
+    try {
+      listener(cachedGoogleUser, cachedAccessToken);
+    } catch {
+      // ignore
     }
   });
+}
+
+/**
+ * Dynamically load Google Identity Services script if not already present
+ */
+function ensureGsiScript(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  if ((window as any).google?.accounts?.oauth2) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('Lỗi tải Google Identity Services SDK')));
+      // If already loaded
+      if ((window as any).google?.accounts?.oauth2) {
+        resolve();
+      }
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Không thể tải Google Identity Services SDK'));
+    document.head.appendChild(script);
+  });
+}
+
+/**
+ * Initialize Google Auth listener
+ */
+export const initGoogleAuth = (
+  onSuccess?: (user: GoogleUserProfile, token: string) => void,
+  onSignedOut?: () => void
+) => {
+  const listener = (user: GoogleUserProfile | null, token: string | null) => {
+    if (user && token) {
+      if (onSuccess) onSuccess(user, token);
+    } else {
+      if (onSignedOut) onSignedOut();
+    }
+  };
+
+  authStateListeners.push(listener);
+
+  // Sync with Firebase Auth state
+  const unsubscribeFirebase = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
+    if (firebaseUser) {
+      if (!cachedGoogleUser) {
+        cachedGoogleUser = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || 'Google User',
+          photoURL: firebaseUser.photoURL || undefined,
+        };
+      }
+      if (cachedAccessToken) {
+        notifyListeners();
+      }
+    } else if (!isSigningIn && !cachedAccessToken) {
+      cachedGoogleUser = null;
+      notifyListeners();
+    }
+  });
+
+  // Call immediately if state exists
+  if (cachedGoogleUser && cachedAccessToken) {
+    listener(cachedGoogleUser, cachedAccessToken);
+  }
+
+  return () => {
+    authStateListeners = authStateListeners.filter((l) => l !== listener);
+    unsubscribeFirebase();
+  };
 };
 
-export const signInWithGoogle = async (): Promise<{ user: User; accessToken: string }> => {
+/**
+ * Sign in using Google Identity Services (Direct token client - optimal for iframes/popups)
+ * with graceful fallback to Firebase signInWithPopup.
+ */
+export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; accessToken: string }> => {
+  if (isSigningIn) {
+    throw new Error('Đang có yêu cầu đăng nhập Google đang xử lý...');
+  }
+
+  isSigningIn = true;
+
   try {
-    isSigningIn = true;
+    const oAuthClientId = BUILTIN_FIREBASE_CONFIG.oAuthClientId;
+    if (!oAuthClientId) {
+      throw new Error('Chưa cấu hình Google OAuth Client ID');
+    }
+
+    // Try Method 1: Google Identity Services (GIS - Token Client)
+    // This connects directly with accounts.google.com and avoids cross-origin storage partitioning in iframes.
+    try {
+      await ensureGsiScript();
+    } catch (e) {
+      console.warn('GIS script load notice, falling back:', e);
+    }
+
+    const googleObj = typeof window !== 'undefined' ? (window as any).google : null;
+    if (googleObj?.accounts?.oauth2?.initTokenClient) {
+      console.log('Initiating Google sign-in via Google Identity Services (GIS)...');
+      const tokenResult = await new Promise<{ access_token: string }>((resolve, reject) => {
+        let isResolved = false;
+
+        try {
+          const client = googleObj.accounts.oauth2.initTokenClient({
+            client_id: oAuthClientId,
+            scope: WORKSPACE_SCOPES.join(' '),
+            callback: (response: any) => {
+              if (isResolved) return;
+              isResolved = true;
+
+              if (response.error) {
+                console.error('GIS Token Response Error:', response);
+                if (response.error === 'popup_closed_by_user' || response.error === 'access_denied') {
+                  reject(new Error('Bạn đã hủy yêu cầu đăng nhập Google.'));
+                } else {
+                  reject(new Error(response.error_description || response.error));
+                }
+                return;
+              }
+
+              if (!response.access_token) {
+                reject(new Error('Không nhận được access token từ Google.'));
+                return;
+              }
+
+              resolve({ access_token: response.access_token });
+            },
+            error_callback: (err: any) => {
+              if (isResolved) return;
+              isResolved = true;
+              console.error('GIS Error Callback:', err);
+              if (err.type === 'popup_failed_to_open') {
+                reject(
+                  new Error(
+                    'Trình duyệt đang chặn cửa sổ pop-up. Vui lòng nhấn vào biểu tượng pop-up trên thanh địa chỉ để Cho phép mở cửa sổ đăng nhập Google.'
+                  )
+                );
+              } else if (err.type === 'popup_closed') {
+                reject(new Error('Cửa sổ đăng nhập Google đã bị đóng trước khi hoàn tất.'));
+              } else {
+                reject(new Error(err.message || 'Lỗi kết nối cửa sổ đăng nhập Google'));
+              }
+            },
+          });
+
+          client.requestAccessToken({ prompt: '' });
+        } catch (initErr) {
+          reject(initErr);
+        }
+      });
+
+      const accessToken = tokenResult.access_token;
+      cachedAccessToken = accessToken;
+
+      // Retrieve Google User Info via Google userinfo endpoint
+      let userProfile: GoogleUserProfile = {
+        uid: `google_${Date.now()}`,
+        email: '',
+        displayName: 'Google User',
+      };
+
+      try {
+        const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (userInfoRes.ok) {
+          const info = await userInfoRes.json();
+          userProfile = {
+            uid: info.sub || `google_${Date.now()}`,
+            email: info.email || '',
+            displayName: info.name || info.email || 'Google User',
+            photoURL: info.picture || undefined,
+          };
+        }
+      } catch (userErr) {
+        console.warn('Notice fetching Google userinfo:', userErr);
+      }
+
+      cachedGoogleUser = userProfile;
+
+      // Also authenticate with Firebase Auth using the credential
+      try {
+        const cred = GoogleAuthProvider.credential(null, accessToken);
+        await signInWithCredential(auth, cred);
+      } catch (fbCredErr: any) {
+        console.warn('Firebase signInWithCredential notice (non-fatal):', fbCredErr?.message);
+      }
+
+      notifyListeners();
+      return { user: userProfile, accessToken };
+    }
+
+    // Method 2 Fallback: Standard Firebase Auth signInWithPopup
+    console.log('Initiating Google sign-in via Firebase Auth popup fallback...');
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
-      throw new Error('Không thể nhận token ủy quyền Google. Vui lòng thử lại.');
+      throw new Error('Không thể nhận token ủy quyền Google từ Firebase Auth');
     }
+
     cachedAccessToken = credential.accessToken;
-    cachedGoogleUser = result.user;
-    return { user: result.user, accessToken: cachedAccessToken };
+    const fbUser = result.user;
+    const userProfile: GoogleUserProfile = {
+      uid: fbUser.uid,
+      email: fbUser.email || '',
+      displayName: fbUser.displayName || 'Google User',
+      photoURL: fbUser.photoURL || undefined,
+    };
+    cachedGoogleUser = userProfile;
+
+    notifyListeners();
+    return { user: userProfile, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Google Sign-In Error:', error);
+    if (error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('Cửa sổ đăng nhập Google đã bị đóng.');
+    }
+    if (error?.code === 'auth/unauthorized-domain') {
+      throw new Error('Tên miền ứng dụng chưa được ủy quyền. Đang thử phương thức kết nối trực tiếp...');
+    }
     throw error;
   } finally {
     isSigningIn = false;
@@ -78,14 +294,31 @@ export const getGoogleAccessToken = (): string | null => {
   return cachedAccessToken;
 };
 
-export const getCurrentGoogleUser = (): User | null => {
-  return cachedGoogleUser || auth.currentUser;
+export const getCurrentGoogleUser = (): GoogleUserProfile | null => {
+  return cachedGoogleUser;
 };
 
 export const signOutGoogle = async (): Promise<void> => {
-  await signOut(auth);
+  try {
+    if (cachedAccessToken && typeof window !== 'undefined') {
+      const googleObj = (window as any).google;
+      if (googleObj?.accounts?.oauth2?.revoke) {
+        googleObj.accounts.oauth2.revoke(cachedAccessToken, () => {});
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    await signOut(auth);
+  } catch {
+    // ignore
+  }
+
   cachedAccessToken = null;
   cachedGoogleUser = null;
+  notifyListeners();
 };
 
 export interface SyncDataPayload {
@@ -248,7 +481,14 @@ export async function syncDatabaseToGoogleSheets(
   payload: SyncDataPayload,
   explicitToken?: string
 ): Promise<SyncResult> {
-  const token = explicitToken || cachedAccessToken;
+  let token = explicitToken || cachedAccessToken;
+
+  // If no token cached, prompt user to sign in first
+  if (!token) {
+    const loginRes = await signInWithGoogle();
+    token = loginRes.accessToken;
+  }
+
   if (!token) {
     throw new Error('Chưa đăng nhập Google hoặc phiên làm việc đã hết hạn. Vui lòng kết nối lại tài khoản Google.');
   }

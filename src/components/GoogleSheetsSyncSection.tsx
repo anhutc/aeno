@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   FolderSync,
 } from 'lucide-react';
-import { User } from 'firebase/auth';
 import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
 import {
   initGoogleAuth,
@@ -23,6 +22,7 @@ import {
   getGoogleAccessToken,
   getCurrentGoogleUser,
   SyncResult,
+  GoogleUserProfile,
 } from '../services/googleSheetsService';
 
 interface GoogleSheetsSyncSectionProps {
@@ -42,7 +42,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   onSaveSettings,
   showToast,
 }) => {
-  const [googleUser, setGoogleUser] = useState<User | null>(() => getCurrentGoogleUser());
+  const [googleUser, setGoogleUser] = useState<GoogleUserProfile | null>(() => getCurrentGoogleUser());
   const [hasToken, setHasToken] = useState<boolean>(() => Boolean(getGoogleAccessToken()));
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
