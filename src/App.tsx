@@ -304,7 +304,22 @@ export default function App() {
 
     const threshold = getThresholdMs(autoLockSetting);
 
+    const isOAuthActive = () => {
+      try {
+        return (
+          typeof window !== 'undefined' &&
+          (window.sessionStorage?.getItem('is_oauth_in_progress') === 'true' ||
+            (window as any).__IS_OAUTH_ACTIVE__ === true)
+        );
+      } catch {
+        return false;
+      }
+    };
+
     const handleVisibilityChange = () => {
+      if (isOAuthActive()) {
+        return;
+      }
       if (document.visibilityState === 'hidden') {
         lastLeaveTimeRef.current = Date.now();
         if (threshold === 0) {
@@ -322,6 +337,9 @@ export default function App() {
     };
 
     const handlePageHide = () => {
+      if (isOAuthActive()) {
+        return;
+      }
       lastLeaveTimeRef.current = Date.now();
       if (threshold === 0) {
         handleLogoutOwner();
@@ -329,6 +347,10 @@ export default function App() {
     };
 
     const handlePageShow = () => {
+      if (isOAuthActive()) {
+        lastLeaveTimeRef.current = null;
+        return;
+      }
       if (lastLeaveTimeRef.current) {
         const elapsed = Date.now() - lastLeaveTimeRef.current;
         if (elapsed >= threshold) {

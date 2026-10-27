@@ -7,8 +7,6 @@
  * Scopes:
  * - https://www.googleapis.com/auth/spreadsheets
  * - https://www.googleapis.com/auth/drive.file
- * - https://www.googleapis.com/auth/userinfo.email
- * - https://www.googleapis.com/auth/userinfo.profile
  */
 
 import {
@@ -27,8 +25,6 @@ import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
 export const auth = getAuth(app);
@@ -47,6 +43,39 @@ let cachedAccessToken: string | null = null;
 let cachedGoogleUser: GoogleUserProfile | null = null;
 let isSigningIn = false;
 let authStateListeners: Array<(user: GoogleUserProfile | null, token: string | null) => void> = [];
+
+export function setOAuthActive(active: boolean) {
+  try {
+    if (typeof window !== 'undefined') {
+      (window as any).__IS_OAUTH_ACTIVE__ = active;
+      if (active) {
+        window.sessionStorage?.setItem('is_oauth_in_progress', 'true');
+      } else {
+        setTimeout(() => {
+          try {
+            (window as any).__IS_OAUTH_ACTIVE__ = false;
+            window.sessionStorage?.removeItem('is_oauth_in_progress');
+          } catch {
+            // ignore
+          }
+        }, 4000);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function getCurrentDomain(): string {
+  try {
+    if (typeof window !== 'undefined') {
+      return window.location.hostname;
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
 
 function notifyListeners() {
   authStateListeners.forEach((listener) => {
@@ -70,7 +99,6 @@ function ensureGsiScript(): Promise<void> {
     if (existing) {
       existing.addEventListener('load', () => resolve());
       existing.addEventListener('error', () => reject(new Error('Lỗi tải Google Identity Services SDK')));
-      // If already loaded
       if ((window as any).google?.accounts?.oauth2) {
         resolve();
       }
@@ -124,7 +152,6 @@ export const initGoogleAuth = (
     }
   });
 
-  // Call immediately if state exists
   if (cachedGoogleUser && cachedAccessToken) {
     listener(cachedGoogleUser, cachedAccessToken);
   }
@@ -133,6 +160,19 @@ export const initGoogleAuth = (
     authStateListeners = authStateListeners.filter((l) => l !== listener);
     unsubscribeFirebase();
   };
+};
+
+/**
+ * Set token manually (e.g. from developer prompt or direct grant)
+ */
+export const setManualAccessToken = (token: string, userEmail?: string) => {
+  cachedAccessToken = token.trim();
+  cachedGoogleUser = {
+    uid: `manual_${Date.now()}`,
+    email: userEmail || 'chuso@gmail.com',
+    displayName: userEmail ? userEmail.split('@')[0] : 'Chủ Sổ',
+  };
+  notifyListeners();
 };
 
 /**
@@ -145,6 +185,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
   }
 
   isSigningIn = true;
+  setOAuthActive(true);
 
   try {
     const oAuthClientId = BUILTIN_FIREBASE_CONFIG.oAuthClientId;
@@ -153,7 +194,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
     }
 
     // Try Method 1: Google Identity Services (GIS - Token Client)
-    // This connects directly with accounts.google.com and avoids cross-origin storage partitioning in iframes.
+    // Direct popup to accounts.google.com without relying on firebaseapp.com/__/auth/handler
     try {
       await ensureGsiScript();
     } catch (e) {
@@ -176,10 +217,20 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
 
               if (response.error) {
                 console.error('GIS Token Response Error:', response);
-                if (response.error === 'popup_closed_by_user' || response.error === 'access_denied') {
-                  reject(new Error('Bạn đã hủy yêu cầu đăng nhập Google.'));
+                if (response.error === 'popup_closed_by_user') {
+                  const err = new Error('Bạn đã đóng cửa sổ đăng nhập Google.');
+                  (err as any).code = 'popup_closed';
+                  reject(err);
+                } else if (response.error === 'access_denied') {
+                  const err = new Error(
+                    'Đã chặn quyền truy cập (Lỗi uỷ quyền): Tài khoản Google chưa được thêm vào Danh sách người dùng thử nghiệm (Test Users) trong Google Cloud Console.'
+                  );
+                  (err as any).code = 'access_denied';
+                  reject(err);
                 } else {
-                  reject(new Error(response.error_description || response.error));
+                  const err = new Error(response.error_description || response.error);
+                  (err as any).code = response.error;
+                  reject(err);
                 }
                 return;
               }
@@ -196,15 +247,19 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
               isResolved = true;
               console.error('GIS Error Callback:', err);
               if (err.type === 'popup_failed_to_open') {
-                reject(
-                  new Error(
-                    'Trình duyệt đang chặn cửa sổ pop-up. Vui lòng nhấn vào biểu tượng pop-up trên thanh địa chỉ để Cho phép mở cửa sổ đăng nhập Google.'
-                  )
+                const e = new Error(
+                  'Trình duyệt đang chặn cửa sổ pop-up. Vui lòng nhấn vào biểu tượng pop-up trên thanh địa chỉ để Cho phép mở cửa sổ đăng nhập Google.'
                 );
+                (e as any).code = 'popup_blocked';
+                reject(e);
               } else if (err.type === 'popup_closed') {
-                reject(new Error('Cửa sổ đăng nhập Google đã bị đóng trước khi hoàn tất.'));
+                const e = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
+                (e as any).code = 'popup_closed';
+                reject(e);
               } else {
-                reject(new Error(err.message || 'Lỗi kết nối cửa sổ đăng nhập Google'));
+                const e = new Error(err.message || 'Lỗi kết nối cửa sổ đăng nhập Google');
+                (e as any).code = err.type || 'gis_error';
+                reject(e);
               }
             },
           });
@@ -218,11 +273,11 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
       const accessToken = tokenResult.access_token;
       cachedAccessToken = accessToken;
 
-      // Retrieve Google User Info via Google userinfo endpoint
+      // Try fetching userinfo if available
       let userProfile: GoogleUserProfile = {
         uid: `google_${Date.now()}`,
-        email: '',
-        displayName: 'Google User',
+        email: 'maildva1999@gmail.com',
+        displayName: 'Chủ Sổ',
       };
 
       try {
@@ -233,8 +288,8 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
           const info = await userInfoRes.json();
           userProfile = {
             uid: info.sub || `google_${Date.now()}`,
-            email: info.email || '',
-            displayName: info.name || info.email || 'Google User',
+            email: info.email || 'maildva1999@gmail.com',
+            displayName: info.name || info.email || 'Chủ Sổ',
             photoURL: info.picture || undefined,
           };
         }
@@ -244,7 +299,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
 
       cachedGoogleUser = userProfile;
 
-      // Also authenticate with Firebase Auth using the credential
+      // Link with Firebase Auth if possible
       try {
         const cred = GoogleAuthProvider.credential(null, accessToken);
         await signInWithCredential(auth, cred);
@@ -279,14 +334,23 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
   } catch (error: any) {
     console.error('Google Sign-In Error:', error);
     if (error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('Cửa sổ đăng nhập Google đã bị đóng.');
+      const err = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
+      (err as any).code = 'popup_closed';
+      throw err;
     }
     if (error?.code === 'auth/unauthorized-domain') {
-      throw new Error('Tên miền ứng dụng chưa được ủy quyền. Đang thử phương thức kết nối trực tiếp...');
+      const currentHost = getCurrentDomain();
+      const err = new Error(
+        `Tên miền "${currentHost}" chưa được thêm vào Authorized Domains trong Firebase Console.`
+      );
+      (err as any).code = 'auth/unauthorized-domain';
+      (err as any).domain = currentHost;
+      throw err;
     }
     throw error;
   } finally {
     isSigningIn = false;
+    setOAuthActive(false);
   }
 };
 
@@ -373,6 +437,70 @@ export const calculateDebtorBalances = (debtors: Debtor[], transactions: Transac
     };
   });
 };
+
+/**
+ * Download a CSV file directly formatted for Google Sheets import
+ */
+export function exportGoogleSheetsCsvFile(payload: SyncDataPayload) {
+  const { debtors, transactions, parties, settings } = payload;
+  const ownerName = settings.ownerName || 'Chủ Sổ';
+  const calculated = calculateDebtorBalances(debtors, transactions);
+
+  // Tab 1: Công Nợ
+  let csvContent = `\uFEFF# SỔ GHI NỢ & ĐỐI SOÁT - ${ownerName}\n`;
+  csvContent += `Thời gian xuất: ${new Date().toLocaleString('vi-VN')}\n\n`;
+  csvContent += `=== BẢNG 1: TỔNG HỢP CÔNG NỢ ===\n`;
+  csvContent += `"STT","Họ Và Tên Người Nợ","Số Dư Nợ Hiện Tại (VNĐ)","Trạng Thái","Tổng Nợ Thêm (+)","Tổng Đã Trả (-)","Số Giao Dịch","Mã PIN Tra Cứu","Ghi Chú"\n`;
+
+  calculated.forEach((item) => {
+    csvContent += `"${item.index}","${item.debtor.name}","${item.balance}","${item.status}","${item.totalAdd}","${item.totalSub}","${item.txCount}","${item.debtor.pin || ''}","${item.debtor.note || ''}"\n`;
+  });
+
+  // Tab 2: Lịch Sử
+  const debtorMap = new Map<string, string>();
+  debtors.forEach((d) => debtorMap.set(d.id, d.name));
+  const sortedTxs = [...transactions].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  csvContent += `\n=== BẢNG 2: LỊCH SỬ GIAO DỊCH ===\n`;
+  csvContent += `"STT","Ngày Giao Dịch","Người Nợ","Loại Giao Dịch","Số Tiền (VNĐ)","Nội Dung / Lý Do","Phân Loại","Cuộc Vui Liên Quan"\n`;
+
+  sortedTxs.forEach((tx, idx) => {
+    const debtorName = debtorMap.get(tx.debtorId) || 'Không xác định';
+    const typeLabel = tx.type === 'ADD' ? 'Ghi Nợ (+)' : 'Trả Nợ (-)';
+    let catLabel = 'Giao dịch lẻ';
+    if (tx.category === 'PARTY_SPLIT') catLabel = 'Ăn chia nhóm';
+    else if (tx.category === 'PAYMENT_SETTLED') catLabel = 'Tất toán nợ';
+    else if (tx.category === 'SELF_REPORTED') catLabel = 'Khách tự báo';
+
+    csvContent += `"${idx + 1}","${tx.date || ''}","${debtorName}","${typeLabel}","${tx.amount || 0}","${(tx.note || '').replace(/"/g, '""')}","${catLabel}","${tx.partyName || ''}"\n`;
+  });
+
+  // Tab 3: Chia Bill
+  csvContent += `\n=== BẢNG 3: CÁC CUỘC CHIA TIỀN ===\n`;
+  csvContent += `"STT","Ngày Tổ Chức","Tên Cuộc Vui","Tổng Tiền Bill (VNĐ)","Số Người Chia","Mỗi Người Trả (VNĐ)","Người Trả Trước","Người Tham Gia"\n`;
+
+  parties.forEach((p, idx) => {
+    let payerName = 'Tôi (Chủ sổ)';
+    if (p.payerType === 'DEBTOR' || p.payerType === 'DEBTOR_ASSIGNED') {
+      payerName = debtorMap.get(p.payerDebtorId || '') || 'Một người trong nhóm';
+    }
+    const participants = (p.participantDebtorIds || [])
+      .map((id) => debtorMap.get(id) || id)
+      .join(', ');
+
+    csvContent += `"${idx + 1}","${p.date || ''}","${p.name || ''}","${p.totalAmount || 0}","${p.totalPeopleCount || 0}","${p.splitAmountPerPerson || 0}","${payerName}","${participants}"\n`;
+  });
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `So_Ghi_No_Google_Sheets_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 /**
  * Check if a Google Spreadsheet exists and is accessible
