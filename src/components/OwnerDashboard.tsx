@@ -41,6 +41,7 @@ import {
   ArrowUpNarrowWide,
   Clock,
   Eye,
+  EyeOff,
   FileSpreadsheet,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
@@ -98,6 +99,23 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [sortBy, setSortBy] = useState<'BALANCE_DESC' | 'BALANCE_ASC' | 'NAME' | 'RECENT'>('BALANCE_DESC');
   const [debtorStatusFilter, setDebtorStatusFilter] = useState<'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'SETTLED'>('ALL');
   const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
+  // Set of debtor IDs whose PIN is explicitly revealed (Đề xuất 2: Ẩn PIN mặc định)
+  const [revealedPinIds, setRevealedPinIds] = useState<Set<string>>(() => new Set());
+
+  const toggleRevealPin = (e: React.MouseEvent, debtorId: string) => {
+    e.stopPropagation();
+    triggerHaptic('selection');
+    setRevealedPinIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(debtorId)) {
+        next.delete(debtorId);
+      } else {
+        next.add(debtorId);
+      }
+      return next;
+    });
+  };
+
   const [guideDebtor, setGuideDebtor] = useState<Debtor | null>(null);
   const [debtorToDelete, setDebtorToDelete] = useState<Debtor | null>(null);
   const [partyToDelete, setPartyToDelete] = useState<PartySplit | null>(null);
@@ -594,8 +612,51 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
       </div>
 
-      {/* DOCK HÀNH ĐỘNG CÔNG NGHỆ CAO (HIGH-PERFORMANCE ACTION DOCK) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* DOCK HÀNH ĐỘNG CÔNG NGHỆ CAO (HIGH-PERFORMANCE ACTION DOCK) - Đề xuất 7: Thu gọn trên điện thoại */}
+      {/* 1. Mobile Compact Version (Tiết kiệm chiều cao màn hình, 1 hàng 3 nút ngang tiện tay ngón cái) */}
+      <div className="grid grid-cols-3 gap-2 sm:hidden">
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          type="button"
+          id="btn-open-form-2-mobile"
+          onClick={() => onOpenAddTx()}
+          className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-xs border border-emerald-500/40 cursor-pointer active:opacity-90"
+        >
+          <div className="w-7 h-7 rounded-xl bg-white/20 flex items-center justify-center mb-1 shrink-0">
+            <PlusCircle className="w-4 h-4 text-white" />
+          </div>
+          <span className="text-[11px] font-black tracking-tight leading-tight text-center">Ghi Nợ / Thu</span>
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          type="button"
+          id="btn-open-form-1-mobile"
+          onClick={onOpenAddDebtor}
+          className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-xs border border-blue-500/40 cursor-pointer active:opacity-90"
+        >
+          <div className="w-7 h-7 rounded-xl bg-white/20 flex items-center justify-center mb-1 shrink-0">
+            <UserPlus className="w-4 h-4 text-white" />
+          </div>
+          <span className="text-[11px] font-black tracking-tight leading-tight text-center">Thêm Người</span>
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          type="button"
+          id="btn-open-form-3-mobile"
+          onClick={onOpenSplitParty}
+          className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-gradient-to-br from-amber-600 to-orange-600 text-white shadow-xs border border-amber-500/40 cursor-pointer active:opacity-90"
+        >
+          <div className="w-7 h-7 rounded-xl bg-white/20 flex items-center justify-center mb-1 shrink-0">
+            <PartyPopper className="w-4 h-4 text-white" />
+          </div>
+          <span className="text-[11px] font-black tracking-tight leading-tight text-center">Chia Bill</span>
+        </motion.button>
+      </div>
+
+      {/* 2. Desktop Spacious Version (Tablet & Desktop đầy đủ chi tiết và phụ đề) */}
+      <div className="hidden sm:grid sm:grid-cols-3 gap-3">
         <motion.button
           whileHover={{ scale: 1.015, y: -2 }}
           whileTap={{ scale: 0.985 }}
@@ -1001,10 +1062,24 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               <span>{debtor.name}</span>
                             </h3>
                             <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-1">
-                              {/* PIN badge with 1-click copy */}
+                              {/* PIN badge with hide/reveal toggle (Đề xuất 2: Ẩn PIN mặc định) */}
                               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-50/90 text-amber-900 rounded-xl font-mono text-[11px] font-bold border border-amber-200/80">
                                 <KeyRound className="w-3 h-3 text-amber-600 shrink-0" />
-                                <span>{debtor.pin}</span>
+                                <span className="tracking-wider">
+                                  {revealedPinIds.has(debtor.id) ? debtor.pin : '••••'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => toggleRevealPin(e, debtor.id)}
+                                  className="p-0.5 hover:bg-amber-200/70 rounded-md text-amber-700 hover:text-amber-950 transition-colors cursor-pointer"
+                                  title={revealedPinIds.has(debtor.id) ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                                >
+                                  {revealedPinIds.has(debtor.id) ? (
+                                    <EyeOff className="w-3 h-3" />
+                                  ) : (
+                                    <Eye className="w-3 h-3 text-amber-700" />
+                                  )}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={(e) => handleCopyPin(e, debtor)}
@@ -1050,7 +1125,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         </div>
                       </div>
 
-                      {/* Tiến Độ Thanh Toán Khoản Nợ (Debt Progress Meter) */}
+                      {/* Tiến Độ Thanh Toán Khoản NỢ (Debt Progress Meter) */}
                       {totalDebt > 0 && (
                         <div className="mt-3 bg-slate-50/80 p-2.5 rounded-2xl border border-slate-100 text-xs">
                           <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mb-1">
@@ -1079,17 +1154,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       )}
                     </div>
 
-                    {/* Action buttons */}
+                    {/* Action buttons (Đề xuất 3: Nút nhanh nổi bật) */}
                     <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => onOpenAddTx(debtor.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50/90 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition-all text-[11px] cursor-pointer shadow-2xs border border-emerald-200/60"
-                          title="Ghi nợ hoặc thu tiền cho người này"
+                          onClick={() => {
+                            triggerHaptic('medium');
+                            onOpenAddTx(debtor.id);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl transition-all text-[11px] cursor-pointer shadow-xs active:scale-95"
+                          title="Ghi nợ hoặc thu tiền ngay cho người này"
                         >
                           <PlusCircle className="w-3.5 h-3.5" />
-                          <span>Giao dịch</span>
+                          <span>+ Ghi Nợ / Thu</span>
                         </button>
 
                         <button
@@ -1171,19 +1249,39 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                         </div>
 
                         <div className="flex items-center gap-2 mt-0.5">
+                          {/* PIN badge with hide/reveal in List view (Đề xuất 2) */}
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleRevealPin(e, debtor.id);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg font-mono text-[10px] font-bold border border-amber-200/70 transition-colors cursor-pointer select-none"
+                            title={revealedPinIds.has(debtor.id) ? 'Nhấn để ẩn PIN' : 'Nhấn để hiện PIN'}
+                          >
+                            <KeyRound className="w-2.5 h-2.5 text-amber-600" />
+                            <span className="tracking-wider">
+                              {revealedPinIds.has(debtor.id) ? debtor.pin : '••••'}
+                            </span>
+                            {revealedPinIds.has(debtor.id) ? (
+                              <EyeOff className="w-2.5 h-2.5 text-amber-600 ml-0.5" />
+                            ) : (
+                              <Eye className="w-2.5 h-2.5 text-amber-600 ml-0.5" />
+                            )}
+                          </span>
+
                           <span
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCopyPin(e, debtor);
                             }}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg font-mono text-[10px] font-bold border border-amber-200/70 transition-colors cursor-pointer"
-                            title="Chạm để sao chép PIN"
+                            className="p-1 hover:bg-slate-200/60 rounded-md text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                            title="Sao chép PIN"
                           >
-                            <KeyRound className="w-2.5 h-2.5 text-amber-600" />
-                            <span>{debtor.pin}</span>
                             {copiedPinId === debtor.id ? (
                               <Check className="w-2.5 h-2.5 text-emerald-600" />
-                            ) : null}
+                            ) : (
+                              <Copy className="w-2.5 h-2.5" />
+                            )}
                           </span>
 
                           <span
@@ -1201,8 +1299,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       </div>
                     </div>
 
-                    {/* Right: Balance & Chevron */}
-                    <div className="flex items-center gap-2.5 shrink-0">
+                    {/* Right: Balance, Quick Action & Chevron (Đề xuất 3) */}
+                    <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
                       <div className="text-right">
                         <div
                           className={`text-sm sm:text-base font-extrabold font-mono tracking-tight ${
@@ -1220,6 +1318,20 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                             : '0 đ'}
                         </div>
                       </div>
+
+                      {/* 1-Tap Quick Action (Đề xuất 3) */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          triggerHaptic('medium');
+                          onOpenAddTx(debtor.id);
+                        }}
+                        className="p-1.5 sm:p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-700 border border-emerald-200/80 transition-all cursor-pointer shadow-2xs"
+                        title={`Ghi nợ / Thu tiền nhanh cho ${debtor.name}`}
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                      </button>
 
                       <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-0.5 transition-all" />
                     </div>

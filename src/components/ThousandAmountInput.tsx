@@ -189,24 +189,27 @@ export const ThousandAmountInput: React.FC<ThousandAmountInputProps> = ({
         </div>
       </div>
 
-      {/* Hiển thị số tiền thực tế & Đọc số bằng chữ */}
+      {/* Hiển thị số tiền thực tế & Đọc số bằng chữ tiếng Việt (Đề xuất 4) */}
       {value > 0 ? (
-        <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+        <div className="p-3 bg-gradient-to-r from-emerald-50/90 via-teal-50/50 to-white rounded-2xl border border-emerald-200/90 space-y-1.5 shadow-2xs animate-in fade-in">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-500 font-medium">Số tiền ghi nhận:</span>
-            <span className="font-mono font-black text-sm text-blue-600">
+            <span className="text-slate-500 font-medium">Số tiền xác nhận:</span>
+            <span className="font-mono font-black text-base text-emerald-700 tracking-tight">
               {formatThousandsDisplay(value)} VNĐ
             </span>
           </div>
           {words && (
-            <div className="flex items-start gap-1.5 text-[11px] text-slate-600 italic">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-              <span className="font-medium leading-tight">Bằng chữ: {words}</span>
+            <div className="flex items-start gap-2 pt-1 border-t border-emerald-100/80">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-emerald-950 font-bold leading-snug">
+                <span>Bằng chữ: </span>
+                <span className="text-emerald-700 font-extrabold">{words}</span>
+              </div>
             </div>
           )}
         </div>
       ) : (
-        <div className="text-[11px] text-slate-400 flex items-center justify-between px-1">
+        <div className="text-[11px] text-slate-400 flex items-center justify-between px-1 py-0.5">
           <span>
             {inThousandsMode
               ? '💡 Gõ 50 = 50.000đ, 250 = 250.000đ, 1500 = 1.500.000đ'
