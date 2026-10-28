@@ -240,10 +240,10 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </div>
           ) : null}
 
-          {/* 2. Loại Biến Động (Đồng bộ chuẩn (+) Rose nợ thêm / (-) Emerald trả bớt) */}
+          {/* 2. Phân Loại Giao Dịch */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
-              Loại biến động <span className="text-rose-500">*</span>
+              Phân loại giao dịch <span className="text-rose-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -259,9 +259,9 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 <PlusCircle className={`w-5 h-5 shrink-0 ${type === 'ADD' ? 'text-rose-600' : 'text-slate-400'}`} />
                 <div className="min-w-0">
                   <div className="font-bold text-xs uppercase tracking-wide text-rose-800">
-                    (+) Ghi nợ thêm
+                    (+) Cho vay / Chi hộ
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate">Họ vay hoặc bạn chi hộ</div>
+                  <div className="text-[11px] text-slate-500 truncate">Họ mượn hoặc bạn thanh toán giúp</div>
                 </div>
               </button>
 
@@ -278,9 +278,9 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 <MinusCircle className={`w-5 h-5 shrink-0 ${type === 'SUB' ? 'text-emerald-600' : 'text-slate-400'}`} />
                 <div className="min-w-0">
                   <div className="font-bold text-xs uppercase tracking-wide text-emerald-800">
-                    (-) Trả nợ / Giảm
+                    (-) Thu nợ / Thanh toán
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate">Họ trả hoặc chi hộ bạn</div>
+                  <div className="text-[11px] text-slate-500 truncate">Họ trả tiền hoặc cấn trừ nợ</div>
                 </div>
               </button>
             </div>

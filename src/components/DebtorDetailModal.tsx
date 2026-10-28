@@ -349,9 +349,9 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 <div>
                   <span className="text-[11px] uppercase tracking-wider font-bold opacity-70">
                     {currentBalance > 0
-                      ? 'Người này đang nợ bạn'
+                      ? 'Người này đang nợ bạn (Phải thu)'
                       : currentBalance < 0
-                      ? 'Bạn cần trả cho người này'
+                      ? 'Bạn đang nợ người này (Phải trả)'
                       : 'Số Dư Nợ Hiện Tại'}
                   </span>
                   <div className="flex items-baseline gap-2 font-mono mt-0.5">
@@ -390,15 +390,15 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                     {currentBalance > 0 ? (
                       <>
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span>{debtor.name} đang nợ bạn</span>
+                        <span>{debtor.name} đang nợ bạn (Phải thu)</span>
                       </>
                     ) : currentBalance < 0 ? (
                       <>
                         <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-                        <span>Bạn đang nợ {debtor.name}</span>
+                        <span>Bạn đang nợ {debtor.name} (Phải trả)</span>
                       </>
                     ) : (
-                      <span>Đã thanh toán hết (Không ai nợ ai)</span>
+                      <span>Đã sạch nợ (Cân bằng 0 đ)</span>
                     )}
                   </span>
                 </div>
@@ -416,7 +416,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                   title="Ghi nợ hoặc thu tiền cho người này"
                 >
                   <Plus className="w-4 h-4 shrink-0" />
-                  <span>Tạo Giao Dịch Mới</span>
+                  <span>Ghi Nợ / Thu Tiền</span>
                 </button>
 
                 <button
@@ -564,7 +564,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                         }`}
                       >
                         <ArrowUpRight className="w-3 h-3" />
-                        <span>Ghi nợ ({debtorStats.directAddCount})</span>
+                        <span>Cho vay ({debtorStats.directAddCount})</span>
                       </button>
                       <button
                         type="button"
@@ -579,7 +579,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                         }`}
                       >
                         <ArrowDownLeft className="w-3 h-3" />
-                        <span>Đã trả ({debtorStats.subCount})</span>
+                        <span>Thu nợ ({debtorStats.subCount})</span>
                       </button>
                       {debtorStats.splitCount > 0 && (
                         <button

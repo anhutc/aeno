@@ -117,7 +117,7 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
             )}
 
             <h3 className="font-bold text-slate-900 text-xs sm:text-sm leading-snug break-words">
-              {isParty ? split.partyName : tx.note || (isAdd ? 'Ghi nhận khoản nợ' : 'Đã thanh toán')}
+              {isParty ? split.partyName : tx.note || (isAdd ? 'Cho vay / Chi hộ' : 'Khách trả nợ / Đã thu')}
             </h3>
           </div>
         </div>
@@ -140,15 +140,15 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
           {/* Tag phân loại giao dịch */}
           {isParty ? (
             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100/90 text-amber-900 border border-amber-200/90 shrink-0">
-              Cuộc vui chia tiền
+              Chia tiền nhóm
             </span>
           ) : isAdd ? (
             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100/90 text-rose-800 border border-rose-200/90 shrink-0">
-              Khoản nợ (+)
+              Cho vay (+)
             </span>
           ) : (
             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-200/90 shrink-0">
-              Đã trả (-)
+              Đã thu hồi (-)
             </span>
           )}
 

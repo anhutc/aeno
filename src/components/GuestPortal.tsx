@@ -357,7 +357,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs sm:text-sm uppercase font-extrabold tracking-wider opacity-75">
-                💰 DƯ NỢ HIỆN TẠI
+                {currentBalance > 0
+                  ? '💰 SỐ TIỀN BẠN CẦN THANH TOÁN'
+                  : currentBalance < 0
+                  ? '💰 SỐ TIỀN CHỦ SỔ CẦN HOÀN LẠI BẠN'
+                  : '💰 TẤT TOÁN HOÀN TẤT'}
               </span>
               <span
                 className={`text-xs sm:text-sm font-extrabold px-3 sm:px-3.5 py-1 sm:py-1.5 rounded-full uppercase tracking-wider ${
@@ -368,7 +372,11 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     : 'bg-slate-200 text-slate-700'
                 }`}
               >
-                {currentBalance > 0 ? 'Cần thanh toán' : currentBalance < 0 ? 'Được thanh toán' : 'Hoàn thành'}
+                {currentBalance > 0
+                  ? 'Đang còn nợ'
+                  : currentBalance < 0
+                  ? 'Chủ sổ nợ bạn'
+                  : 'Sạch nợ (0 đ)'}
               </span>
             </div>
 

@@ -453,7 +453,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
             <div className="mt-4">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Số Dư
+                {netBalance > 0
+                  ? 'Tổng Dư Nợ Ròng (Cần thu hồi)'
+                  : netBalance < 0
+                  ? 'Tổng Dư Nợ Ròng (Bạn phải trả)'
+                  : 'Cân Bằng Sổ Nợ (0 đ)'}
               </span>
               <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight mt-1 flex items-baseline gap-2">
                 <span
