@@ -881,3 +881,92 @@ export async function syncDatabaseToGoogleSheets(
     },
   };
 }
+
+let autoSyncTimer: any = null;
+let isAutoSyncingActive = false;
+const autoSyncState = {
+  isAutoSyncing: false,
+  lastAutoSyncAt: undefined as string | undefined,
+  lastError: undefined as string | undefined,
+};
+
+export const getAutoSyncStatus = () => ({ ...autoSyncState });
+
+/**
+ * Triggers a debounced background sync to Google Sheets (2-second debounce).
+ * Silently synchronizes without disrupting user workflow or throwing popups.
+ */
+export function triggerDebouncedAutoSync(
+  payload: SyncDataPayload,
+  onSyncComplete?: (result: SyncResult) => void
+) {
+  // If auto-sync is explicitly disabled in settings, cancel any pending timer
+  if (payload.settings?.autoSyncGoogleSheets === false) {
+    if (autoSyncTimer) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+    }
+    return;
+  }
+
+  // Check if we have an active access token
+  const token = getGoogleAccessToken();
+  if (!token) {
+    // Silently skip if user has not authorized Google yet
+    return;
+  }
+
+  if (autoSyncTimer) {
+    clearTimeout(autoSyncTimer);
+  }
+
+  autoSyncTimer = setTimeout(async () => {
+    autoSyncTimer = null;
+    if (isAutoSyncingActive) {
+      // If already syncing, reschedule for next cycle
+      triggerDebouncedAutoSync(payload, onSyncComplete);
+      return;
+    }
+
+    try {
+      isAutoSyncingActive = true;
+      autoSyncState.isAutoSyncing = true;
+      autoSyncState.lastError = undefined;
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('googlesheets-autosync-start'));
+      }
+
+      console.log('🔄 Đang tự động đồng bộ ngầm dữ liệu lên Google Sheets...');
+      const result = await syncDatabaseToGoogleSheets(payload);
+
+      autoSyncState.lastAutoSyncAt = result.updatedAt;
+      autoSyncState.isAutoSyncing = false;
+
+      if (onSyncComplete) {
+        onSyncComplete(result);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('googlesheets-autosynced', { detail: result })
+        );
+      }
+      console.log('✅ Đã tự động đồng bộ Google Sheets thành công:', result.updatedAt);
+    } catch (err: any) {
+      console.warn('Lưu ý đồng bộ Google Sheets ngầm (non-fatal):', err?.message);
+      autoSyncState.isAutoSyncing = false;
+      autoSyncState.lastError = err?.message || 'Lỗi đồng bộ tự động';
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('googlesheets-autosync-error', { detail: { error: err } })
+        );
+      }
+    } finally {
+      isAutoSyncingActive = false;
+      autoSyncState.isAutoSyncing = false;
+    }
+  }, 2000);
+}
+

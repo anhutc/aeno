@@ -55,6 +55,33 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const [syncStatusStep, setSyncStatusStep] = useState<string>('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
+  const isAutoSyncEnabled = settings.autoSyncGoogleSheets ?? false;
+
+  useEffect(() => {
+    const handleAutoSyncStart = () => {
+      setIsAutoSyncing(true);
+    };
+    const handleAutoSynced = (e: any) => {
+      setIsAutoSyncing(false);
+      if (e?.detail) {
+        setSyncResult(e.detail);
+      }
+    };
+    const handleAutoSyncError = () => {
+      setIsAutoSyncing(false);
+    };
+
+    window.addEventListener('googlesheets-autosync-start', handleAutoSyncStart);
+    window.addEventListener('googlesheets-autosynced', handleAutoSynced);
+    window.addEventListener('googlesheets-autosync-error', handleAutoSyncError);
+
+    return () => {
+      window.removeEventListener('googlesheets-autosync-start', handleAutoSyncStart);
+      window.removeEventListener('googlesheets-autosynced', handleAutoSynced);
+      window.removeEventListener('googlesheets-autosync-error', handleAutoSyncError);
+    };
+  }, []);
 
   // Domain Authorization Help Modal State
   const [domainModalOpen, setDomainModalOpen] = useState(false);
@@ -193,6 +220,26 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
     setDomainCopied(true);
     showToast(`Đã sao chép tên miền: ${activeHostname}`, 'success');
     setTimeout(() => setDomainCopied(false), 3000);
+  };
+
+  const handleToggleAutoSync = async () => {
+    if (!hasToken && !isAutoSyncEnabled) {
+      showToast('Vui lòng kết nối tài khoản Google trước khi bật tự động đồng bộ.', 'error');
+      handleGoogleSignIn();
+      return;
+    }
+    const nextVal = !isAutoSyncEnabled;
+    const updatedSettings: AppSettings = {
+      ...settings,
+      autoSyncGoogleSheets: nextVal,
+    };
+    await onSaveSettings(updatedSettings);
+    showToast(
+      nextVal
+        ? 'Đã BẬT tự động đồng bộ ngầm: Mọi giao dịch mới sẽ tự lưu sang Google Sheets sau 2 giây!'
+        : 'Đã TẮT tự động đồng bộ Google Sheets.',
+      'success'
+    );
   };
 
   const spreadsheetUrl = settings.googleSheetUrl || syncResult?.spreadsheetUrl;
@@ -397,6 +444,59 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
           </div>
         </div>
       )}
+
+      {/* Auto-Sync Toggle Control (Proposal 9) */}
+      <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${
+            isAutoSyncEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'
+          }`}>
+            <RefreshCw className={`w-5 h-5 ${isAutoSyncing ? 'animate-spin text-emerald-600' : ''}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-900">
+                Tự Động Đồng Bộ Ngầm (Auto-Sync)
+              </span>
+              {isAutoSyncing ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  Đang đồng bộ ngầm...
+                </span>
+              ) : isAutoSyncEnabled ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                  Đang bật (Debounce 2s)
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">
+                  Đã tắt
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+              Tự động lưu thay đổi mới nhất (thêm giao dịch, trả nợ, chia bill) lên Google Sheets sau 2 giây mà không cần bấm thủ công.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleToggleAutoSync}
+          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+            isAutoSyncEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+          }`}
+          role="switch"
+          aria-checked={isAutoSyncEnabled}
+          title={isAutoSyncEnabled ? 'Nhấn để tắt tự động đồng bộ' : 'Nhấn để bật tự động đồng bộ'}
+        >
+          <span
+            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+              isAutoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
 
       {/* Manual Token Option Toggle */}
       <div className="pt-1 text-right">

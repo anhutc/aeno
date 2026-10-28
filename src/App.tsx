@@ -40,6 +40,10 @@ import {
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
 import { subscribeToFirestoreData } from './services/firestoreClient';
+import {
+  triggerDebouncedAutoSync,
+  getGoogleAccessToken,
+} from './services/googleSheetsService';
 import { Header } from './components/Header';
 import { OwnerDashboard } from './components/OwnerDashboard';
 import { GuestPortal } from './components/GuestPortal';
@@ -431,6 +435,42 @@ export default function App() {
 
   const handleOwnerLogout = handleLogoutOwner;
 
+  // Listen for background Google Sheets auto-sync results to keep settings up to date
+  useEffect(() => {
+    const handleAutoSynced = (e: any) => {
+      if (e?.detail) {
+        const result = e.detail;
+        setSettings((prev) => {
+          const updated = {
+            ...prev,
+            googleSheetId: result.spreadsheetId,
+            googleSheetUrl: result.spreadsheetUrl,
+            lastGoogleSheetSyncAt: result.updatedAt,
+          };
+          saveSettings(updated);
+          return updated;
+        });
+      }
+    };
+    window.addEventListener('googlesheets-autosynced', handleAutoSynced);
+    return () => window.removeEventListener('googlesheets-autosynced', handleAutoSynced);
+  }, []);
+
+  // Helper to trigger debounced auto-sync to Google Sheets in background
+  const maybeTriggerGoogleSheetsAutoSync = useCallback(
+    (currentDebtors: Debtor[], currentTxs: Transaction[], currentParties: PartySplit[]) => {
+      if (settings?.autoSyncGoogleSheets && getGoogleAccessToken()) {
+        triggerDebouncedAutoSync({
+          debtors: currentDebtors,
+          transactions: currentTxs,
+          parties: currentParties,
+          settings,
+        });
+      }
+    },
+    [settings]
+  );
+
   // --- Debtor Handlers (Synchronized) ---
   const handleSaveDebtor = async (
     debtorData: Omit<Debtor, 'id' | 'createdAt' | 'updatedAt'>,
@@ -447,6 +487,7 @@ export default function App() {
       if (selectedDetailDebtor && editId && res.debtor) {
         setSelectedDetailDebtor(res.debtor);
       }
+      maybeTriggerGoogleSheetsAutoSync(res.debtors, transactions, parties);
       return res.debtor;
     } else {
       alert(res.message || 'Lỗi khi lưu người nợ');
@@ -467,6 +508,7 @@ export default function App() {
     if (res.success && res.debtors && res.transactions) {
       setDebtors(res.debtors);
       setTransactions(res.transactions);
+      maybeTriggerGoogleSheetsAutoSync(res.debtors, res.transactions, parties);
     }
   };
 
@@ -482,6 +524,7 @@ export default function App() {
       if (prevBalance > 0 && newBalance <= 0) {
         triggerSettledCelebration();
       }
+      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, parties);
     } else {
       alert(res.message || 'Lỗi khi lưu giao dịch');
     }
@@ -499,6 +542,7 @@ export default function App() {
       if (prevBalance > 0 && newBalance <= 0) {
         triggerSettledCelebration();
       }
+      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, parties);
     } else if (!res.success) {
       alert(res.message || 'Lỗi khi cập nhật giao dịch');
     }
@@ -511,6 +555,7 @@ export default function App() {
     const res = await apiDeleteTransaction(txId);
     if (res.success && res.transactions) {
       setTransactions(res.transactions);
+      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, parties);
     }
   };
 
@@ -524,6 +569,7 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
+      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, res.parties);
     } else {
       alert(res.message || 'Lỗi khi lưu nhóm chia tiền');
     }
@@ -539,6 +585,7 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
+      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, res.parties);
     } else {
       alert(res.message || 'Lỗi khi cập nhật nhóm chia tiền');
     }
@@ -554,6 +601,7 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
+      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, res.parties);
     }
   };
 

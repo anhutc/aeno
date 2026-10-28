@@ -104,6 +104,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const normalizeSettings = (s: Partial<AppSettings> = {}): AppSettings => ({
+    ...s,
     ownerName: s.ownerName || 'Chủ Sổ',
     ownerPhone: s.ownerPhone || '',
     bankId: s.bankId || 'MB',
@@ -125,6 +126,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     defaultQrMode: s.defaultQrMode || 'MANUAL_AMOUNT',
     vietQrTemplate: s.vietQrTemplate || 'compact2',
     autoLockTimeout: s.autoLockTimeout || 'IMMEDIATE',
+    googleSheetId: s.googleSheetId,
+    googleSheetUrl: s.googleSheetUrl,
+    lastGoogleSheetSyncAt: s.lastGoogleSheetSyncAt,
+    autoSyncGoogleSheets: s.autoSyncGoogleSheets ?? false,
   });
 
   // Dual state tracking to ensure accurate isDirty calculation without ref desync
