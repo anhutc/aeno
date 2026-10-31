@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
-import { loadDebtors, loadTransactions, loadSettings, saveSettings } from '../utils/storage';
+import { loadDebtors, loadTransactions, loadSettings, saveSettings, recordAuditLog } from '../utils/storage';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
   isBiometricsAvailable,
@@ -185,6 +185,23 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         );
         if (localFound) {
           const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
+          const balance = localTxs.reduce((acc, t) => acc + (t.type === 'ADD' ? t.amount : -t.amount), 0);
+          const balanceStr = new Intl.NumberFormat('vi-VN').format(balance);
+          recordAuditLog({
+            action: 'GUEST_LOOKUP',
+            actor: `Khách: ${localFound.name}`,
+            title: 'Khách tra cứu sổ nợ',
+            description: `Khách "${localFound.name}" đã nhập mã tra cứu (PIN: ${localFound.pin}) để xem bảng đối soát công nợ. Dư nợ hiện thời: ${balanceStr} VNĐ (${localTxs.length} giao dịch).`,
+            debtorId: localFound.id,
+            debtorName: localFound.name,
+            amount: balance,
+            beforeState: 'Trạng thái khách: Chưa đăng nhập tra cứu',
+            afterState: `Đã nhập đúng mã PIN: ${localFound.pin}, đối soát số dư ${balanceStr} VNĐ (${localTxs.length} giao dịch)`,
+            changes: [
+              { fieldLabel: 'Mã PIN tra cứu', before: 'Chưa nhập', after: `Khớp PIN (${localFound.pin})` },
+              { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} VNĐ (${localTxs.length} giao dịch)` },
+            ],
+          });
           setPasscode('');
           onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
           return;

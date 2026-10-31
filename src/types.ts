@@ -112,3 +112,45 @@ export interface BankOption {
   shortName: string;
   logo?: string;
 }
+
+export type LogActionType =
+  | 'ADD_TRANSACTION'
+  | 'UPDATE_TRANSACTION'
+  | 'DELETE_TRANSACTION'
+  | 'ADD_DEBTOR'
+  | 'UPDATE_DEBTOR'
+  | 'DELETE_DEBTOR'
+  | 'ADD_PARTY'
+  | 'UPDATE_PARTY'
+  | 'DELETE_PARTY'
+  | 'UPDATE_SETTINGS'
+  | 'SETTLE_DEBT'
+  | 'GUEST_LOOKUP'
+  | 'GUEST_REPORT'
+  | 'SYNC_SHEETS'
+  | 'RESTORE_DATA'
+  | 'CLEAR_DATA';
+
+export interface AuditChangeDetail {
+  field?: string;
+  fieldLabel: string;
+  before?: string | number | boolean | null;
+  after?: string | number | boolean | null;
+}
+
+export interface AuditLog {
+  id: string;
+  timestamp: string; // ISO 8601 string
+  action: LogActionType;
+  actor: string; // 'Chủ Sổ (Admin)', Tên khách, hoặc 'Hệ thống'
+  title: string; // Tên ngắn gọn của thao tác
+  description: string; // Mô tả chi tiết hành động
+  debtorId?: string;
+  debtorName?: string;
+  amount?: number;
+  beforeState?: Record<string, any> | string | null;
+  afterState?: Record<string, any> | string | null;
+  changes?: AuditChangeDetail[];
+  metadata?: Record<string, any>;
+}
+

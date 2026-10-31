@@ -24,7 +24,7 @@ import {
   setLogLevel,
   Firestore,
 } from 'firebase/firestore';
-import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
 import {
   DEFAULT_SETTINGS,
 } from '../data/mockData';
@@ -740,3 +740,17 @@ export function subscribeToDebtorTransactions(
     return () => {};
   }
 }
+
+/**
+ * Save audit log directly to Cloud Firestore so it syncs across all devices
+ */
+export async function saveAuditLogDirect(log: AuditLog): Promise<void> {
+  try {
+    await ensureClientAuth();
+    const db = getClientFirestore();
+    await setDoc(doc(db, 'audit_logs', log.id), cleanClientObject(log), { merge: true });
+  } catch (err) {
+    console.warn('saveAuditLogDirect warning:', err);
+  }
+}
+

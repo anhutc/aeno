@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Debtor, Transaction, PartySplit, AppSettings } from './types';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './types';
 import {
   fetchOwnerData,
   smartMergeTransactions,
@@ -37,6 +37,7 @@ import {
   saveParties,
   getDebtorBalance,
   deepCleanSessionData,
+  loadAuditLogs,
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
 import { subscribeToFirestoreData } from './services/firestoreClient';
@@ -59,11 +60,28 @@ import { BottomNavBar } from './components/BottomNavBar';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
-  // App Core State - Chỉ lưu dữ liệu khi đã đăng nhập
   const [debtors, setDebtors] = useState<Debtor[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [parties, setParties] = useState<PartySplit[]>([]);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => loadAuditLogs());
+
+  useEffect(() => {
+    const handleLogRecorded = (e: any) => {
+      if (e?.detail) {
+        setAuditLogs((prev) => [e.detail, ...prev]);
+      }
+    };
+    const handleLogsCleared = () => {
+      setAuditLogs([]);
+    };
+    window.addEventListener('audit-log-recorded', handleLogRecorded);
+    window.addEventListener('audit-logs-cleared', handleLogsCleared);
+    return () => {
+      window.removeEventListener('audit-log-recorded', handleLogRecorded);
+      window.removeEventListener('audit-logs-cleared', handleLogsCleared);
+    };
+  }, []);
 
   // View & Auth State (OWNER | GUEST | SETTINGS)
   // Khởi tạo view ban đầu theo hash URL
@@ -465,6 +483,7 @@ export default function App() {
           transactions: currentTxs,
           parties: currentParties,
           settings,
+          auditLogs: loadAuditLogs(),
         });
       }
     },
@@ -760,6 +779,9 @@ export default function App() {
                   transactions={transactions}
                   parties={parties}
                   settings={settings}
+                  auditLogs={auditLogs}
+                  onRefreshLogs={() => setAuditLogs(loadAuditLogs())}
+                  onSaveSettings={handleSaveSettings}
                   onOpenAddDebtor={() => {
                     setEditingDebtor(null);
                     setIsAddDebtorOpen(true);

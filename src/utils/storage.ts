@@ -7,7 +7,7 @@
  * ============================================================================
  */
 
-import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
 import {
   DEFAULT_SETTINGS,
   INITIAL_DEBTORS,
@@ -24,6 +24,8 @@ const STORAGE_KEYS = {
   DELETED_TX_IDS: 'debt_app_deleted_tx_ids_v1',
   DELETED_DEBTOR_IDS: 'debt_app_deleted_debtor_ids_v1',
   DELETED_PARTY_IDS: 'debt_app_deleted_party_ids_v1',
+  AUDIT_LOGS: 'debt_app_audit_logs_v1',
+  AUDIT_LOGS_CLEARED: 'debt_app_audit_logs_cleared_v1',
 };
 
 /**
@@ -503,6 +505,197 @@ export function deepCleanSessionData(): void {
     window.history.replaceState(null, '', window.location.pathname);
   } catch (err) {
     console.warn('[Storage] Deep clean session error:', err);
+  }
+}
+
+/**
+ * Tạo dữ liệu nhật ký mẫu ban đầu nếu chưa có nhật ký nào được ghi
+ */
+function generateInitialAuditLogs(): AuditLog[] {
+  const now = Date.now();
+  return [
+    {
+      id: `log-init-1`,
+      timestamp: new Date(now - 86400000 * 3).toISOString(),
+      action: 'UPDATE_SETTINGS',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Khởi tạo sổ nợ & tài khoản VietQR',
+      description: 'Thiết lập thông tin tài khoản ngân hàng nhận tiền và mật khẩu quản trị',
+      beforeState: 'Chưa thiết lập tài khoản ngân hàng',
+      afterState: 'Ngân hàng Vietcombank (STK: 1012345678, Chủ TK: NGUYEN VAN A)',
+      changes: [
+        { fieldLabel: 'Ngân hàng nhận', before: '(Chưa cài đặt)', after: 'Vietcombank' },
+        { fieldLabel: 'Số tài khoản', before: '(Chưa có)', after: '1012345678' },
+        { fieldLabel: 'Chủ tài khoản', before: '(Chưa có)', after: 'NGUYEN VAN A' },
+      ],
+    },
+    {
+      id: `log-init-2`,
+      timestamp: new Date(now - 86400000 * 2.5).toISOString(),
+      action: 'ADD_DEBTOR',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Thêm người nợ mới',
+      description: 'Thêm danh bạ "Nguyễn Văn Nam" với mã PIN tra cứu cá nhân',
+      debtorName: 'Nguyễn Văn Nam',
+      beforeState: 'Chưa có trong danh bạ',
+      afterState: 'Đã lưu danh bạ: Nguyễn Văn Nam (PIN: 112233)',
+      changes: [
+        { fieldLabel: 'Họ và tên', before: '(Không tồn tại)', after: 'Nguyễn Văn Nam' },
+        { fieldLabel: 'Mã tra cứu (PIN)', before: '(Chưa cấp)', after: '112233' },
+        { fieldLabel: 'Dư nợ ban đầu', before: '0 VNĐ', after: '0 VNĐ' },
+      ],
+    },
+    {
+      id: `log-init-3`,
+      timestamp: new Date(now - 86400000 * 2).toISOString(),
+      action: 'ADD_TRANSACTION',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Ghi nợ chi hộ (+)',
+      description: 'Ghi nhận chi hộ 500.000 VNĐ cho Nguyễn Văn Nam (Đi ăn trưa buffet)',
+      debtorName: 'Nguyễn Văn Nam',
+      amount: 500000,
+      beforeState: 'Dư nợ hiện tại: 0 VNĐ (0 giao dịch)',
+      afterState: 'Dư nợ mới: 500.000 VNĐ (1 giao dịch)',
+      changes: [
+        { fieldLabel: 'Giao dịch phát sinh', before: 'Không có', after: '+500.000 VNĐ (Chi hộ ăn trưa)' },
+        { fieldLabel: 'Dư nợ người này', before: '0 VNĐ', after: '500.000 VNĐ' },
+      ],
+    },
+    {
+      id: `log-init-4`,
+      timestamp: new Date(now - 86400000 * 1.5).toISOString(),
+      action: 'ADD_PARTY',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Ăn chia nhóm mới',
+      description: 'Tạo cuộc chia bill "Đi ăn Lẩu Bò" (tổng 1.200.000 VNĐ cho 4 người tham gia)',
+      amount: 1200000,
+      beforeState: 'Chưa có cuộc chia tiền "Đi ăn Lẩu Bò"',
+      afterState: 'Cuộc vui: Đi ăn Lẩu Bò (Tổng bill: 1.200.000 VNĐ, 4 người)',
+      changes: [
+        { fieldLabel: 'Tổng tiền cuộc vui', before: '0 VNĐ', after: '1.200.000 VNĐ' },
+        { fieldLabel: 'Số người tham gia', before: '0', after: '4 người' },
+        { fieldLabel: 'Mỗi người đóng', before: '0 VNĐ', after: '300.000 VNĐ' },
+      ],
+    },
+    {
+      id: `log-init-5`,
+      timestamp: new Date(now - 86400000 * 0.8).toISOString(),
+      action: 'UPDATE_TRANSACTION',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Thu nợ / Thanh toán (-)',
+      description: 'Ghi nhận nhận thanh toán 200.000 VNĐ từ Bạn Tuấn qua chuyển khoản ngân hàng',
+      debtorName: 'Bạn Tuấn',
+      amount: 200000,
+      beforeState: 'Dư nợ trước thanh toán: 500.000 VNĐ',
+      afterState: 'Dư nợ sau thanh toán: 300.000 VNĐ',
+      changes: [
+        { fieldLabel: 'Khoản thu nợ (-)', before: '0 VNĐ', after: '-200.000 VNĐ' },
+        { fieldLabel: 'Dư nợ còn lại', before: '500.000 VNĐ', after: '300.000 VNĐ' },
+      ],
+    },
+    {
+      id: `log-init-6`,
+      timestamp: new Date(now - 86400000 * 0.2).toISOString(),
+      action: 'SYNC_SHEETS',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Đồng bộ Google Sheets',
+      description: 'Tự động sao lưu và cập nhật toàn bộ sổ nợ, giao dịch lên Google Drive',
+      beforeState: 'Bản sao lưu trước đó trên Drive',
+      afterState: 'Đã cập nhật đầy đủ 4 sheet mới nhất lên Google Sheets',
+      changes: [
+        { fieldLabel: 'Trạng thái Google Sheets', before: 'Chưa đồng bộ bản mới', after: 'Đã đồng bộ 4 tab thành công' },
+      ],
+    },
+    {
+      id: `log-init-7`,
+      timestamp: new Date(now - 86400000 * 0.05).toISOString(),
+      action: 'GUEST_LOOKUP',
+      actor: 'Khách: Bạn Hùng',
+      title: 'Khách tra cứu sổ nợ',
+      description: 'Khách "Bạn Hùng" đã nhập mã tra cứu (PIN: 112233) để xem bảng đối soát công nợ. Dư nợ hiện thời: 450.000 VNĐ (3 giao dịch).',
+      debtorName: 'Bạn Hùng',
+      amount: 450000,
+      beforeState: 'Trạng thái: Khách chưa đăng nhập tra cứu',
+      afterState: 'Đã nhập đúng mã PIN (112233), xem đối soát nợ 450.000 VNĐ',
+      changes: [
+        { fieldLabel: 'Mã PIN xác thực', before: 'Chưa nhập', after: 'Khớp mã hợp lệ (112233)' },
+        { fieldLabel: 'Dư nợ đối soát', before: '-', after: '450.000 VNĐ (3 giao dịch)' },
+      ],
+    },
+  ];
+}
+
+export function loadAuditLogs(): AuditLog[] {
+  try {
+    const isCleared = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED);
+    if (isCleared === 'true') {
+      const raw = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+
+    const raw = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
+    if (!raw) {
+      const initialLogs = generateInitialAuditLogs();
+      saveAuditLogs(initialLogs);
+      return initialLogs;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Failed to load audit logs:', err);
+    return [];
+  }
+}
+
+export function saveAuditLogs(logs: AuditLog[]): void {
+  try {
+    // Keep max 200 most recent logs locally to prevent storage quota issues
+    const trimmed = logs.slice(0, 200);
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(trimmed));
+  } catch (err) {
+    console.warn('[Storage] Failed to save audit logs:', err);
+  }
+}
+
+export function recordAuditLog(
+  log: Omit<AuditLog, 'id' | 'timestamp'> & { timestamp?: string }
+): AuditLog {
+  const newLog: AuditLog = {
+    ...log,
+    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: log.timestamp || new Date().toISOString(),
+  };
+
+  try {
+    const currentLogs = loadAuditLogs();
+    const updated = [newLog, ...currentLogs];
+    saveAuditLogs(updated);
+    // Mark as initialized/active so it won't revert to initial sample data
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED, 'true');
+
+    // Dispatch custom browser event so any open UI updates immediately
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('audit-log-recorded', { detail: newLog }));
+    }
+  } catch (err) {
+    console.warn('Could not record audit log:', err);
+  }
+
+  return newLog;
+}
+
+export function clearAuditLogs(): void {
+  try {
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify([]));
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED, 'true');
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('audit-logs-cleared'));
+    }
+  } catch {
+    // ignore
   }
 }
 

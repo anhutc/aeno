@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileSpreadsheet,
   ExternalLink,
@@ -15,8 +15,18 @@ import {
   FolderSync,
   HelpCircle,
   X,
+  Users,
+  Receipt,
+  Utensils,
+  ClipboardList,
+  Database,
+  Layers,
+  ArrowUpRight,
+  Lock,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
+import { loadAuditLogs } from '../utils/storage';
+import { formatVND } from '../utils/vietqr';
 import {
   initGoogleAuth,
   signInWithGoogle,
@@ -93,6 +103,65 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const [manualToken, setManualToken] = useState('');
   const [manualEmail, setManualEmail] = useState('');
 
+  // Real-time local audit logs count
+  const [localAuditLogsCount, setLocalAuditLogsCount] = useState<number>(() => loadAuditLogs().length);
+
+  useEffect(() => {
+    const handleLogChange = () => {
+      setLocalAuditLogsCount(loadAuditLogs().length);
+    };
+    window.addEventListener('audit-log-recorded', handleLogChange);
+    window.addEventListener('audit-logs-cleared', handleLogChange);
+    return () => {
+      window.removeEventListener('audit-log-recorded', handleLogChange);
+      window.removeEventListener('audit-logs-cleared', handleLogChange);
+    };
+  }, []);
+
+  // Summary statistics of data updated to spreadsheet
+  const stats = useMemo(() => {
+    let totalReceivable = 0;
+    let totalPayable = 0;
+    let settledCount = 0;
+    let receivableCount = 0;
+    let payableCount = 0;
+
+    debtors.forEach((d) => {
+      const dBalance = transactions
+        .filter((t) => t.debtorId === d.id)
+        .reduce((acc, t) => (t.type === 'ADD' ? acc + t.amount : acc - t.amount), 0);
+      if (dBalance > 0) {
+        totalReceivable += dBalance;
+        receivableCount++;
+      } else if (dBalance < 0) {
+        totalPayable += Math.abs(dBalance);
+        payableCount++;
+      } else {
+        settledCount++;
+      }
+    });
+
+    const totalAddAmount = transactions
+      .filter((t) => t.type === 'ADD')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const totalSubAmount = transactions
+      .filter((t) => t.type === 'SUB')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalPartyAmount = parties.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+
+    return {
+      totalReceivable,
+      totalPayable,
+      receivableCount,
+      payableCount,
+      settledCount,
+      totalAddAmount,
+      totalSubAmount,
+      totalPartyAmount,
+    };
+  }, [debtors, transactions, parties]);
+
   useEffect(() => {
     const unsubscribe = initGoogleAuth(
       (user, token) => {
@@ -156,12 +225,13 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
     setSyncStatusStep('Đang chuẩn bị dữ liệu đồng bộ...');
 
     try {
-      setSyncStatusStep('Đang kết nối Google Drive & tạo cấu trúc 3 tab...');
+      setSyncStatusStep('Đang kết nối Google Drive & tạo cấu trúc 4 tab (kèm Nhật ký thao tác)...');
       const result = await syncDatabaseToGoogleSheets({
         debtors,
         transactions,
         parties,
         settings,
+        auditLogs: loadAuditLogs(),
       });
 
       setSyncResult(result);
@@ -336,7 +406,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
             Dữ liệu lưu 100% trên Cloud Firestore &amp; Đồng bộ sang Google Sheets
           </p>
           <p className="text-slate-500 text-[11px] leading-relaxed">
-            Hệ thống không ghi dữ liệu vào tệp cục bộ trên máy chủ. Bạn có thể đồng bộ trực tiếp lên Google Drive hoặc tải tệp Excel/CSV chuẩn 3 tab để mở ngay trên Google Sheets.
+            Hệ thống không ghi dữ liệu vào tệp cục bộ trên máy chủ. Bạn có thể đồng bộ trực tiếp lên Google Drive hoặc tải tệp Excel/CSV chuẩn 4 tab (bao gồm Nhật ký thao tác) để mở ngay trên Google Sheets.
           </p>
         </div>
       </div>
@@ -358,7 +428,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-2 py-1 text-center text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-1 text-center text-xs">
             <div className="bg-white/80 rounded-xl p-2 border border-emerald-100">
               <div className="text-[10px] text-slate-500 font-medium">Tab 1: Công Nợ</div>
               <div className="text-sm font-extrabold text-emerald-700 mt-0.5">
@@ -375,6 +445,12 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               <div className="text-[10px] text-slate-500 font-medium">Tab 3: Chia Bill</div>
               <div className="text-sm font-extrabold text-emerald-700 mt-0.5">
                 {parties.length} cuộc vui
+              </div>
+            </div>
+            <div className="bg-white/80 rounded-xl p-2 border border-emerald-100">
+              <div className="text-[10px] text-slate-500 font-medium">Tab 4: Nhật Ký Logs</div>
+              <div className="text-sm font-extrabold text-teal-700 mt-0.5">
+                {syncResult?.summary?.auditLogsCount || 'Đầy đủ'} bản ghi
               </div>
             </div>
           </div>
@@ -444,6 +520,166 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
           </div>
         </div>
       )}
+
+      {/* THỐNG KÊ DỮ LIỆU CẬP NHẬT BẢNG TÍNH (4 TAB ĐỒNG BỘ) */}
+      <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
+              <Database className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-900 tracking-tight flex items-center gap-2">
+                <span>Thống Kê Dữ Liệu Cập Nhật Bảng Tính</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  4 Tab Chuẩn
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Cấu trúc bảng tính Google Sheets và các số liệu sẵn sàng đồng bộ hoặc đang lưu trữ
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-xl">
+              Tổng quan 4 Sheet
+            </span>
+          </div>
+        </div>
+
+        {/* 4 Tabs Breakdown Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Tab 1: Sổ Công Nợ */}
+          <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200/80 flex flex-col justify-between space-y-2.5">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-900">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  Tab 1: Sổ Công Nợ
+                </span>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg">
+                  {debtors.length} người nợ
+                </span>
+              </div>
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Phải thu từ khách:</span>
+                  <span className="font-extrabold text-emerald-700">{formatVND(stats.totalReceivable)}</span>
+                </div>
+                {stats.totalPayable > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Phải trả lại khách:</span>
+                    <span className="font-bold text-rose-600">{formatVND(stats.totalPayable)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-400 border-t border-emerald-200/50 pt-2 flex items-center justify-between">
+              <span>Cột: Mã, Tên, SĐT, Dư nợ, Trạng thái, Cập nhật, Ghi chú</span>
+              <span className="text-emerald-700 font-semibold">Ghi đè mới nhất</span>
+            </div>
+          </div>
+
+          {/* Tab 2: Lịch Sử Giao Dịch */}
+          <div className="p-3.5 rounded-2xl bg-blue-50/50 border border-blue-200/80 flex flex-col justify-between space-y-2.5">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-900">
+                  <Receipt className="w-3.5 h-3.5 text-blue-600" />
+                  Tab 2: Lịch Sử Giao Dịch
+                </span>
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-lg">
+                  {transactions.length} giao dịch
+                </span>
+              </div>
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Phát sinh nợ (+):</span>
+                  <span className="font-bold text-blue-700">{stats.debtTxCount} lượt ({formatVND(stats.totalDebtVolume)})</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Đã thu/trả (-):</span>
+                  <span className="font-bold text-emerald-700">{stats.paymentTxCount} lượt ({formatVND(stats.totalPaymentVolume)})</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-400 border-t border-blue-200/50 pt-2 flex items-center justify-between">
+              <span>Cột: Mã GD, Thời gian, Tên, Loại (+/-), Số tiền, Phương thức</span>
+              <span className="text-blue-700 font-semibold">Dòng thời gian</span>
+            </div>
+          </div>
+
+          {/* Tab 3: Chia Tiền Cuộc Vui */}
+          <div className="p-3.5 rounded-2xl bg-purple-50/50 border border-purple-200/80 flex flex-col justify-between space-y-2.5">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-900">
+                  <Utensils className="w-3.5 h-3.5 text-purple-600" />
+                  Tab 3: Chia Tiền Cuộc Vui
+                </span>
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-lg">
+                  {parties.length} cuộc vui
+                </span>
+              </div>
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Tổng ngân sách chi tiêu:</span>
+                  <span className="font-extrabold text-purple-700">{formatVND(stats.totalPartyAmount)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Trạng thái chia bill:</span>
+                  <span className="font-medium text-slate-700">Đã phân bổ vào sổ nợ</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-400 border-t border-purple-200/50 pt-2 flex items-center justify-between">
+              <span>Cột: Mã tiệc, Tiêu đề, Tổng tiền, Số người, Tiền/người, Người ứng</span>
+              <span className="text-purple-700 font-semibold">Danh sách tiệc</span>
+            </div>
+          </div>
+
+          {/* Tab 4: Nhật Ký Logs - Append-Only */}
+          <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200/90 flex flex-col justify-between space-y-2.5">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                  <ClipboardList className="w-3.5 h-3.5 text-amber-700" />
+                  Tab 4: Nhật Ký Thao Tác & Kiểm Vết
+                </span>
+                <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-lg border border-amber-300">
+                  {localAuditLogsCount} bản ghi app
+                </span>
+              </div>
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between items-center text-slate-700">
+                  <span>Cơ chế bảo toàn Sheets:</span>
+                  <span className="font-black text-amber-900 bg-amber-200/70 px-1.5 py-0.5 rounded text-[10px]">
+                    Chỉ ghi thêm (Append-Only)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600 text-[11px]">
+                  <span>Làm sạch trên app:</span>
+                  <span className="text-emerald-700 font-bold">Không làm mất log Sheets</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-500 border-t border-amber-200/60 pt-2 flex items-center justify-between">
+              <span>Cột: Mã ID, Thời gian, Thao tác, Chi tiết, Trước (Before), Sau (After), Người làm</span>
+              <span className="text-amber-800 font-black">Không bao giờ xóa</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Append-Only Protection Banner */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-xs text-slate-600 flex items-start gap-2.5">
+          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="text-[11px] leading-relaxed">
+            <span className="font-bold text-slate-800">Quy tắc bảo vệ Nhật ký trên Google Sheets: </span>
+            Khi bạn sử dụng tính năng <span className="font-semibold text-rose-700">&quot;Làm sạch nhật ký&quot;</span> trong tab Nhật Ký để giải phóng bộ nhớ ứng dụng, các bản ghi cũ trên Google Sheets (Tab 4) <span className="font-bold text-emerald-700">vẫn được lưu trữ vĩnh viễn và không bao giờ bị xóa</span>. Mỗi lần đồng bộ, hệ thống tự động đối chiếu ID và chỉ ghi thêm (append) các bản ghi mới.
+          </div>
+        </div>
+      </div>
 
       {/* Auto-Sync Toggle Control (Proposal 9) */}
       <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

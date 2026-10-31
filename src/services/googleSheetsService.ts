@@ -20,7 +20,8 @@ import {
 } from 'firebase/auth';
 import { app } from '../firebase';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
-import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
+import { loadAuditLogs } from '../utils/storage';
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -390,6 +391,7 @@ export interface SyncDataPayload {
   transactions: Transaction[];
   parties: PartySplit[];
   settings: AppSettings;
+  auditLogs?: AuditLog[];
 }
 
 export interface SyncResult {
@@ -402,6 +404,7 @@ export interface SyncResult {
     debtorsCount: number;
     transactionsCount: number;
     partiesCount: number;
+    auditLogsCount?: number;
     totalActiveDebt: number;
   };
 }
@@ -437,6 +440,31 @@ export const calculateDebtorBalances = (debtors: Debtor[], transactions: Transac
     };
   });
 };
+
+/**
+ * Convert internal log action string to friendly Vietnamese label
+ */
+export function getLogActionFriendlyName(action: string): string {
+  switch (action) {
+    case 'ADD_TRANSACTION': return 'Ghi nợ chi hộ (+)';
+    case 'UPDATE_TRANSACTION': return 'Cập nhật / Thu nợ (-)';
+    case 'DELETE_TRANSACTION': return 'Xóa giao dịch';
+    case 'ADD_DEBTOR': return 'Thêm người nợ mới';
+    case 'UPDATE_DEBTOR': return 'Sửa thông tin người nợ';
+    case 'DELETE_DEBTOR': return 'Xóa người nợ';
+    case 'ADD_PARTY': return 'Tạo chia tiền nhóm';
+    case 'UPDATE_PARTY': return 'Cập nhật cuộc chia tiền';
+    case 'DELETE_PARTY': return 'Xóa cuộc chia tiền';
+    case 'UPDATE_SETTINGS': return 'Cập nhật cài đặt';
+    case 'SETTLE_DEBT': return 'Tất toán nợ (Về 0đ)';
+    case 'GUEST_LOOKUP': return 'Khách tra cứu sổ nợ';
+    case 'GUEST_REPORT': return 'Khách báo chuyển khoản';
+    case 'SYNC_SHEETS': return 'Đồng bộ Google Sheets';
+    case 'RESTORE_DATA': return 'Khôi phục sao lưu';
+    case 'CLEAR_DATA': return 'Dọn dẹp dữ liệu';
+    default: return action;
+  }
+}
 
 /**
  * Download a CSV file directly formatted for Google Sheets import
@@ -491,10 +519,34 @@ export function exportGoogleSheetsCsvFile(payload: SyncDataPayload) {
     csvContent += `"${idx + 1}","${p.date || ''}","${p.name || ''}","${p.totalAmount || 0}","${p.totalPeopleCount || 0}","${p.splitAmountPerPerson || 0}","${payerName}","${participants}"\n`;
   });
 
+  // Tab 4: Nhật Ký Thao Tác (Audit Logs)
+  const logsToExport = payload.auditLogs || loadAuditLogs();
+  csvContent += `\n=== BẢNG 4: NHẬT KÝ THAO TÁC & KIỂM VẾT (AUDIT LOGS) ===\n`;
+  csvContent += `"STT","Thời Gian","Người Thực Hiện","Loại Thao Tác","Tiêu Đề","Đối Tượng / Người Nợ","Số Tiền (VNĐ)","Nội Dung Chi Tiết","Trước Thay Đổi (Before)","Sau Thay Đổi (After)"\n`;
+
+  logsToExport.forEach((l, idx) => {
+    const beforeStr = l.beforeState
+      ? typeof l.beforeState === 'object'
+        ? JSON.stringify(l.beforeState)
+        : String(l.beforeState)
+      : l.changes && l.changes.length > 0
+      ? l.changes.map((c) => `${c.fieldLabel}: ${c.before ?? '(Trống)'}`).join('; ')
+      : '-';
+
+    const afterStr = l.afterState
+      ? typeof l.afterState === 'object'
+        ? JSON.stringify(l.afterState)
+        : String(l.afterState)
+      : l.changes && l.changes.length > 0
+      ? l.changes.map((c) => `${c.fieldLabel}: ${c.after ?? '(Trống)'}`).join('; ')
+      : '-';
+
+    csvContent += `"${idx + 1}","${new Date(l.timestamp).toLocaleString('vi-VN')}","${l.actor}","${getLogActionFriendlyName(l.action)}","${(l.title || '').replace(/"/g, '""')}","${l.debtorName || '-'}","${l.amount || 0}","${(l.description || '').replace(/"/g, '""')}","${beforeStr.replace(/"/g, '""')}","${afterStr.replace(/"/g, '""')}"\n`;
+  });
+
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
   a.download = `So_Ghi_No_Google_Sheets_${new Date().toISOString().split('T')[0]}.csv`;
   document.body.appendChild(a);
   a.click();
@@ -546,6 +598,12 @@ async function createSpreadsheet(title: string, token: string): Promise<{ id: st
           gridProperties: { frozenRowCount: 1 },
         },
       },
+      {
+        properties: {
+          title: 'Nhật Ký Thao Tác (Logs)',
+          gridProperties: { frozenRowCount: 1 },
+        },
+      },
     ],
   };
 
@@ -572,13 +630,13 @@ async function createSpreadsheet(title: string, token: string): Promise<{ id: st
 }
 
 /**
- * Ensure the 3 required tabs exist in an existing spreadsheet
+ * Ensure the 4 required tabs exist in an existing spreadsheet
  */
 async function ensureSheetsExist(spreadsheetId: string, existingMeta: any, token: string): Promise<void> {
   const existingTitles = new Set(
     (existingMeta.sheets || []).map((s: any) => s.properties?.title)
   );
-  const required = ['Tổng Hợp Công Nợ', 'Lịch Sử Giao Dịch', 'Các Cuộc Chia Tiền'];
+  const required = ['Tổng Hợp Công Nợ', 'Lịch Sử Giao Dịch', 'Các Cuộc Chia Tiền', 'Nhật Ký Thao Tác (Logs)'];
   const missing = required.filter((r) => !existingTitles.has(r));
 
   if (missing.length === 0) return;
@@ -771,7 +829,103 @@ export async function syncDatabaseToGoogleSheets(
     ]);
   });
 
-  // 6. Clear old ranges to avoid ghost trailing rows
+  // 5b. Prepare data for Tab 4: "Nhật Ký Thao Tác (Logs)" - APPEND-ONLY MODE
+  // CRITICAL REQUIREMENT: "chỉ ghi thêm không bao giờ xóa trên Google Sheet"
+  // Đọc toàn bộ log hiện có trên Google Sheet, giữ nguyên 100% và chỉ ghi thêm log mới chưa có
+  let existingSheetLogRows: any[][] = [];
+  try {
+    const existingSheetLogsRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Nhật Ký Thao Tác (Logs)'!A:I`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (existingSheetLogsRes.ok) {
+      const existingData = await existingSheetLogsRes.json();
+      if (Array.isArray(existingData.values) && existingData.values.length > 0) {
+        existingSheetLogRows = existingData.values;
+      }
+    }
+  } catch (err) {
+    console.warn('Notice reading existing sheet logs:', err);
+  }
+
+  const tab4Header = [
+    'STT',
+    'Thời Gian',
+    'Người Thực Hiện',
+    'Loại Thao Tác',
+    'Tiêu Đề Thao Tác',
+    'Người Nợ / Đối Tượng',
+    'Số Tiền (VNĐ)',
+    'Chi Tiết Nội Dung Thao Tác',
+    'Trước Thay Đổi (Before)',
+    'Sau Thay Đổi (After)',
+    'Mã Bản Ghi (ID)',
+  ];
+
+  // Thu thập các ID đã có trên Google Sheet (nhận diện cả bảng 9 cột cũ hoặc 11 cột mới)
+  const existingSheetLogIds = new Set<string>();
+  if (existingSheetLogRows.length > 1) {
+    for (let r = 1; r < existingSheetLogRows.length; r++) {
+      const row = existingSheetLogRows[r];
+      if (Array.isArray(row)) {
+        const found = row.find((c) => typeof c === 'string' && c.startsWith('log-')) ||
+          (row[10] ? String(row[10]).trim() : '') ||
+          (row[8] ? String(row[8]).trim() : '');
+        if (found) {
+          existingSheetLogIds.add(String(found).trim());
+        }
+      }
+    }
+  }
+
+  // Lọc ra các log mới từ ứng dụng chưa có trong Google Sheet
+  const logsToSync = payload.auditLogs || loadAuditLogs();
+  const sortedNewLogs = [...logsToSync]
+    .filter((l) => l.id && !existingSheetLogIds.has(l.id))
+    .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+
+  // Bảo toàn toàn bộ dữ liệu lịch sử trên Google Sheet ngay cả khi ứng dụng đã bấm Làm sạch
+  let tab4Values: any[][] = [];
+  if (existingSheetLogRows.length > 0) {
+    tab4Values = [tab4Header, ...existingSheetLogRows.slice(1)];
+  } else {
+    tab4Values = [tab4Header];
+  }
+
+  // Nối thêm (Append) các bản ghi mới vào cuối bảng tính kèm thông tin trước & sau thay đổi
+  sortedNewLogs.forEach((l) => {
+    const beforeStr = l.beforeState
+      ? typeof l.beforeState === 'object'
+        ? JSON.stringify(l.beforeState)
+        : String(l.beforeState)
+      : l.changes && l.changes.length > 0
+      ? l.changes.map((c) => `${c.fieldLabel}: ${c.before ?? '(Trống)'}`).join('; ')
+      : '-';
+
+    const afterStr = l.afterState
+      ? typeof l.afterState === 'object'
+        ? JSON.stringify(l.afterState)
+        : String(l.afterState)
+      : l.changes && l.changes.length > 0
+      ? l.changes.map((c) => `${c.fieldLabel}: ${c.after ?? '(Trống)'}`).join('; ')
+      : '-';
+
+    tab4Values.push([
+      tab4Values.length,
+      l.timestamp ? new Date(l.timestamp).toLocaleString('vi-VN') : '',
+      l.actor || 'Chủ Sổ (Admin)',
+      getLogActionFriendlyName(l.action),
+      l.title || '',
+      l.debtorName || '-',
+      l.amount || 0,
+      l.description || '',
+      beforeStr,
+      afterStr,
+      l.id || '',
+    ]);
+  });
+
+  // 6. Clear old ranges for Tabs 1, 2, 3 only (TUYỆT ĐỐI KHÔNG XÓA TAB 4 NHẬT KÝ)
   try {
     await Promise.all([
       fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Tổng Hợp Công Nợ'!A1:Z1000:clear`, {
@@ -791,7 +945,7 @@ export async function syncDatabaseToGoogleSheets(
     console.warn('Notice clearing ranges:', err);
   }
 
-  // 7. Write new values to all 3 tabs via batchUpdate
+  // 7. Write new values to all 4 tabs via batchUpdate
   const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
     method: 'POST',
     headers: {
@@ -812,6 +966,10 @@ export async function syncDatabaseToGoogleSheets(
         {
           range: "'Các Cuộc Chia Tiền'!A1",
           values: tab3Values,
+        },
+        {
+          range: "'Nhật Ký Thao Tác (Logs)'!A1",
+          values: tab4Values,
         },
       ],
     }),
@@ -877,6 +1035,7 @@ export async function syncDatabaseToGoogleSheets(
       debtorsCount: debtors.length,
       transactionsCount: transactions.length,
       partiesCount: parties.length,
+      auditLogsCount: Math.max(0, tab4Values.length - 1),
       totalActiveDebt,
     },
   };

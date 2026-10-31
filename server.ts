@@ -8,7 +8,7 @@ import {
   INITIAL_PARTIES,
   INITIAL_TRANSACTIONS,
 } from './src/data/mockData';
-import { Debtor, Transaction, PartySplit, AppSettings } from './src/types';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './src/types';
 import {
   loadDataFromFirestore,
   saveDebtorToFirestore,
@@ -41,6 +41,7 @@ interface DatabaseSchema {
   transactions: Transaction[];
   parties: PartySplit[];
   settings: AppSettings;
+  auditLogs?: AuditLog[];
 }
 
 const args = process.argv.slice(2);
