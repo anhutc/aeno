@@ -113,6 +113,22 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
     return { success: false, message: 'Vui lòng nhập mật khẩu quản lý' };
   }
 
+  const recordOwnerLoginSuccess = () => {
+    try {
+      recordAuditLog({
+        action: 'LOGIN_SUCCESS',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Đăng nhập quản trị thành công',
+        description: 'Chủ sổ đã xác thực thành công vào hệ thống quản lý công nợ.',
+        beforeState: 'Chưa đăng nhập',
+        afterState: 'Đã mở khóa phiên quản trị',
+        changes: [{ fieldLabel: 'Phiên quản trị', before: 'Khóa', after: 'Đã xác thực' }],
+      });
+    } catch (err) {
+      console.warn('Login success log notice:', err);
+    }
+  };
+
   // 1. Try server-side authentication
   try {
     const res = await fetch('/api/auth/login', {
@@ -127,6 +143,7 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
         if (data.settings) {
           saveSettings(data.settings);
         }
+        recordOwnerLoginSuccess();
         return { success: true };
       }
     }
@@ -142,6 +159,7 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
       if (directRes.settings) {
         saveSettings(directRes.settings);
       }
+      recordOwnerLoginSuccess();
       return { success: true };
     }
   } catch (err) {
@@ -161,6 +179,7 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
     cleanPass === '123456'
   ) {
     setStoredOwnerToken('local-owner-session');
+    recordOwnerLoginSuccess();
     return { success: true };
   }
 
@@ -339,6 +358,20 @@ export async function fetchOwnerData(): Promise<{
 export async function apiSaveDebtor(
   debtor: Omit<Debtor, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
 ): Promise<{ success: boolean; debtor?: Debtor; debtors?: Debtor[]; message?: string }> {
+  if (!debtor.name || !debtor.name.trim()) {
+    const errorMsg = 'Họ và tên người nợ không được để trống';
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi lưu người nợ',
+      description: errorMsg,
+      beforeState: 'Thêm / Cập nhật người nợ',
+      afterState: `Thất bại: ${errorMsg}`,
+      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: 'Thất bại (Tên trống)' }],
+    });
+    return { success: false, message: errorMsg };
+  }
+
   const targetId = debtor.id || `debtor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   unmarkDebtorDeleted(targetId);
 
@@ -445,6 +478,16 @@ export async function apiSaveDebtor(
     });
     return { success: true, debtor: savedDebtor, debtors: allDebtors };
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi lưu người nợ',
+      description: `Không thể lưu thông tin "${debtor.name}": ${err?.message || 'Lỗi hệ thống'}`,
+      debtorName: debtor.name,
+      beforeState: debtorBeforeState,
+      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
+    });
     return { success: false, message: err?.message || 'Lỗi khi lưu thông tin người nợ' };
   }
 }
@@ -522,6 +565,22 @@ export async function apiDeleteDebtor(
 export async function apiSaveTransaction(
   tx: Omit<Transaction, 'id' | 'createdAt'>
 ): Promise<{ success: boolean; transaction?: Transaction; transactions?: Transaction[]; message?: string }> {
+  if (!tx.debtorId || !tx.amount || tx.amount <= 0) {
+    const errorMsg = 'Thông tin giao dịch không hợp lệ (Số tiền phải lớn hơn 0 và cần chọn người nợ)';
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi ghi nhận giao dịch',
+      description: errorMsg,
+      debtorId: tx.debtorId,
+      amount: tx.amount || 0,
+      beforeState: 'Nhập giao dịch mới',
+      afterState: `Thất bại: ${errorMsg}`,
+      changes: [{ fieldLabel: 'Kết quả tạo giao dịch', before: 'Đang tạo', after: 'Thất bại' }],
+    });
+    return { success: false, message: errorMsg };
+  }
+
   const newId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   unmarkTxDeleted(newId);
 
@@ -632,6 +691,18 @@ export async function apiSaveTransaction(
     });
     return { success: true, transaction: localNewTx, transactions: currentLocal };
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi ghi nhận giao dịch',
+      description: `Không thể lưu giao dịch cho "${debtorName}": ${err?.message || 'Lỗi hệ thống'}`,
+      debtorId: tx.debtorId,
+      debtorName,
+      amount: tx.amount,
+      beforeState: txBeforeState,
+      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
+    });
     return { success: false, message: err?.message || 'Lỗi khi lưu giao dịch' };
   }
 }
@@ -736,6 +807,17 @@ export async function apiUpdateTransaction(
     });
     return { success: true, transaction: tx, transactions: allTxs };
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi cập nhật giao dịch',
+      description: `Không thể cập nhật giao dịch: ${err?.message || 'Lỗi hệ thống'}`,
+      debtorId: tx.debtorId,
+      amount: tx.amount,
+      beforeState: txBeforeState,
+      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
+    });
     return { success: false, message: err?.message || 'Lỗi khi cập nhật giao dịch' };
   }
 }
@@ -812,6 +894,21 @@ export async function apiSavePartySplit(
   party: Omit<PartySplit, 'id' | 'createdAt'> & { id?: string },
   transactions: Omit<Transaction, 'id' | 'createdAt'>[]
 ): Promise<{ success: boolean; parties?: PartySplit[]; transactions?: Transaction[]; message?: string }> {
+  if (!party.name || !party.name.trim() || !party.totalAmount || party.totalAmount <= 0) {
+    const errorMsg = 'Thông tin cuộc vui không hợp lệ (Tên và tổng tiền phải lớn hơn 0)';
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi tạo cuộc chia tiền',
+      description: errorMsg,
+      amount: party.totalAmount || 0,
+      beforeState: 'Nhập thông tin chia bill',
+      afterState: `Thất bại: ${errorMsg}`,
+      changes: [{ fieldLabel: 'Kết quả tạo cuộc vui', before: 'Đang tạo', after: 'Thất bại' }],
+    });
+    return { success: false, message: errorMsg };
+  }
+
   const partyId = party.id || `party-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   unmarkPartyDeleted(partyId);
 
@@ -901,6 +998,16 @@ export async function apiSavePartySplit(
     });
     return { success: true, parties: allParties, transactions: updatedTxs };
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi tạo cuộc chia tiền',
+      description: `Không thể tạo cuộc chia bill "${newParty.name}": ${err?.message || 'Lỗi hệ thống'}`,
+      amount: newParty.totalAmount,
+      beforeState: partyBeforeState,
+      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang tạo', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
+    });
     return { success: false, message: err?.message || 'Lỗi khi lưu chia tiền' };
   }
 }
@@ -1085,6 +1192,16 @@ export async function apiUpdatePartySplit(
     });
     return { success: true, parties: allParties, transactions: updatedTxs };
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi sửa cuộc chia tiền',
+      description: `Không thể cập nhật cuộc chia bill "${updatedParty.name}": ${err?.message || 'Lỗi hệ thống'}`,
+      amount: updatedParty.totalAmount,
+      beforeState: partyUpdateBeforeState,
+      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
+    });
     return { success: false, message: err?.message || 'Lỗi khi cập nhật chia tiền' };
   }
 }
@@ -1290,6 +1407,16 @@ export async function apiGuestLookup(pin: string): Promise<{
       settings,
     };
   }
+  const maskedPin = cleanPin.length > 2 ? `${cleanPin.slice(0, 1)}***${cleanPin.slice(-1)}` : '***';
+  recordAuditLog({
+    action: 'LOOKUP_FAILED',
+    actor: 'Khách vãng lai',
+    title: 'Khách tra cứu thất bại',
+    description: `Khách đã nhập mã tra cứu không hợp lệ hoặc không tồn tại (${maskedPin}).`,
+    beforeState: 'Chưa tra cứu',
+    afterState: 'Từ chối xem thông tin (Sai mã PIN)',
+    changes: [{ fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: 'Không tìm thấy người nợ' }],
+  });
   return {
     success: false,
     message: 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
@@ -1365,6 +1492,19 @@ export async function apiGuestReportPayment(
   const directRes = await guestReportPaymentDirect(cleanPin, amount, note, billImage);
   if (directRes.success) {
     recordReportAudit(debtorObj?.name, debtorObj?.id);
+  } else {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: debtorObj?.name ? `Khách: ${debtorObj.name}` : 'Khách vãng lai',
+      title: 'Lỗi khách báo chuyển khoản',
+      description: `Báo chuyển khoản thất bại: ${directRes.message || 'Lỗi không xác định'}`,
+      debtorId: debtorObj?.id,
+      debtorName: debtorObj?.name,
+      amount,
+      beforeState: `Định gửi báo chuyển khoản ${new Intl.NumberFormat('vi-VN').format(amount)} VNĐ`,
+      afterState: `Thất bại: ${directRes.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả gửi báo', before: 'Đang gửi', after: 'Thất bại' }],
+    });
   }
   return directRes;
 }
@@ -1762,12 +1902,34 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
     saveTransactions(formatted.transactions);
     saveParties(formatted.parties);
     saveSettings(formatted.settings);
+    recordAuditLog({
+      action: 'RESTORE_DATA',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Khôi phục dữ liệu từ tệp sao lưu JSON',
+      description: `Đã nạp thành công ${formatted.debtors.length} người nợ, ${formatted.transactions.length} giao dịch, ${formatted.parties.length} cuộc vui từ tệp JSON.`,
+      beforeState: 'Dữ liệu trước khi nhập tệp',
+      afterState: `Dữ liệu sau khi nạp: ${formatted.debtors.length} người nợ, ${formatted.transactions.length} GD, ${formatted.parties.length} cuộc vui`,
+      changes: [
+        { fieldLabel: 'Chế độ khôi phục', before: '-', after: mode === 'merge' ? 'Gộp dữ liệu' : 'Ghi đè hoàn toàn' },
+        { fieldLabel: 'Người nợ đã nạp', before: '-', after: `${formatted.debtors.length} người` },
+        { fieldLabel: 'Giao dịch đã nạp', before: '-', after: `${formatted.transactions.length} GD` },
+      ],
+    });
     return {
       success: true,
       message: `Đã khôi phục thành công ${formatted.debtors.length} người nợ, ${formatted.transactions.length} giao dịch lên Cloud Firestore!`,
       ...formatted,
     };
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi khôi phục tệp JSON',
+      description: `Không thể khôi phục dữ liệu: ${err?.message || 'Tệp không đúng định dạng'}`,
+      beforeState: 'Thử nhập tệp sao lưu JSON',
+      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      changes: [{ fieldLabel: 'Kết quả khôi phục', before: 'Đang xử lý', after: 'Thất bại' }],
+    });
     return { success: false, message: err?.message || 'Lỗi khi khôi phục dữ liệu từ tệp JSON' };
   }
 }
@@ -1785,7 +1947,19 @@ export async function apiCleanOrphanTransactions(): Promise<{
       headers: getAuthHeaders(),
     });
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      if (data.success && data.removedCount > 0) {
+        recordAuditLog({
+          action: 'UPDATE_SETTINGS',
+          actor: 'Chủ Sổ (Admin)',
+          title: 'Dọn dẹp giao dịch mồ côi',
+          description: `Đã tự động loại bỏ ${data.removedCount} giao dịch không còn liên kết với người nợ nào.`,
+          beforeState: `Phát hiện giao dịch mồ côi (${data.removedCount} bản ghi)`,
+          afterState: 'Đã dọn dẹp sạch sẽ',
+          changes: [{ fieldLabel: 'Giao dịch mồ côi đã xóa', before: `${data.removedCount} GD`, after: '0 GD' }],
+        });
+      }
+      return data;
     }
   } catch (err: any) {
     console.warn('apiCleanOrphanTransactions error:', err?.message);
@@ -1948,6 +2122,37 @@ export async function apiClearAllSampleData(
 ): Promise<{ success: boolean; message?: string }> {
   const trimmedPassword = (password || '').trim();
   const authHeaders = getAuthHeaders();
+  const oldDebtorsCount = loadDebtors().length;
+  const oldTxsCount = loadTransactions().length;
+  const oldPartiesCount = loadParties().length;
+
+  const recordClearSuccess = () => {
+    recordAuditLog({
+      action: 'CLEAR_DATA',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Xóa toàn bộ dữ liệu mẫu / Làm trắng sổ nợ',
+      description: `Đã dọn dẹp sạch sẽ toàn bộ sổ nợ (${oldDebtorsCount} người nợ, ${oldTxsCount} giao dịch, ${oldPartiesCount} cuộc chia tiền). Sẵn sàng ghi sổ mới!`,
+      beforeState: `Trước khi xóa: ${oldDebtorsCount} người nợ, ${oldTxsCount} giao dịch, ${oldPartiesCount} cuộc vui`,
+      afterState: '0 người nợ, 0 giao dịch (Sổ trắng tinh)',
+      changes: [
+        { fieldLabel: 'Danh bạ người nợ', before: `${oldDebtorsCount} người`, after: '0' },
+        { fieldLabel: 'Lịch sử giao dịch', before: `${oldTxsCount} GD`, after: '0' },
+        { fieldLabel: 'Cuộc chia bill', before: `${oldPartiesCount} cuộc`, after: '0' },
+      ],
+    });
+  };
+
+  const recordClearFailure = () => {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Xác thực xóa dữ liệu thất bại',
+      description: 'Nhập sai mật khẩu quản lý khi cố gắng xóa toàn bộ dữ liệu mẫu / làm trắng sổ nợ.',
+      beforeState: `Hiện có: ${oldDebtorsCount} người nợ, ${oldTxsCount} GD`,
+      afterState: 'Từ chối thao tác (Sai mật khẩu)',
+      changes: [{ fieldLabel: 'Xác thực quản trị', before: 'Yêu cầu mật khẩu', after: 'Không khớp' }],
+    });
+  };
 
   // 1. Try server endpoint (/api/owner/clear-all or /api/owner/clear-sample-data)
   try {
@@ -1976,8 +2181,10 @@ export async function apiClearAllSampleData(
         } catch (fErr) {
           console.warn('Dual-mode direct clear note:', fErr);
         }
+        recordClearSuccess();
         return { success: true, message: data.message };
       } else {
+        recordClearFailure();
         return { success: false, message: data.message || 'Mật khẩu quản trị không chính xác!' };
       }
     }
@@ -1991,6 +2198,7 @@ export async function apiClearAllSampleData(
 
   // MUST strictly match the owner password
   if (!trimmedPassword || trimmedPassword !== correctPass) {
+    recordClearFailure();
     return { success: false, message: 'Mật khẩu quản trị không chính xác!' };
   }
 
@@ -2003,6 +2211,7 @@ export async function apiClearAllSampleData(
   } catch (err: any) {
     console.warn('Direct clear sample error:', err);
   }
+  recordClearSuccess();
   return { success: true, message: 'Đã xóa toàn bộ dữ liệu mẫu thành công!' };
 }
 
@@ -2011,6 +2220,30 @@ export async function apiResetSampleData(
 ): Promise<{ success: boolean; message?: string }> {
   const trimmedPassword = (password || '').trim();
   const authHeaders = getAuthHeaders();
+
+  const recordResetSuccess = () => {
+    recordAuditLog({
+      action: 'RESTORE_DATA',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Nạp lại dữ liệu mẫu ban đầu',
+      description: `Đã nạp lại thành công ${INITIAL_DEBTORS.length} người nợ mẫu và ${INITIAL_TRANSACTIONS.length} giao dịch mẫu.`,
+      beforeState: 'Sổ nợ trước khi nạp mẫu',
+      afterState: `Đã nạp ${INITIAL_DEBTORS.length} người nợ mẫu, ${INITIAL_TRANSACTIONS.length} GD mẫu`,
+      changes: [{ fieldLabel: 'Dữ liệu mẫu', before: '-', after: 'Khôi phục ban đầu' }],
+    });
+  };
+
+  const recordResetFailure = () => {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Xác thực nạp dữ liệu mẫu thất bại',
+      description: 'Nhập sai mật khẩu quản lý khi cố gắng nạp lại dữ liệu mẫu ban đầu.',
+      beforeState: 'Yêu cầu nạp lại dữ liệu mẫu',
+      afterState: 'Từ chối thao tác (Sai mật khẩu)',
+      changes: [{ fieldLabel: 'Xác thực quản trị', before: 'Yêu cầu mật khẩu', after: 'Không khớp' }],
+    });
+  };
 
   try {
     const res = await fetch('/api/owner/reset-sample', {
@@ -2042,8 +2275,10 @@ export async function apiResetSampleData(
         } catch (fErr) {
           console.warn('Dual-mode direct reset sync note:', fErr);
         }
+        recordResetSuccess();
         return { success: true, message: data.message };
       } else {
+        recordResetFailure();
         return { success: false, message: data.message || 'Mật khẩu quản trị không chính xác!' };
       }
     }
@@ -2057,6 +2292,7 @@ export async function apiResetSampleData(
 
   // MUST strictly match the owner password
   if (!trimmedPassword || trimmedPassword !== correctPass) {
+    recordResetFailure();
     return { success: false, message: 'Mật khẩu quản trị không chính xác!' };
   }
 
@@ -2074,6 +2310,7 @@ export async function apiResetSampleData(
   } catch (err) {
     console.warn('Direct reset sample error:', err);
   }
+  recordResetSuccess();
   return { success: true, message: 'Đã nạp lại dữ liệu mẫu ban đầu thành công!' };
 }
 

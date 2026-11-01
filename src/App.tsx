@@ -38,6 +38,7 @@ import {
   getDebtorBalance,
   deepCleanSessionData,
   loadAuditLogs,
+  recordAuditLog,
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
 import { subscribeToFirestoreData } from './services/firestoreClient';
@@ -130,6 +131,39 @@ export default function App() {
     isSplitPartyOpen ||
     Boolean(editingTransaction) ||
     Boolean(editingParty)
+  );
+
+  // Maintain current refs for background auto-sync without stale closures
+  const debtorsRef = useRef(debtors);
+  debtorsRef.current = debtors;
+  const transactionsRef = useRef(transactions);
+  transactionsRef.current = transactions;
+  const partiesRef = useRef(parties);
+  partiesRef.current = parties;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // Helper to trigger debounced auto-sync to Google Sheets in background
+  const maybeTriggerGoogleSheetsAutoSync = useCallback(
+    (
+      currentDebtors?: Debtor[],
+      currentTxs?: Transaction[],
+      currentParties?: PartySplit[],
+      customSettings?: AppSettings
+    ) => {
+      const activeSettings = customSettings || settingsRef.current;
+      // Auto-Sync is active by default once Google account is authorized, unless explicitly disabled (=== false)
+      if (activeSettings?.autoSyncGoogleSheets !== false && getGoogleAccessToken()) {
+        triggerDebouncedAutoSync({
+          debtors: currentDebtors || debtorsRef.current,
+          transactions: currentTxs || transactionsRef.current,
+          parties: currentParties || partiesRef.current,
+          settings: activeSettings,
+          auditLogs: loadAuditLogs(),
+        });
+      }
+    },
+    []
   );
 
   // Load / Sync Data from Backend
@@ -230,24 +264,28 @@ export default function App() {
           if (Array.isArray(remoteDebtors)) {
             setDebtors(remoteDebtors);
             saveDebtors(remoteDebtors);
+            maybeTriggerGoogleSheetsAutoSync(remoteDebtors, transactionsRef.current, partiesRef.current);
           }
         },
         onTransactions: (remoteTxs) => {
           if (Array.isArray(remoteTxs)) {
             setTransactions(remoteTxs);
             saveTransactions(remoteTxs);
+            maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, remoteTxs, partiesRef.current);
           }
         },
         onParties: (remoteParties) => {
           if (Array.isArray(remoteParties)) {
             setParties(remoteParties);
             saveParties(remoteParties);
+            maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, transactionsRef.current, remoteParties);
           }
         },
         onSettings: (remoteSettings) => {
           if (remoteSettings && remoteSettings.appTitle) {
             setSettings(remoteSettings);
             saveSettings(remoteSettings);
+            maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, transactionsRef.current, partiesRef.current, remoteSettings);
           }
         },
       });
@@ -277,6 +315,19 @@ export default function App() {
 
   // Đăng xuất hoàn toàn về màn hình đăng nhập (xóa token, dữ liệu phiên và chuyển view)
   const handleLogoutOwner = useCallback(() => {
+    try {
+      recordAuditLog({
+        action: 'LOGOUT',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Chủ sổ đăng xuất',
+        description: 'Chủ sổ đã đăng xuất và khóa phiên làm việc an toàn.',
+        beforeState: 'Phiên quản trị đang hoạt động',
+        afterState: 'Đã đăng xuất, trở về màn hình khóa',
+        changes: [{ fieldLabel: 'Trạng thái phiên', before: 'Đang hoạt động', after: 'Đã khóa an toàn' }],
+      });
+    } catch {
+      // ignore
+    }
     deepCleanSessionData();
     removeStoredOwnerToken();
     setIsOwnerAuthenticated(false);
@@ -474,21 +525,20 @@ export default function App() {
     return () => window.removeEventListener('googlesheets-autosynced', handleAutoSynced);
   }, []);
 
-  // Helper to trigger debounced auto-sync to Google Sheets in background
-  const maybeTriggerGoogleSheetsAutoSync = useCallback(
-    (currentDebtors: Debtor[], currentTxs: Transaction[], currentParties: PartySplit[]) => {
-      if (settings?.autoSyncGoogleSheets && getGoogleAccessToken()) {
-        triggerDebouncedAutoSync({
-          debtors: currentDebtors,
-          transactions: currentTxs,
-          parties: currentParties,
-          settings,
-          auditLogs: loadAuditLogs(),
-        });
+  // Auto-sync Tab 4 to Google Sheets when new audit logs arrive (e.g. guest lookups, guest payments)
+  useEffect(() => {
+    const handleLogRecorded = (e: any) => {
+      const log = e?.detail as AuditLog | undefined;
+      // Skip sync-induced logs to prevent loops
+      if (log && (log.action === 'SYNC_SHEETS' || log.action === 'OPERATION_FAILED')) {
+        return;
       }
-    },
-    [settings]
-  );
+      maybeTriggerGoogleSheetsAutoSync();
+    };
+
+    window.addEventListener('audit-log-recorded', handleLogRecorded);
+    return () => window.removeEventListener('audit-log-recorded', handleLogRecorded);
+  }, [maybeTriggerGoogleSheetsAutoSync]);
 
   // --- Debtor Handlers (Synchronized) ---
   const handleSaveDebtor = async (
@@ -632,6 +682,7 @@ export default function App() {
     if (newSettings.appTitle) {
       document.title = newSettings.appTitle;
     }
+    maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, transactionsRef.current, partiesRef.current, newSettings);
 
     // 2. Persist to server and Firestore in background
     try {

@@ -129,7 +129,13 @@ export type LogActionType =
   | 'GUEST_REPORT'
   | 'SYNC_SHEETS'
   | 'RESTORE_DATA'
-  | 'CLEAR_DATA';
+  | 'CLEAR_DATA'
+  | 'LOGIN_SUCCESS'
+  | 'LOGIN_FAILED'
+  | 'LOGOUT'
+  | 'LOOKUP_FAILED'
+  | 'EXPORT_DATA'
+  | 'OPERATION_FAILED';
 
 export interface AuditChangeDetail {
   field?: string;

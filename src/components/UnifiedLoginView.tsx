@@ -122,9 +122,27 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           onLoginOwnerSuccess();
         }
       } else if (res.message) {
+        recordAuditLog({
+          action: 'LOGIN_FAILED',
+          actor: 'Chủ Sổ (Admin)',
+          title: 'Sinh trắc học thất bại',
+          description: `Xác thực FaceID / Vân tay thất bại: ${res.message}`,
+          beforeState: 'Yêu cầu quét FaceID / Vân tay',
+          afterState: 'Thất bại',
+          changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: 'Thất bại' }],
+        });
         setError(res.message);
       }
     } catch (err: any) {
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Lỗi sinh trắc học',
+        description: `Lỗi quét FaceID / Vân tay: ${err?.message || 'Thiết bị không hỗ trợ hoặc bị hủy'}`,
+        beforeState: 'Yêu cầu quét FaceID / Vân tay',
+        afterState: 'Lỗi',
+        changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: 'Lỗi' }],
+      });
       setError(err?.message || 'Lỗi quét FaceID / Vân tay');
     } finally {
       setIsBiometricLoading(false);
@@ -208,10 +226,29 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         }
 
         // 4. Nếu không khớp
+        const masked = clean.length > 2 ? `${clean.slice(0, 1)}***${clean.slice(-1)}` : '***';
+        recordAuditLog({
+          action: 'LOOKUP_FAILED',
+          actor: 'Khách / Người dùng',
+          title: 'Đăng nhập / Tra cứu thất bại',
+          description: `Đã nhập mã không hợp lệ "${masked}" (Sai mật khẩu quản trị hoặc mã PIN tra cứu không tồn tại).`,
+          beforeState: 'Chưa xác thực',
+          afterState: 'Từ chối đăng nhập (Sai mã)',
+          changes: [{ fieldLabel: 'Kết quả đối chiếu', before: 'Chờ xác thực', after: 'Thất bại (Sai mã)' }],
+        });
         setError('Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 500);
-      } catch {
+      } catch (err: any) {
+        recordAuditLog({
+          action: 'OPERATION_FAILED',
+          actor: 'Khách / Người dùng',
+          title: 'Lỗi kết nối khi xác thực',
+          description: `Không thể kết nối máy chủ xác thực: ${err?.message || 'Lỗi mạng'}`,
+          beforeState: 'Gửi yêu cầu xác thực',
+          afterState: 'Lỗi mạng',
+          changes: [{ fieldLabel: 'Kết nối mạng', before: 'Đang kết nối', after: 'Lỗi kết nối' }],
+        });
         setError('Lỗi kết nối máy chủ. Vui lòng kiểm tra lại mạng.');
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 500);

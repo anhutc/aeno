@@ -197,13 +197,13 @@ app.use(async (req, _res, next) => {
 
     // Allow if matches token prefix, session token, or current admin password
     if (
-      (typeof token === 'string' && (token.startsWith(OWNER_TOKEN_PREFIX) || token === 'direct-firestore-owner-session')) ||
+      (typeof token === 'string' && token.length > 0 && (token.startsWith(OWNER_TOKEN_PREFIX) || token === 'direct-firestore-owner-session')) ||
       token === 'local-owner-session' ||
-      token === currentOwnerPassword ||
+      (currentOwnerPassword && token === currentOwnerPassword) ||
       (currentOwnerPassword && token.toLowerCase() === currentOwnerPassword.toLowerCase()) ||
-      adminPasswordHeader === currentOwnerPassword ||
+      (currentOwnerPassword && adminPasswordHeader === currentOwnerPassword) ||
       (currentOwnerPassword && adminPasswordHeader.toLowerCase() === currentOwnerPassword.toLowerCase()) ||
-      bodyPassword === currentOwnerPassword
+      (currentOwnerPassword && bodyPassword && bodyPassword === currentOwnerPassword)
     ) {
       return next();
     }

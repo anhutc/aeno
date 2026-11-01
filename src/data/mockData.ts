@@ -8,21 +8,22 @@ import {
 } from '../utils/textTemplate';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  ownerName: 'Ánh',
-  ownerPhone: '0971492399',
+  ownerName: 'Chủ Sổ',
+  ownerPhone: '',
   bankId: 'VCB',
   bankName: 'Vietcombank',
-  accountNumber: '1028912673',
-  accountName: 'DANG VAN ANH',
+  accountNumber: '',
+  accountName: '',
   defaultMemoPrefix: '',
-  ownerPassword: 'anhbn11',
-  appTitle: 'AENO',
+  ownerPassword: '', // Mật khẩu thực tế được bảo mật và lưu trữ riêng trên Cloud Firestore, tuyệt đối không hardcode trong mã nguồn
+  appTitle: 'Sổ Ghi Nợ',
   appSubtitle: DEFAULT_APP_SUBTITLE,
   shareMessageTemplate: DEFAULT_SHARE_MESSAGE,
   lookupGuideTemplate: DEFAULT_SHARE_MESSAGE,
   guestAnnouncement: DEFAULT_GUEST_ANNOUNCEMENT,
   settledThankYouNote: DEFAULT_SETTLED_NOTE,
   autoLockTimeout: 'OFF',
+  autoSyncGoogleSheets: true,
 };
 
 export const INITIAL_DEBTORS: Debtor[] = [];

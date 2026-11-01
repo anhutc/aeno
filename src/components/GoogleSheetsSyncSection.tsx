@@ -37,6 +37,7 @@ import {
   setManualAccessToken,
   exportGoogleSheetsCsvFile,
   getCurrentDomain,
+  triggerDebouncedAutoSync,
   SyncResult,
   GoogleUserProfile,
 } from '../services/googleSheetsService';
@@ -66,7 +67,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
-  const isAutoSyncEnabled = settings.autoSyncGoogleSheets ?? false;
+  const isAutoSyncEnabled = settings.autoSyncGoogleSheets !== false;
 
   useEffect(() => {
     const handleAutoSyncStart = () => {
@@ -184,6 +185,21 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
       setGoogleUser(res.user);
       setHasToken(true);
       showToast(`Đã kết nối tài khoản Google: ${res.user.email || res.user.displayName}`, 'success');
+
+      // Auto-enable Auto-Sync once Google is connected and trigger debounced sync
+      const updatedSettings: AppSettings = {
+        ...settings,
+        autoSyncGoogleSheets: true,
+      };
+      await onSaveSettings(updatedSettings);
+
+      triggerDebouncedAutoSync({
+        debtors,
+        transactions,
+        parties,
+        settings: updatedSettings,
+        auditLogs: loadAuditLogs(),
+      });
     } catch (err: any) {
       console.error('Sign-in failed:', err);
       if (err?.code === 'auth/unauthorized-domain' || String(err?.message || '').includes('unauthorized-domain')) {
@@ -312,12 +328,39 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
       autoSyncGoogleSheets: nextVal,
     };
     await onSaveSettings(updatedSettings);
+
+    if (nextVal && hasToken) {
+      triggerDebouncedAutoSync({
+        debtors,
+        transactions,
+        parties,
+        settings: updatedSettings,
+        auditLogs: loadAuditLogs(),
+      });
+    }
+
     showToast(
       nextVal
         ? 'Đã BẬT tự động đồng bộ ngầm: Mọi giao dịch mới sẽ tự lưu sang Google Sheets sau 2 giây!'
         : 'Đã TẮT tự động đồng bộ Google Sheets.',
       'success'
     );
+  };
+
+  const handleTestAutoSync = () => {
+    if (!hasToken) {
+      showToast('Vui lòng kết nối tài khoản Google trước khi thử nghiệm Auto-Sync.', 'error');
+      handleGoogleSignIn();
+      return;
+    }
+    showToast('Đang kích hoạt Auto-Sync ngầm (chờ 2s debounce)...', 'info');
+    triggerDebouncedAutoSync({
+      debtors,
+      transactions,
+      parties,
+      settings: { ...settings, autoSyncGoogleSheets: true },
+      auditLogs: loadAuditLogs(),
+    });
   };
 
   const spreadsheetUrl = settings.googleSheetUrl || syncResult?.spreadsheetUrl;
@@ -724,22 +767,35 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleToggleAutoSync}
-          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-            isAutoSyncEnabled ? 'bg-emerald-600' : 'bg-slate-300'
-          }`}
-          role="switch"
-          aria-checked={isAutoSyncEnabled}
-          title={isAutoSyncEnabled ? 'Nhấn để tắt tự động đồng bộ' : 'Nhấn để bật tự động đồng bộ'}
-        >
-          <span
-            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-              isAutoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          <button
+            type="button"
+            onClick={handleTestAutoSync}
+            disabled={isAutoSyncing}
+            className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Kích hoạt thử nghiệm chu trình Auto-Sync (debounce 2 giây)"
+          >
+            <RefreshCw className={`w-3 h-3 ${isAutoSyncing ? 'animate-spin text-emerald-600' : ''}`} />
+            <span>Thử Auto-Sync</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleToggleAutoSync}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              isAutoSyncEnabled ? 'bg-emerald-600' : 'bg-slate-300'
             }`}
-          />
-        </button>
+            role="switch"
+            aria-checked={isAutoSyncEnabled}
+            title={isAutoSyncEnabled ? 'Nhấn để tắt tự động đồng bộ' : 'Nhấn để bật tự động đồng bộ'}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                isAutoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Manual Token Option Toggle */}

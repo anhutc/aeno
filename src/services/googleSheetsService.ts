@@ -39,9 +39,69 @@ export interface GoogleUserProfile {
   photoURL?: string;
 }
 
-// In-memory token caching (NEVER in localStorage/sessionStorage)
-let cachedAccessToken: string | null = null;
-let cachedGoogleUser: GoogleUserProfile | null = null;
+const SESSION_STORAGE_KEYS = {
+  ACCESS_TOKEN: 'aeno_g_access_token',
+  TOKEN_EXPIRY: 'aeno_g_token_expiry',
+  USER_PROFILE: 'aeno_g_user_profile',
+};
+
+function saveSessionGoogleAuth(token: string, user?: GoogleUserProfile | null, expiresInSeconds = 3540) {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    window.sessionStorage.setItem(SESSION_STORAGE_KEYS.ACCESS_TOKEN, token);
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_KEYS.TOKEN_EXPIRY,
+      String(Date.now() + expiresInSeconds * 1000)
+    );
+    if (user) {
+      window.sessionStorage.setItem(SESSION_STORAGE_KEYS.USER_PROFILE, JSON.stringify(user));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function clearSessionGoogleAuth() {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEYS.ACCESS_TOKEN);
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEYS.TOKEN_EXPIRY);
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEYS.USER_PROFILE);
+  } catch {
+    // ignore
+  }
+}
+
+function restoreSessionGoogleAuth(): { token: string; user: GoogleUserProfile | null } | null {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return null;
+    const token = window.sessionStorage.getItem(SESSION_STORAGE_KEYS.ACCESS_TOKEN);
+    const expStr = window.sessionStorage.getItem(SESSION_STORAGE_KEYS.TOKEN_EXPIRY);
+    if (!token || !expStr) return null;
+    const exp = Number(expStr);
+    if (isNaN(exp) || Date.now() >= exp) {
+      clearSessionGoogleAuth();
+      return null;
+    }
+    let user: GoogleUserProfile | null = null;
+    const userStr = window.sessionStorage.getItem(SESSION_STORAGE_KEYS.USER_PROFILE);
+    if (userStr) {
+      try {
+        user = JSON.parse(userStr);
+      } catch {
+        // ignore
+      }
+    }
+    return { token, user };
+  } catch {
+    return null;
+  }
+}
+
+// Memory caching with session-level fallback
+const initialRestoredAuth = restoreSessionGoogleAuth();
+let cachedAccessToken: string | null = initialRestoredAuth?.token || null;
+let cachedGoogleUser: GoogleUserProfile | null = initialRestoredAuth?.user || null;
 let isSigningIn = false;
 let authStateListeners: Array<(user: GoogleUserProfile | null, token: string | null) => void> = [];
 
@@ -153,6 +213,16 @@ export const initGoogleAuth = (
     }
   });
 
+  if (!cachedAccessToken) {
+    const restored = restoreSessionGoogleAuth();
+    if (restored) {
+      cachedAccessToken = restored.token;
+      if (restored.user && !cachedGoogleUser) {
+        cachedGoogleUser = restored.user;
+      }
+    }
+  }
+
   if (cachedGoogleUser && cachedAccessToken) {
     listener(cachedGoogleUser, cachedAccessToken);
   }
@@ -173,6 +243,7 @@ export const setManualAccessToken = (token: string, userEmail?: string) => {
     email: userEmail || 'chuso@gmail.com',
     displayName: userEmail ? userEmail.split('@')[0] : 'Chủ Sổ',
   };
+  saveSessionGoogleAuth(cachedAccessToken, cachedGoogleUser, 86400);
   notifyListeners();
 };
 
@@ -299,6 +370,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
       }
 
       cachedGoogleUser = userProfile;
+      saveSessionGoogleAuth(accessToken, userProfile, 3550);
 
       // Link with Firebase Auth if possible
       try {
@@ -329,6 +401,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
       photoURL: fbUser.photoURL || undefined,
     };
     cachedGoogleUser = userProfile;
+    saveSessionGoogleAuth(cachedAccessToken, userProfile, 3550);
 
     notifyListeners();
     return { user: userProfile, accessToken: cachedAccessToken };
@@ -356,10 +429,28 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
 };
 
 export const getGoogleAccessToken = (): string | null => {
-  return cachedAccessToken;
+  if (cachedAccessToken) {
+    return cachedAccessToken;
+  }
+  const restored = restoreSessionGoogleAuth();
+  if (restored) {
+    cachedAccessToken = restored.token;
+    if (restored.user && !cachedGoogleUser) {
+      cachedGoogleUser = restored.user;
+    }
+    return cachedAccessToken;
+  }
+  return null;
 };
 
 export const getCurrentGoogleUser = (): GoogleUserProfile | null => {
+  if (cachedGoogleUser) {
+    return cachedGoogleUser;
+  }
+  const restored = restoreSessionGoogleAuth();
+  if (restored?.user) {
+    cachedGoogleUser = restored.user;
+  }
   return cachedGoogleUser;
 };
 
@@ -381,6 +472,7 @@ export const signOutGoogle = async (): Promise<void> => {
     // ignore
   }
 
+  clearSessionGoogleAuth();
   cachedAccessToken = null;
   cachedGoogleUser = null;
   notifyListeners();
@@ -462,6 +554,12 @@ export function getLogActionFriendlyName(action: string): string {
     case 'SYNC_SHEETS': return 'Đồng bộ Google Sheets';
     case 'RESTORE_DATA': return 'Khôi phục sao lưu';
     case 'CLEAR_DATA': return 'Dọn dẹp dữ liệu';
+    case 'LOGIN_SUCCESS': return 'Đăng nhập thành công';
+    case 'LOGIN_FAILED': return 'Đăng nhập thất bại';
+    case 'LOGOUT': return 'Đăng xuất';
+    case 'LOOKUP_FAILED': return 'Tra cứu thất bại';
+    case 'EXPORT_DATA': return 'Xuất dữ liệu / CSV';
+    case 'OPERATION_FAILED': return 'Lỗi thao tác';
     default: return action;
   }
 }
@@ -552,6 +650,20 @@ export function exportGoogleSheetsCsvFile(payload: SyncDataPayload) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+
+  try {
+    recordAuditLog({
+      action: 'EXPORT_DATA',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Xuất tệp sao lưu CSV',
+      description: `Đã xuất tệp dữ liệu chuẩn 4 bảng (${debtors.length} người nợ, ${transactions.length} giao dịch, ${parties.length} cuộc vui, ${logsToExport.length} nhật ký).`,
+      beforeState: 'Dữ liệu trên ứng dụng',
+      afterState: 'Đã tạo tệp CSV tải về thiết bị',
+      changes: [{ fieldLabel: 'Xuất bảng tính', before: 'Hệ thống', after: 'Tệp CSV 4 bảng' }],
+    });
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -667,7 +779,8 @@ export async function syncDatabaseToGoogleSheets(
   payload: SyncDataPayload,
   explicitToken?: string
 ): Promise<SyncResult> {
-  let token = explicitToken || cachedAccessToken;
+  try {
+    let token = explicitToken || cachedAccessToken;
 
   // If no token cached, prompt user to sign in first
   if (!token) {
@@ -1060,7 +1173,25 @@ export async function syncDatabaseToGoogleSheets(
         totalActiveDebt,
       },
     };
+  } catch (err: any) {
+    try {
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: cachedGoogleUser?.displayName || 'Chủ Sổ (Admin)',
+        title: 'Lỗi đồng bộ Google Sheets',
+        description: `Không thể đồng bộ dữ liệu lên Google Sheets: ${err?.message || 'Lỗi không xác định'}`,
+        beforeState: 'Bắt đầu đồng bộ 4 tab dữ liệu',
+        afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+        changes: [
+          { fieldLabel: 'Kết quả đồng bộ', before: 'Đang đồng bộ', after: `Lỗi: ${err?.message || 'Không thành công'}` },
+        ],
+      });
+    } catch {
+      // ignore
+    }
+    throw err;
   }
+}
 
 let autoSyncTimer: any = null;
 let isAutoSyncingActive = false;

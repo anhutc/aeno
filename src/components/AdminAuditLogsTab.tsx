@@ -26,6 +26,7 @@ import {
   Eye,
   ArrowRight,
   History,
+  AlertCircle,
 } from 'lucide-react';
 import { AuditLog, Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -40,7 +41,7 @@ import {
   getCurrentGoogleUser,
   GoogleUserProfile,
 } from '../services/googleSheetsService';
-import { clearAuditLogs, loadAuditLogs } from '../utils/storage';
+import { clearAuditLogs, loadAuditLogs, recordAuditLog } from '../utils/storage';
 
 interface AdminAuditLogsTabProps {
   auditLogs: AuditLog[];
@@ -65,7 +66,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterActionGroup, setFilterActionGroup] = useState<
-    'ALL' | 'TRANSACTION' | 'LOOKUP' | 'DEBTOR' | 'PARTY' | 'SYSTEM'
+    'ALL' | 'TRANSACTION' | 'LOOKUP' | 'DEBTOR' | 'PARTY' | 'SECURITY' | 'SYSTEM' | 'ERRORS'
   >('ALL');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'TODAY' | '7_DAYS' | '30_DAYS'>('ALL');
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
@@ -97,7 +98,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
         )
       );
     } else if (filterActionGroup === 'LOOKUP') {
-      result = result.filter((l) => l.action === 'GUEST_LOOKUP');
+      result = result.filter((l) => ['GUEST_LOOKUP', 'LOOKUP_FAILED'].includes(l.action));
     } else if (filterActionGroup === 'DEBTOR') {
       result = result.filter((l) =>
         ['ADD_DEBTOR', 'UPDATE_DEBTOR', 'DELETE_DEBTOR'].includes(l.action)
@@ -106,9 +107,17 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
       result = result.filter((l) =>
         ['ADD_PARTY', 'UPDATE_PARTY', 'DELETE_PARTY'].includes(l.action)
       );
+    } else if (filterActionGroup === 'SECURITY') {
+      result = result.filter((l) =>
+        ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT'].includes(l.action)
+      );
     } else if (filterActionGroup === 'SYSTEM') {
       result = result.filter((l) =>
-        ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'RESTORE_DATA', 'CLEAR_DATA'].includes(l.action)
+        ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'RESTORE_DATA', 'CLEAR_DATA', 'EXPORT_DATA'].includes(l.action)
+      );
+    } else if (filterActionGroup === 'ERRORS') {
+      result = result.filter((l) =>
+        ['OPERATION_FAILED', 'LOGIN_FAILED', 'LOOKUP_FAILED'].includes(l.action)
       );
     }
 
@@ -231,6 +240,22 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
 
   const handleClearLogs = () => {
     triggerHaptic('medium');
+    try {
+      recordAuditLog({
+        action: 'CLEAR_DATA',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Làm sạch nhật ký trên ứng dụng',
+        description: 'Chủ sổ đã làm sạch toàn bộ nhật ký hiển thị trên ứng dụng. Toàn bộ lịch sử trên Google Sheets vẫn được lưu giữ an toàn vĩnh viễn (Append-Only).',
+        beforeState: `${auditLogs.length} bản ghi trên ứng dụng`,
+        afterState: '0 bản ghi trên ứng dụng (Google Sheets bảo toàn)',
+        changes: [
+          { fieldLabel: 'Nhật ký ứng dụng', before: `${auditLogs.length} bản ghi`, after: 'Đã làm sạch' },
+          { fieldLabel: 'Google Sheets Tab 4', before: 'Bảo toàn', after: 'Chỉ ghi thêm (Append-Only)' },
+        ],
+      });
+    } catch {
+      // ignore
+    }
     clearAuditLogs();
     if (onRefreshLogs) onRefreshLogs();
     setShowClearConfirm(false);
@@ -287,6 +312,12 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           bg: 'bg-rose-50 text-rose-700 border-rose-200/90',
           label: 'Xóa giao dịch',
         };
+      case 'SETTLE_DEBT':
+        return {
+          icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />,
+          bg: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          label: 'Tất toán sạch nợ (0đ)',
+        };
       case 'ADD_DEBTOR':
         return {
           icon: <UserPlus className="w-4 h-4 text-teal-600" />,
@@ -341,11 +372,59 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           bg: 'bg-cyan-50 text-cyan-800 border-cyan-300',
           label: 'Khách tra cứu',
         };
+      case 'LOOKUP_FAILED':
+        return {
+          icon: <AlertCircle className="w-4 h-4 text-amber-600" />,
+          bg: 'bg-amber-50 text-amber-800 border-amber-300',
+          label: 'Tra cứu thất bại',
+        };
       case 'GUEST_REPORT':
         return {
           icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />,
           bg: 'bg-amber-50 text-amber-800 border-amber-300',
           label: 'Khách báo CK',
+        };
+      case 'LOGIN_SUCCESS':
+        return {
+          icon: <ShieldCheck className="w-4 h-4 text-emerald-600" />,
+          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          label: 'Đăng nhập thành công',
+        };
+      case 'LOGIN_FAILED':
+        return {
+          icon: <AlertCircle className="w-4 h-4 text-rose-600" />,
+          bg: 'bg-rose-50 text-rose-700 border-rose-300',
+          label: 'Đăng nhập thất bại',
+        };
+      case 'LOGOUT':
+        return {
+          icon: <LogOut className="w-4 h-4 text-slate-600" />,
+          bg: 'bg-slate-100 text-slate-700 border-slate-200',
+          label: 'Đăng xuất',
+        };
+      case 'EXPORT_DATA':
+        return {
+          icon: <Download className="w-4 h-4 text-indigo-600" />,
+          bg: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+          label: 'Xuất dữ liệu / CSV',
+        };
+      case 'RESTORE_DATA':
+        return {
+          icon: <History className="w-4 h-4 text-blue-600" />,
+          bg: 'bg-blue-50 text-blue-700 border-blue-200',
+          label: 'Khôi phục dữ liệu',
+        };
+      case 'CLEAR_DATA':
+        return {
+          icon: <Trash2 className="w-4 h-4 text-rose-600" />,
+          bg: 'bg-rose-50 text-rose-700 border-rose-200',
+          label: 'Xóa dữ liệu / Dọn dẹp',
+        };
+      case 'OPERATION_FAILED':
+        return {
+          icon: <AlertCircle className="w-4 h-4 text-rose-600" />,
+          bg: 'bg-rose-50 text-rose-800 border-rose-300',
+          label: 'Lỗi thao tác',
         };
       default:
         return {
@@ -501,11 +580,11 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto pt-2 border-t border-slate-100 no-scrollbar">
           {(
             [
-              { id: 'ALL', label: 'Tất cả thao tác', count: auditLogs.length },
+              { id: 'ALL', label: 'Tất cả', count: auditLogs.length },
               {
                 id: 'LOOKUP',
                 label: 'Khách tra cứu',
-                count: auditLogs.filter((l) => l.action === 'GUEST_LOOKUP').length,
+                count: auditLogs.filter((l) => ['GUEST_LOOKUP', 'LOOKUP_FAILED'].includes(l.action)).length,
               },
               {
                 id: 'TRANSACTION',
@@ -529,10 +608,24 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
                 ).length,
               },
               {
+                id: 'SECURITY',
+                label: 'Bảo mật & Đăng nhập',
+                count: auditLogs.filter((l) =>
+                  ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT'].includes(l.action)
+                ).length,
+              },
+              {
                 id: 'SYSTEM',
                 label: 'Cài đặt & Đồng bộ',
                 count: auditLogs.filter((l) =>
-                  ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'RESTORE_DATA', 'CLEAR_DATA'].includes(l.action)
+                  ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'RESTORE_DATA', 'CLEAR_DATA', 'EXPORT_DATA'].includes(l.action)
+                ).length,
+              },
+              {
+                id: 'ERRORS',
+                label: 'Lỗi thao tác',
+                count: auditLogs.filter((l) =>
+                  ['OPERATION_FAILED', 'LOGIN_FAILED', 'LOOKUP_FAILED'].includes(l.action)
                 ).length,
               },
             ] as const
@@ -546,14 +639,22 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                 filterActionGroup === chip.id
-                  ? 'bg-emerald-600 text-white shadow-xs'
+                  ? chip.id === 'ERRORS'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-emerald-600 text-white shadow-xs'
+                  : chip.id === 'ERRORS' && chip.count > 0
+                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
                   : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
               }`}
             >
               <span>{chip.label}</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  filterActionGroup === chip.id ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                  filterActionGroup === chip.id
+                    ? 'bg-white/25 text-white'
+                    : chip.id === 'ERRORS' && chip.count > 0
+                    ? 'bg-rose-200 text-rose-800'
+                    : 'bg-slate-200 text-slate-600'
                 }`}
               >
                 {chip.count}
