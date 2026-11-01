@@ -586,11 +586,16 @@ export async function apiSaveTransaction(
         } else {
           await saveTransactionDirect(localNewTx).catch((err) => console.warn('Direct saveTx sync:', err));
         }
+        const isSettled = !isAdd && newBalance === 0 && prevBalance > 0;
+        const txAction = isAdd ? 'ADD_TRANSACTION' : isSettled ? 'SETTLE_DEBT' : 'UPDATE_TRANSACTION';
+        const txTitle = isAdd ? 'Ghi nợ chi hộ (+)' : isSettled ? 'Tất toán nợ (Về 0đ)' : 'Thu nợ / Giảm nợ (-)';
         recordAuditLog({
-          action: tx.type === 'ADD' ? 'ADD_TRANSACTION' : 'UPDATE_TRANSACTION',
+          action: txAction,
           actor: 'Chủ Sổ (Admin)',
-          title: tx.type === 'ADD' ? 'Ghi nợ chi hộ (+)' : 'Thu nợ / Giảm nợ (-)',
-          description: `${tx.type === 'ADD' ? 'Ghi nhận nợ' : 'Thu hồi nợ'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ cho ${debtorName}${tx.note ? ` (${tx.note})` : ''}`,
+          title: txTitle,
+          description: isSettled
+            ? `${debtorName} đã hoàn tất thanh toán sạch nợ ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`
+            : `${tx.type === 'ADD' ? 'Ghi nhận nợ' : 'Thu hồi nợ'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ cho ${debtorName}${tx.note ? ` (${tx.note})` : ''}`,
           debtorId: tx.debtorId,
           debtorName,
           amount: tx.amount,
@@ -608,11 +613,16 @@ export async function apiSaveTransaction(
   // Direct Firestore fallback
   try {
     await saveTransactionDirect(localNewTx).catch((err) => console.warn('Direct saveTransaction warning:', err));
+    const isSettled = !isAdd && newBalance === 0 && prevBalance > 0;
+    const txAction = isAdd ? 'ADD_TRANSACTION' : isSettled ? 'SETTLE_DEBT' : 'UPDATE_TRANSACTION';
+    const txTitle = isAdd ? 'Ghi nợ chi hộ (+)' : isSettled ? 'Tất toán nợ (Về 0đ)' : 'Thu nợ / Giảm nợ (-)';
     recordAuditLog({
-      action: tx.type === 'ADD' ? 'ADD_TRANSACTION' : 'UPDATE_TRANSACTION',
+      action: txAction,
       actor: 'Chủ Sổ (Admin)',
-      title: tx.type === 'ADD' ? 'Ghi nợ chi hộ (+)' : 'Thu nợ / Giảm nợ (-)',
-      description: `${tx.type === 'ADD' ? 'Ghi nhận nợ' : 'Thu hồi nợ'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ cho ${debtorName}${tx.note ? ` (${tx.note})` : ''}`,
+      title: txTitle,
+      description: isSettled
+        ? `${debtorName} đã hoàn tất thanh toán sạch nợ ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`
+        : `${tx.type === 'ADD' ? 'Ghi nhận nợ' : 'Thu hồi nợ'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ cho ${debtorName}${tx.note ? ` (${tx.note})` : ''}`,
       debtorId: tx.debtorId,
       debtorName,
       amount: tx.amount,
@@ -1302,14 +1312,26 @@ export async function apiGuestReportPayment(
 
   const recordReportAudit = (debtorName?: string, debtorId?: string) => {
     try {
+      const amountStr = new Intl.NumberFormat('vi-VN').format(amount);
+      const reportBeforeState = `Khách chưa gửi báo chuyển khoản ${amountStr} VNĐ`;
+      const reportAfterState = `Đã gửi báo chuyển khoản ${amountStr} VNĐ chờ chủ sổ xác nhận`;
+      const reportChanges: AuditChangeDetail[] = [
+        { fieldLabel: 'Số tiền báo CK', before: '0 VNĐ', after: `${amountStr} VNĐ` },
+        { fieldLabel: 'Ghi chú giao dịch', before: '(Trống)', after: note || 'Chuyển khoản thanh toán' },
+        { fieldLabel: 'Ảnh biên lai', before: 'Chưa có', after: billImage ? 'Có đính kèm ảnh bill' : 'Không có ảnh' },
+      ];
+
       recordAuditLog({
         action: 'GUEST_REPORT',
         actor: `Khách: ${debtorName || 'Khách nợ'}`,
         title: 'Khách báo chuyển khoản',
-        description: `Khách "${debtorName || 'Người nợ'}" vừa gửi báo chuyển khoản thanh toán ${new Intl.NumberFormat('vi-VN').format(amount)} VNĐ${note ? ` (${note})` : ''}`,
+        description: `Khách "${debtorName || 'Người nợ'}" vừa gửi báo chuyển khoản thanh toán ${amountStr} VNĐ${note ? ` (${note})` : ''}`,
         debtorId,
         debtorName,
         amount,
+        beforeState: reportBeforeState,
+        afterState: reportAfterState,
+        changes: reportChanges,
         metadata: {
           pin: cleanPin,
           amount,

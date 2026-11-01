@@ -96,7 +96,8 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   // Domain Authorization Help Modal State
   const [domainModalOpen, setDomainModalOpen] = useState(false);
   const [domainCopied, setDomainCopied] = useState(false);
-  const activeHostname = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-dbguopx4atmnkvwv5o33rk-599901176434.asia-east1.run.app';
+  const [vercelDomainCopied, setVercelDomainCopied] = useState(false);
+  const activeHostname = typeof window !== 'undefined' ? window.location.hostname : 'aeno.vercel.app';
 
   // Manual Token Input State
   const [showManualTokenInput, setShowManualTokenInput] = useState(false);
@@ -290,6 +291,13 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
     setDomainCopied(true);
     showToast(`Đã sao chép tên miền: ${activeHostname}`, 'success');
     setTimeout(() => setDomainCopied(false), 3000);
+  };
+
+  const copyVercelDomainToClipboard = () => {
+    navigator.clipboard.writeText('aeno.vercel.app');
+    setVercelDomainCopied(true);
+    showToast('Đã sao chép tên miền: aeno.vercel.app', 'success');
+    setTimeout(() => setVercelDomainCopied(false), 3000);
   };
 
   const handleToggleAutoSync = async () => {
@@ -807,34 +815,62 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               </button>
             </div>
 
-            <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 text-xs text-amber-900 space-y-2">
-              <p className="font-semibold">
-                Do ứng dụng chạy trên miền xem trước bảo mật Cloud Run, Firebase yêu cầu thêm tên miền này vào danh sách được ủy quyền 1 lần duy nhất:
+            <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 text-xs text-amber-900 space-y-3">
+              <p className="font-semibold leading-relaxed">
+                Để đăng nhập Google OAuth và đồng bộ Google Sheets không bị lỗi <span className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded border border-rose-200">auth/unauthorized-domain</span>, bạn cần thêm tên miền vào danh sách <strong>Authorized domains</strong> trong Firebase Console:
               </p>
-              <div className="flex items-center justify-between gap-2 bg-white/90 p-2 rounded-xl border border-amber-200 font-mono text-[11px] text-slate-800">
-                <span className="truncate">{activeHostname}</span>
-                <button
-                  type="button"
-                  onClick={copyDomainToClipboard}
-                  className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
-                >
-                  {domainCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  <span>{domainCopied ? 'Đã sao chép' : 'Sao chép'}</span>
-                </button>
+
+              {/* Tên miền chính thức Vercel */}
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  Tên miền chính thức của ứng dụng:
+                </span>
+                <div className="flex items-center justify-between gap-2 bg-white/95 p-2 rounded-xl border border-emerald-300 font-mono text-[11px] text-slate-900 shadow-2xs">
+                  <span className="font-bold text-emerald-900">aeno.vercel.app</span>
+                  <button
+                    type="button"
+                    onClick={copyVercelDomainToClipboard}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    {vercelDomainCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    <span>{vercelDomainCopied ? 'Đã sao chép' : 'Sao chép'}</span>
+                  </button>
+                </div>
               </div>
+
+              {/* Tên miền môi trường xem trước hiện tại */}
+              {activeHostname && activeHostname !== 'aeno.vercel.app' && (
+                <div className="space-y-1 pt-1 border-t border-amber-200/50">
+                  <span className="text-[11px] font-medium text-slate-600">
+                    Tên miền môi trường xem trước Cloud Run hiện tại:
+                  </span>
+                  <div className="flex items-center justify-between gap-2 bg-white/90 p-2 rounded-xl border border-amber-200 font-mono text-[11px] text-slate-800">
+                    <span className="truncate">{activeHostname}</span>
+                    <button
+                      type="button"
+                      onClick={copyDomainToClipboard}
+                      className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      {domainCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                      <span>{domainCopied ? 'Đã sao chép' : 'Sao chép'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 text-xs text-slate-600">
               <p className="font-bold text-slate-800">3 bước thực hiện trên Firebase Console (chỉ mất 30 giây):</p>
               <ol className="space-y-1.5 list-decimal list-inside text-[11px] text-slate-600 pl-1">
                 <li>
-                  Nhấn nút <strong>"Mở Firebase Console"</strong> bên dưới.
+                  Nhấn nút <strong>&quot;Mở Firebase Console&quot;</strong> bên dưới.
                 </li>
                 <li>
                   Vào mục <strong>Authentication &gt; Settings &gt; Authorized domains</strong>.
                 </li>
                 <li>
-                  Nhấn <strong>Add domain</strong> &gt; Dán tên miền vừa sao chép &gt; Nhấn <strong>Save</strong>.
+                  Nhấn <strong>Add domain</strong> &gt; Dán <strong>aeno.vercel.app</strong> (và tên miền xem trước nếu cần) &gt; Nhấn <strong>Save</strong>.
                 </li>
               </ol>
             </div>

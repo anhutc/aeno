@@ -21,7 +21,7 @@ import {
 import { app } from '../firebase';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
 import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
-import { loadAuditLogs } from '../utils/storage';
+import { loadAuditLogs, recordAuditLog } from '../utils/storage';
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -1024,22 +1024,43 @@ export async function syncDatabaseToGoogleSheets(
     console.warn('Notice formatting Google Sheet (non-fatal):', fmtErr);
   }
 
-  const now = new Date().toISOString();
-  return {
-    success: true,
-    spreadsheetId: spreadsheetId!,
-    spreadsheetUrl: spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
-    title: spreadsheetTitle,
-    updatedAt: now,
-    summary: {
-      debtorsCount: debtors.length,
-      transactionsCount: transactions.length,
-      partiesCount: parties.length,
-      auditLogsCount: Math.max(0, tab4Values.length - 1),
-      totalActiveDebt,
-    },
-  };
-}
+    const now = new Date().toISOString();
+    const finalSheetLogsCount = Math.max(0, tab4Values.length - 1);
+    try {
+      recordAuditLog({
+        action: 'SYNC_SHEETS',
+        actor: cachedGoogleUser?.displayName || 'Chủ Sổ (Admin)',
+        title: 'Đồng bộ Google Sheets',
+        description: `Đã đồng bộ toàn bộ 4 Tab (Công Nợ, Lịch Sử, Chia Bill, Nhật Ký) lên bảng tính "${spreadsheetTitle}"`,
+        beforeState: `Bảng tính Google Sheets trước lần đồng bộ này (${existingSheetLogIds.size} log trên Sheets)`,
+        afterState: `Bảng tính mới: ${debtors.length} người nợ, ${transactions.length} giao dịch, ${parties.length} cuộc vui, ${finalSheetLogsCount} log`,
+        changes: [
+          { fieldLabel: 'Trạng thái đồng bộ', before: 'Chờ đồng bộ', after: 'Thành công (4 Tab chuẩn)' },
+          { fieldLabel: 'Tab 1: Sổ Công Nợ', before: '-', after: `${debtors.length} người nợ` },
+          { fieldLabel: 'Tab 2: Lịch Sử GD', before: '-', after: `${transactions.length} giao dịch` },
+          { fieldLabel: 'Tab 3: Chia Tiền', before: '-', after: `${parties.length} cuộc vui` },
+          { fieldLabel: 'Tab 4: Nhật Ký (Logs)', before: `${existingSheetLogIds.size} bản ghi cũ`, after: `${finalSheetLogsCount} bản ghi (Append-Only)` },
+        ],
+      });
+    } catch (logErr) {
+      console.warn('Notice recording SYNC_SHEETS audit log:', logErr);
+    }
+
+    return {
+      success: true,
+      spreadsheetId: spreadsheetId!,
+      spreadsheetUrl: spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+      title: spreadsheetTitle,
+      updatedAt: now,
+      summary: {
+        debtorsCount: debtors.length,
+        transactionsCount: transactions.length,
+        partiesCount: parties.length,
+        auditLogsCount: finalSheetLogsCount,
+        totalActiveDebt,
+      },
+    };
+  }
 
 let autoSyncTimer: any = null;
 let isAutoSyncingActive = false;

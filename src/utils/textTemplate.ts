@@ -91,6 +91,17 @@ export function renderMessageTemplate(
     .replace(/\{memo\}|\{NOI_DUNG_CK\}|\{noi_dung_ck\}/gi, memoValue);
 }
 
+export function getAppBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'aeno.vercel.app' || window.location.hostname.endsWith('.vercel.app')) {
+      return `${window.location.origin}${window.location.pathname}`;
+    }
+    // Ưu tiên tên miền chính thức aeno.vercel.app cho link gửi khách tra cứu
+    return 'https://aeno.vercel.app';
+  }
+  return 'https://aeno.vercel.app';
+}
+
 export function getDebtorTemplateVariables(params: {
   debtorName: string;
   debtorPin: string;
@@ -102,7 +113,7 @@ export function getDebtorTemplateVariables(params: {
   accountName: string;
   defaultMemoPrefix?: string;
 }): TemplateVariables {
-  const url = `${window.location.origin}${window.location.pathname}`;
+  const url = getAppBaseUrl();
   const formattedBalance =
     params.balance > 0
       ? `+${formatVND(params.balance)}`

@@ -12,6 +12,7 @@ import {
 import { AppSettings, Debtor } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { triggerHaptic } from '../utils/haptic';
+import { getAppBaseUrl } from '../utils/textTemplate';
 
 interface HeaderProps {
   currentView: 'OWNER' | 'GUEST' | 'SETTINGS';
@@ -36,7 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const copyGuestLink = () => {
     triggerHaptic('success');
-    const url = `${window.location.origin}${window.location.pathname}`;
+    const url = getAppBaseUrl();
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
