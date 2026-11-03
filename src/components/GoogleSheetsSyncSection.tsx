@@ -201,14 +201,17 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
         auditLogs: loadAuditLogs(),
       });
     } catch (err: any) {
+      if (err?.code === 'popup_closed' || err?.code === 'auth/popup-closed-by-user') {
+        console.info('Google sign-in popup was closed by user.');
+        showToast('Bạn đã đóng cửa sổ đăng nhập Google.', 'info');
+        return;
+      }
       console.error('Sign-in failed:', err);
       if (err?.code === 'auth/unauthorized-domain' || String(err?.message || '').includes('unauthorized-domain')) {
         setDomainModalOpen(true);
       } else if (err?.code === 'access_denied') {
         showToast('Đã chặn quyền truy cập (Lỗi uỷ quyền): Cần cấu hình Test Users trong Google Cloud Console.', 'error');
         setDomainModalOpen(true);
-      } else if (err?.code === 'popup_closed') {
-        showToast('Bạn đã đóng cửa sổ đăng nhập Google.', 'error');
       } else {
         showToast(err?.message || 'Không thể đăng nhập Google. Vui lòng thử lại.', 'error');
       }

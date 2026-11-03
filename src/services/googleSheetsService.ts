@@ -277,6 +277,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
         console.log('Initiating Google sign-in via Google Identity Services (GIS)...');
         const tokenResult = await new Promise<{ access_token: string }>((resolve, reject) => {
           let isResolved = false;
+          const startTime = Date.now();
 
           try {
             const client = googleObj.accounts.oauth2.initTokenClient({
@@ -316,7 +317,8 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
               error_callback: (err: any) => {
                 if (isResolved) return;
                 isResolved = true;
-                console.warn('GIS Error Callback:', err);
+                const elapsed = Date.now() - startTime;
+                console.warn('GIS Error Callback:', err, `(elapsed: ${elapsed}ms)`);
                 if (err.type === 'popup_failed_to_open') {
                   const e = new Error(
                     'Trình duyệt đang chặn cửa sổ pop-up. Vui lòng nhấn vào biểu tượng pop-up trên thanh địa chỉ để Cho phép mở cửa sổ đăng nhập Google.'
@@ -324,8 +326,10 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
                   (e as any).code = 'popup_blocked';
                   reject(e);
                 } else if (err.type === 'popup_closed') {
+                  // If closed in under 1200ms, it is an auto-closure (origin mismatch / iframe policy), allow fallback to Firebase Auth
+                  const isQuickClose = elapsed < 1200;
                   const e = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
-                  (e as any).code = 'popup_closed';
+                  (e as any).code = isQuickClose ? 'popup_auto_closed' : 'popup_closed';
                   reject(e);
                 } else {
                   const e = new Error(err.message || 'Lỗi kết nối cửa sổ đăng nhập Google');
@@ -413,13 +417,14 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
     notifyListeners();
     return { user: userProfile, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Google Sign-In Error:', error);
     if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'popup_closed') {
+      console.info('Google sign-in popup was closed by user.');
       const err = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
       (err as any).code = 'popup_closed';
       throw err;
     }
     if (error?.code === 'auth/unauthorized-domain') {
+      console.warn('Firebase Auth unauthorized-domain:', error?.message);
       const currentHost = getCurrentDomain();
       const err = new Error(
         `Tên miền "${currentHost}" chưa được thêm vào Authorized Domains trong Firebase Console.`
@@ -428,6 +433,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
       (err as any).domain = currentHost;
       throw err;
     }
+    console.error('Google Sign-In Error:', error);
     throw error;
   } finally {
     isSigningIn = false;
