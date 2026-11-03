@@ -53,6 +53,10 @@ export function getClientFirebaseConfig(): {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       customDb = localStorage.getItem(STORAGE_CUSTOM_DB_KEY);
+      if (customDb && (customDb.includes('remixremix') || customDb.includes('0369169768'))) {
+        localStorage.removeItem(STORAGE_CUSTOM_DB_KEY);
+        customDb = null;
+      }
     }
   } catch {
     // ignore

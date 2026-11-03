@@ -353,8 +353,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       transactions: cleanTransactions,
       parties: activeParties,
       settings: (() => {
-        // Loại bỏ trường trùng lặp shareMessageTemplate trong bản sao lưu JSON
-        const { shareMessageTemplate, reminderMessageTemplate, ...cleanSettings } = formData as any;
+        // Tuyệt đối không đưa ownerPassword vào tệp sao lưu JSON xuất ra ngoài máy
+        // Mật khẩu quản lý được lưu trữ an toàn riêng biệt trên Cloud Firestore
+        const { ownerPassword, shareMessageTemplate, reminderMessageTemplate, ...cleanSettings } = formData as any;
         return cleanSettings;
       })(),
     };
@@ -368,7 +369,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     a.download = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`Đã xuất tệp sao lưu chuẩn Cloud (${activeDebtors.length} người nợ, ${cleanTransactions.length} giao dịch)!`, 'success');
+    showToast(`Đã xuất tệp sao lưu chuẩn Cloud (${activeDebtors.length} người nợ, ${cleanTransactions.length} giao dịch, mật khẩu quản lý được bảo mật riêng)!`, 'success');
   };
 
   const handleImportJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -444,7 +445,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         if (Array.isArray(rawJson.transactions)) transactionsFound = rawJson.transactions;
         if (Array.isArray(rawJson.parties)) partiesFound = rawJson.parties;
         if (rawJson.settings && typeof rawJson.settings === 'object') {
-          const mergedSettings = { ...formData, ...rawJson.settings };
+          // Bảo vệ an toàn tuyệt đối: Không để tệp JSON nhập vào ghi đè hoặc làm mất mật khẩu quản lý hiện tại
+          const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...importedSafeSettings } = rawJson.settings;
+          const mergedSettings = { ...formData, ...importedSafeSettings, ownerPassword: formData.ownerPassword };
           setFormData(mergedSettings);
           saveSettings(mergedSettings);
           onSaveSettings(mergedSettings);
@@ -1074,7 +1077,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <Download className="w-4 h-4 text-emerald-600" />
                   </div>
                   <span className="text-[11px] text-slate-500 leading-tight">
-                    Tải tệp JSON chứa toàn bộ người nợ và lịch sử để lưu trữ an toàn.
+                    Tải tệp JSON lưu trữ an toàn (tự động loại trừ mật khẩu quản lý, mật khẩu luôn lưu trên Cloud).
                   </span>
                 </button>
 

@@ -1863,11 +1863,18 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
     let parsedParties = Array.isArray(jsonData?.parties) ? jsonData.parties : [];
     let parsedSettings = jsonData?.settings || null;
 
+    const currentSettings = loadSettings();
+    if (parsedSettings && typeof parsedSettings === 'object') {
+      const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...cleanSettings } = parsedSettings;
+      parsedSettings = { ...currentSettings, ...cleanSettings, ownerPassword: currentSettings.ownerPassword };
+    } else {
+      parsedSettings = currentSettings;
+    }
+
     if (mode === 'merge') {
       const currentDebtors = loadDebtors();
       const currentTx = loadTransactions();
       const currentParties = loadParties();
-      const currentSettings = loadSettings();
 
       const dMap = new Map<string, Debtor>();
       currentDebtors.forEach((d) => dMap.set(d.id, d));
@@ -1884,7 +1891,6 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
       parsedDebtors = Array.from(dMap.values());
       parsedTransactions = Array.from(tMap.values());
       parsedParties = Array.from(pMap.values());
-      parsedSettings = parsedSettings ? { ...currentSettings, ...parsedSettings } : currentSettings;
     }
 
     // Ensure orphan transactions are filtered out in client fallback as well

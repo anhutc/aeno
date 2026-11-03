@@ -266,122 +266,129 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
     }
 
     // Try Method 1: Google Identity Services (GIS - Token Client)
-    // Direct popup to accounts.google.com without relying on firebaseapp.com/__/auth/handler
+    let gisSuccess = false;
+    let gisToken: string | null = null;
+    let gisProfile: GoogleUserProfile | null = null;
+
     try {
       await ensureGsiScript();
-    } catch (e) {
-      console.warn('GIS script load notice, falling back:', e);
-    }
+      const googleObj = typeof window !== 'undefined' ? (window as any).google : null;
+      if (googleObj?.accounts?.oauth2?.initTokenClient) {
+        console.log('Initiating Google sign-in via Google Identity Services (GIS)...');
+        const tokenResult = await new Promise<{ access_token: string }>((resolve, reject) => {
+          let isResolved = false;
 
-    const googleObj = typeof window !== 'undefined' ? (window as any).google : null;
-    if (googleObj?.accounts?.oauth2?.initTokenClient) {
-      console.log('Initiating Google sign-in via Google Identity Services (GIS)...');
-      const tokenResult = await new Promise<{ access_token: string }>((resolve, reject) => {
-        let isResolved = false;
+          try {
+            const client = googleObj.accounts.oauth2.initTokenClient({
+              client_id: oAuthClientId,
+              scope: WORKSPACE_SCOPES.join(' '),
+              callback: (response: any) => {
+                if (isResolved) return;
+                isResolved = true;
+
+                if (response.error) {
+                  console.warn('GIS Token Response Notice:', response);
+                  if (response.error === 'popup_closed_by_user') {
+                    const err = new Error('Bạn đã đóng cửa sổ đăng nhập Google.');
+                    (err as any).code = 'popup_closed';
+                    reject(err);
+                  } else if (response.error === 'access_denied') {
+                    const err = new Error(
+                      'Đã chặn quyền truy cập (Lỗi uỷ quyền): Tài khoản Google chưa được thêm vào Danh sách người dùng thử nghiệm (Test Users) trong Google Cloud Console.'
+                    );
+                    (err as any).code = 'access_denied';
+                    reject(err);
+                  } else {
+                    const err = new Error(response.error_description || response.error);
+                    (err as any).code = response.error;
+                    reject(err);
+                  }
+                  return;
+                }
+
+                if (!response.access_token) {
+                  reject(new Error('Không nhận được access token từ Google.'));
+                  return;
+                }
+
+                resolve({ access_token: response.access_token });
+              },
+              error_callback: (err: any) => {
+                if (isResolved) return;
+                isResolved = true;
+                console.warn('GIS Error Callback:', err);
+                if (err.type === 'popup_failed_to_open') {
+                  const e = new Error(
+                    'Trình duyệt đang chặn cửa sổ pop-up. Vui lòng nhấn vào biểu tượng pop-up trên thanh địa chỉ để Cho phép mở cửa sổ đăng nhập Google.'
+                  );
+                  (e as any).code = 'popup_blocked';
+                  reject(e);
+                } else if (err.type === 'popup_closed') {
+                  const e = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
+                  (e as any).code = 'popup_closed';
+                  reject(e);
+                } else {
+                  const e = new Error(err.message || 'Lỗi kết nối cửa sổ đăng nhập Google');
+                  (e as any).code = err.type || 'gis_error';
+                  reject(e);
+                }
+              },
+            });
+
+            // Prompt user for account selection and consent
+            client.requestAccessToken({ prompt: 'select_account' });
+          } catch (initErr) {
+            reject(initErr);
+          }
+        });
+
+        gisToken = tokenResult.access_token;
+        gisProfile = {
+          uid: `google_${Date.now()}`,
+          email: 'maildva1999@gmail.com',
+          displayName: 'Chủ Sổ',
+        };
 
         try {
-          const client = googleObj.accounts.oauth2.initTokenClient({
-            client_id: oAuthClientId,
-            scope: WORKSPACE_SCOPES.join(' '),
-            callback: (response: any) => {
-              if (isResolved) return;
-              isResolved = true;
-
-              if (response.error) {
-                console.error('GIS Token Response Error:', response);
-                if (response.error === 'popup_closed_by_user') {
-                  const err = new Error('Bạn đã đóng cửa sổ đăng nhập Google.');
-                  (err as any).code = 'popup_closed';
-                  reject(err);
-                } else if (response.error === 'access_denied') {
-                  const err = new Error(
-                    'Đã chặn quyền truy cập (Lỗi uỷ quyền): Tài khoản Google chưa được thêm vào Danh sách người dùng thử nghiệm (Test Users) trong Google Cloud Console.'
-                  );
-                  (err as any).code = 'access_denied';
-                  reject(err);
-                } else {
-                  const err = new Error(response.error_description || response.error);
-                  (err as any).code = response.error;
-                  reject(err);
-                }
-                return;
-              }
-
-              if (!response.access_token) {
-                reject(new Error('Không nhận được access token từ Google.'));
-                return;
-              }
-
-              resolve({ access_token: response.access_token });
-            },
-            error_callback: (err: any) => {
-              if (isResolved) return;
-              isResolved = true;
-              console.error('GIS Error Callback:', err);
-              if (err.type === 'popup_failed_to_open') {
-                const e = new Error(
-                  'Trình duyệt đang chặn cửa sổ pop-up. Vui lòng nhấn vào biểu tượng pop-up trên thanh địa chỉ để Cho phép mở cửa sổ đăng nhập Google.'
-                );
-                (e as any).code = 'popup_blocked';
-                reject(e);
-              } else if (err.type === 'popup_closed') {
-                const e = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
-                (e as any).code = 'popup_closed';
-                reject(e);
-              } else {
-                const e = new Error(err.message || 'Lỗi kết nối cửa sổ đăng nhập Google');
-                (e as any).code = err.type || 'gis_error';
-                reject(e);
-              }
-            },
+          const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${gisToken}` },
           });
-
-          client.requestAccessToken({ prompt: '' });
-        } catch (initErr) {
-          reject(initErr);
+          if (userInfoRes.ok) {
+            const info = await userInfoRes.json();
+            gisProfile = {
+              uid: info.sub || `google_${Date.now()}`,
+              email: info.email || 'maildva1999@gmail.com',
+              displayName: info.name || info.email || 'Chủ Sổ',
+              photoURL: info.picture || undefined,
+            };
+          }
+        } catch (userErr) {
+          console.warn('Notice fetching Google userinfo:', userErr);
         }
-      });
 
-      const accessToken = tokenResult.access_token;
-      cachedAccessToken = accessToken;
-
-      // Try fetching userinfo if available
-      let userProfile: GoogleUserProfile = {
-        uid: `google_${Date.now()}`,
-        email: 'maildva1999@gmail.com',
-        displayName: 'Chủ Sổ',
-      };
-
-      try {
-        const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (userInfoRes.ok) {
-          const info = await userInfoRes.json();
-          userProfile = {
-            uid: info.sub || `google_${Date.now()}`,
-            email: info.email || 'maildva1999@gmail.com',
-            displayName: info.name || info.email || 'Chủ Sổ',
-            photoURL: info.picture || undefined,
-          };
-        }
-      } catch (userErr) {
-        console.warn('Notice fetching Google userinfo:', userErr);
+        gisSuccess = true;
       }
+    } catch (gisErr: any) {
+      if (gisErr?.code === 'popup_closed') {
+        throw gisErr;
+      }
+      console.warn('GIS sign-in notice, falling back to Firebase Auth popup:', gisErr?.message || gisErr);
+    }
 
-      cachedGoogleUser = userProfile;
-      saveSessionGoogleAuth(accessToken, userProfile, 3550);
+    if (gisSuccess && gisToken && gisProfile) {
+      cachedAccessToken = gisToken;
+      cachedGoogleUser = gisProfile;
+      saveSessionGoogleAuth(gisToken, gisProfile, 3550);
 
-      // Link with Firebase Auth if possible
       try {
-        const cred = GoogleAuthProvider.credential(null, accessToken);
+        const cred = GoogleAuthProvider.credential(null, gisToken);
         await signInWithCredential(auth, cred);
       } catch (fbCredErr: any) {
         console.warn('Firebase signInWithCredential notice (non-fatal):', fbCredErr?.message);
       }
 
       notifyListeners();
-      return { user: userProfile, accessToken };
+      return { user: gisProfile, accessToken: gisToken };
     }
 
     // Method 2 Fallback: Standard Firebase Auth signInWithPopup
@@ -407,7 +414,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
     return { user: userProfile, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Google Sign-In Error:', error);
-    if (error?.code === 'auth/popup-closed-by-user') {
+    if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'popup_closed') {
       const err = new Error('Cửa sổ đăng nhập Google đã bị đóng.');
       (err as any).code = 'popup_closed';
       throw err;

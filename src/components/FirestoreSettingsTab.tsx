@@ -173,10 +173,13 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     }
   };
 
-  // Xuất tệp sao lưu JSON chuẩn Cloud
+  // Xuất tệp sao lưu JSON chuẩn Cloud (đã tự động bảo mật, không xuất mật khẩu quản trị)
   const handleExportJson = () => {
     const validDebtorIds = new Set(debtors.map((d) => d.id));
     const cleanTransactions = transactions.filter((t) => validDebtorIds.has(t.debtorId));
+
+    // Tuyệt đối không xuất mật khẩu quản lý ra file JSON tải về
+    const { ownerPassword, reminderMessageTemplate, shareMessageTemplate, ...safeSettings } = (settings || {}) as any;
 
     const fullBackup = {
       appName: settings.appTitle || 'OK Sổ Ghi Nợ',
@@ -191,7 +194,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
       debtors,
       transactions: cleanTransactions,
       parties: parties || [],
-      settings,
+      settings: safeSettings,
     };
 
     const blob = new Blob([JSON.stringify(fullBackup, null, 2)], {
@@ -203,7 +206,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     a.download = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`Đã xuất tệp sao lưu (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch)!`, 'success');
+    showToast(`Đã xuất tệp sao lưu (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch, mật khẩu quản lý được bảo mật riêng)!`, 'success');
   };
 
   // Switch Database ID Logic
@@ -573,7 +576,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                 <Download className="w-4 h-4 text-emerald-600" />
               </div>
               <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Tải tệp JSON chuẩn cấu trúc Cloud lưu đầy đủ người nợ, giao dịch, chia tiền và cài đặt.
+                Tải tệp JSON chuẩn Cloud lưu người nợ, giao dịch, chia tiền (tự động bảo mật, không xuất mật khẩu quản lý).
               </p>
             </div>
             <button
@@ -799,7 +802,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                   <div className="text-emerald-400">GET /api/debtors</div>
                   <div className="text-slate-400 mt-2"># 2. Thêm một khoản nợ hoặc trả bớt (Yêu cầu token):</div>
                   <div className="text-emerald-400">POST /api/owner/transaction</div>
-                  <div className="text-slate-400">Header: x-owner-token: {settings.ownerPassword || 'admin123'}</div>
+                  <div className="text-slate-400">Header: x-owner-token: &lt;Mật khẩu Quản lý của bạn&gt;</div>
                   <div className="text-slate-300">
                     {JSON.stringify({ debtorId: 'debtor-id', amount: 50000, type: 'ADD', note: 'Ăn trưa' })}
                   </div>

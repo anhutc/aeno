@@ -44,7 +44,13 @@ function getInitialDatabaseId(): string {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(CLIENT_DB_OVERRIDE_KEY);
-      if (stored) return stored;
+      if (stored) {
+        if (stored.includes('remixremix') || stored.includes('0369169768')) {
+          localStorage.removeItem(CLIENT_DB_OVERRIDE_KEY);
+        } else {
+          return stored;
+        }
+      }
     }
   } catch {
     // ignore

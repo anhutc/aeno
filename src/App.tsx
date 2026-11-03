@@ -41,7 +41,7 @@ import {
   recordAuditLog,
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
-import { subscribeToFirestoreData } from './services/firestoreClient';
+import { subscribeToFirestoreData, subscribeToDebtorTransactions } from './services/firestoreClient';
 import {
   triggerDebouncedAutoSync,
   getGoogleAccessToken,
@@ -251,7 +251,50 @@ export default function App() {
     }
   }, [settings?.appTitle]);
 
-  // Real-time synchronization: CHỈ kích hoạt khi Chủ Nợ đã đăng nhập thành công
+  // 1. Luôn đồng bộ cấu hình cài đặt thời gian thực (Tên app, Số tài khoản, Ngân hàng, SĐT chủ sổ)
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    try {
+      unsub = subscribeToFirestoreData({
+        onSettings: (remoteSettings) => {
+          if (remoteSettings && remoteSettings.appTitle) {
+            setSettings((prev) => ({ ...prev, ...remoteSettings }));
+            saveSettings(remoteSettings);
+          }
+        },
+      });
+    } catch (e) {
+      console.warn('Realtime settings listener notice:', e);
+    }
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
+  // 2. Real-time synchronization cho Người nợ / Khách xem: Tự cập nhật giao dịch tức thì khi Chủ sổ thêm/sửa/xóa
+  useEffect(() => {
+    if (isOwnerAuthenticated || !guestInitialDebtor) {
+      return;
+    }
+
+    let unsub: (() => void) | null = null;
+    try {
+      unsub = subscribeToDebtorTransactions(guestInitialDebtor.id, (updatedTxs) => {
+        if (Array.isArray(updatedTxs)) {
+          setTransactions(updatedTxs);
+          saveTransactions(updatedTxs);
+        }
+      });
+    } catch (e) {
+      console.warn('Realtime guest transactions listener notice:', e);
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [isOwnerAuthenticated, guestInitialDebtor?.id]);
+
+  // 3. Real-time synchronization cho Quản lý / Chủ Nợ: Đồng bộ toàn bộ Danh bạ, Giao dịch, Chia bill
   useEffect(() => {
     if (!isOwnerAuthenticated) {
       return;
@@ -290,13 +333,13 @@ export default function App() {
         },
       });
     } catch (e) {
-      console.warn('Realtime listener error:', e);
+      console.warn('Realtime owner listener notice:', e);
     }
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [isOwnerAuthenticated]);
+  }, [isOwnerAuthenticated, maybeTriggerGoogleSheetsAutoSync]);
 
   // Khi tải hoặc tải lại trang: Xóa sạch phiên đăng nhập cũ & mã PIN hoặc hash guest khỏi URL
   useEffect(() => {

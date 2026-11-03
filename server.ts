@@ -1440,6 +1440,16 @@ app.use(async (req, _res, next) => {
       // Auto snapshot current state before restoring
       createSnapshotBackup(getDatabase(), 'pre_restore_snapshot');
 
+      // Bảo vệ mật khẩu quản lý: Tuyệt đối không để snapshot làm mất mật khẩu quản lý hiện tại
+      const currentDb = getDatabase();
+      const currentOwnerPassword = currentDb.settings?.ownerPassword;
+      if (currentOwnerPassword) {
+        backupData.settings = {
+          ...backupData.settings,
+          ownerPassword: currentOwnerPassword,
+        };
+      }
+
       // Update in memory & local
       inMemoryDb = backupData;
       saveDatabaseLocal(backupData);
@@ -1583,13 +1593,23 @@ app.use(async (req, _res, next) => {
         cleanParties.forEach((p) => partyMap.set(p.id, p));
         finalParties = Array.from(partyMap.values());
 
-        finalSettings = inputSettings ? { ...currentDb.settings, ...inputSettings } : currentDb.settings;
+        if (inputSettings) {
+          const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...safeInputSettings } = inputSettings;
+          finalSettings = { ...currentDb.settings, ...safeInputSettings, ownerPassword: currentDb.settings.ownerPassword };
+        } else {
+          finalSettings = currentDb.settings;
+        }
       } else {
         // Mode replace
         finalDebtors = cleanDebtors;
         finalTransactions = cleanTransactions;
         finalParties = cleanParties;
-        finalSettings = inputSettings ? { ...currentDb.settings, ...inputSettings } : currentDb.settings;
+        if (inputSettings) {
+          const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...safeInputSettings } = inputSettings;
+          finalSettings = { ...currentDb.settings, ...safeInputSettings, ownerPassword: currentDb.settings.ownerPassword };
+        } else {
+          finalSettings = currentDb.settings;
+        }
       }
 
       // Automatic hygiene: Filter out any orphan transactions before saving to Cloud Firestore

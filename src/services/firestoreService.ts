@@ -269,12 +269,21 @@ export function createSnapshotBackup(data: DatabaseState, label: string): string
   try {
     const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, '_');
     const snapshotId = `snapshot_${Date.now()}_${safeLabel}`;
+    // Tự động loại trừ mật khẩu quản lý khỏi snapshot để bảo vệ an toàn
+    const sanitizedSettings = data.settings ? (() => {
+      const { ownerPassword, reminderMessageTemplate, shareMessageTemplate, ...safe } = data.settings as any;
+      return safe;
+    })() : data.settings;
+    const sanitizedData = {
+      ...data,
+      settings: sanitizedSettings,
+    };
     const payload = {
       id: snapshotId,
       backupDate: new Date().toISOString(),
       label,
       databaseId: currentConfig?.firestoreDatabaseId || '(default)',
-      data: cleanFirestoreObject(data),
+      data: cleanFirestoreObject(sanitizedData),
     };
     // Persist to Cloud Firestore asynchronously
     setDoc(doc(firestore, 'snapshots', snapshotId), payload).catch((e) => {

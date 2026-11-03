@@ -948,14 +948,26 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               </button>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setDomainModalOpen(false)}
-                className="px-4 py-2 rounded-2xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-bold cursor-pointer transition-all"
+                onClick={() => {
+                  setDomainModalOpen(false);
+                  setShowManualTokenInput(true);
+                }}
+                className="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5"
               >
-                Đóng
+                <span>Nhập Token Google thủ công</span>
               </button>
+              <a
+                href="https://console.cloud.google.com/apis/credentials?project=gen-lang-client-0583644686"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2 rounded-2xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                <span>Google Cloud Console</span>
+              </a>
               <a
                 href="https://console.firebase.google.com/project/gen-lang-client-0583644686/authentication/settings"
                 target="_blank"
