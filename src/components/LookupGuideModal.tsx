@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Copy, Check, QrCode, BookOpen } from 'lucide-react';
+import { X, Copy, Check, QrCode, BookOpen, Share2 } from 'lucide-react';
 import { Debtor, AppSettings } from '../types';
 import {
   getDebtorTemplateVariables,
@@ -63,6 +63,19 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
     navigator.clipboard.writeText(guideText);
     setCopiedAll(true);
     setTimeout(() => setCopiedAll(false), 2500);
+  };
+
+  const handleShareDirect = () => {
+    if (navigator.share) {
+      navigator
+        .share({
+          title: `Hướng dẫn tra cứu - ${debtor?.name || ''}`,
+          text: guideText,
+        })
+        .catch(() => {});
+    } else {
+      handleCopyAll();
+    }
   };
 
   const handleCopyLink = () => {
@@ -149,7 +162,7 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -158,14 +171,26 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
             Đóng
           </button>
 
-          <button
-            type="button"
-            onClick={handleCopyAll}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-          >
-            {copiedAll ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
-            <span>{copiedAll ? 'Đã Sao Chép Hướng Dẫn!' : 'Sao Chép Hướng Dẫn'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShareDirect}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+              title="Gửi trực tiếp qua Zalo, Tin nhắn hoặc ứng dụng khác"
+            >
+              <Share2 className="w-4 h-4" />
+              <span>Gửi qua Zalo / SMS</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyAll}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+            >
+              {copiedAll ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedAll ? 'Đã Sao Chép!' : 'Sao Chép'}</span>
+            </button>
+          </div>
         </div>
           </motion.div>
         </motion.div>

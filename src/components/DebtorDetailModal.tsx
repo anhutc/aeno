@@ -38,6 +38,8 @@ import {
   RefreshCw,
   TrendingUp,
   TrendingDown,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -93,6 +95,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'ADD' | 'SUB' | 'SPLIT'>('ALL');
   const [visibleLimit, setVisibleLimit] = useState<number>(25);
   const [copiedPin, setCopiedPin] = useState(false);
+  const [showPin, setShowPin] = useState(false);
 
   const handleCopyPin = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -264,11 +267,19 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                   <div className="inline-flex items-center gap-1.5 text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl font-mono text-xs font-semibold border border-amber-200 shadow-2xs">
                     <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>{debtor.pin}</span>
+                    <span className="tracking-wider">{showPin ? debtor.pin : '••••••'}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="ml-0.5 p-1 hover:bg-amber-100 rounded text-amber-700 hover:text-amber-900 transition-colors cursor-pointer"
+                      title={showPin ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    >
+                      {showPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5 text-amber-600" />}
+                    </button>
                     <button
                       type="button"
                       onClick={handleCopyPin}
-                      className="ml-0.5 p-1 hover:bg-amber-100 rounded text-amber-700 hover:text-amber-900 transition-colors cursor-pointer"
+                      className="p-1 hover:bg-amber-100 rounded text-amber-700 hover:text-amber-900 transition-colors cursor-pointer"
                       title="Sao chép mật khẩu tra cứu"
                     >
                       {copiedPin ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}

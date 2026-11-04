@@ -834,22 +834,52 @@ export async function saveBillImageToFirestore(
   mimeType = 'image/jpeg',
   filename?: string
 ): Promise<void> {
-  const CHUNK_SIZE = 400000; // ~400KB safe chunk limit for Firestore 1MB doc max
+  await ensureAuth(firebaseApp);
+  const docRef = doc(firestore, 'bill_images', id);
+
+  // If base64 fits safely under ~700KB (well below Firestore 1MB limit), store directly
+  if (base64Data.length <= 700000) {
+    await setDoc(docRef, {
+      id,
+      filename: filename || `${id}.jpg`,
+      mimeType,
+      size: base64Data.length,
+      base64Data,
+      isChunked: false,
+      createdAt: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // For larger original images, chunk safely into subcollection documents (~300KB each)
+  const CHUNK_SIZE = 300000;
   const chunks: string[] = [];
   for (let i = 0; i < base64Data.length; i += CHUNK_SIZE) {
     chunks.push(base64Data.slice(i, i + CHUNK_SIZE));
   }
 
-  const docRef = doc(firestore, 'bill_images', id);
+  // 1. Write parent metadata doc
   await setDoc(docRef, {
     id,
     filename: filename || `${id}.jpg`,
     mimeType,
     size: base64Data.length,
-    chunks,
     totalChunks: chunks.length,
+    isChunked: true,
     createdAt: new Date().toISOString(),
   });
+
+  // 2. Write each chunk into subcollection 'chunks'
+  const chunksCol = collection(docRef, 'chunks');
+  const batch = writeBatch(firestore);
+  chunks.forEach((chunkStr, idx) => {
+    const chunkDocRef = doc(chunksCol, String(idx));
+    batch.set(chunkDocRef, {
+      index: idx,
+      chunk: chunkStr,
+    });
+  });
+  await batch.commit();
 }
 
 /**
@@ -859,19 +889,56 @@ export async function getBillImageFromFirestore(
   id: string
 ): Promise<{ id: string; filename: string; mimeType: string; base64Data: string } | null> {
   try {
+    await ensureAuth(firebaseApp);
     const docRef = doc(firestore, 'bill_images', id);
     const snap = await getDoc(docRef);
     if (!snap.exists()) return null;
 
     const data = snap.data();
-    const chunks: string[] = Array.isArray(data.chunks) ? data.chunks : [];
-    const base64Data = chunks.join('');
-    return {
-      id: data.id || id,
-      filename: data.filename || `${id}.jpg`,
-      mimeType: data.mimeType || 'image/jpeg',
-      base64Data,
-    };
+
+    // 1. Single direct document storage
+    if (typeof data.base64Data === 'string' && data.base64Data.length > 0) {
+      return {
+        id: data.id || id,
+        filename: data.filename || `${id}.jpg`,
+        mimeType: data.mimeType || 'image/jpeg',
+        base64Data: data.base64Data,
+      };
+    }
+
+    // 2. Legacy array in parent doc
+    if (Array.isArray(data.chunks) && data.chunks.length > 0) {
+      return {
+        id: data.id || id,
+        filename: data.filename || `${id}.jpg`,
+        mimeType: data.mimeType || 'image/jpeg',
+        base64Data: data.chunks.join(''),
+      };
+    }
+
+    // 3. Subcollection chunked store
+    if (data.isChunked && data.totalChunks > 0) {
+      const chunksCol = collection(docRef, 'chunks');
+      const chunksSnap = await getDocs(chunksCol);
+      const chunkList: { index: number; chunk: string }[] = [];
+      chunksSnap.forEach((cDoc) => {
+        const cData = cDoc.data();
+        chunkList.push({
+          index: typeof cData.index === 'number' ? cData.index : parseInt(cDoc.id, 10) || 0,
+          chunk: cData.chunk || '',
+        });
+      });
+      chunkList.sort((a, b) => a.index - b.index);
+      const reassembled = chunkList.map((c) => c.chunk).join('');
+      return {
+        id: data.id || id,
+        filename: data.filename || `${id}.jpg`,
+        mimeType: data.mimeType || 'image/jpeg',
+        base64Data: reassembled,
+      };
+    }
+
+    return null;
   } catch (err) {
     console.warn(`Error getting bill image ${id} from Firestore:`, err);
     return null;
@@ -879,11 +946,24 @@ export async function getBillImageFromFirestore(
 }
 
 /**
- * Delete a bill image from Cloud Firestore
+ * Delete a bill image and its chunks from Cloud Firestore
  */
 export async function deleteBillImageFromFirestore(id: string): Promise<void> {
   try {
-    await deleteDoc(doc(firestore, 'bill_images', id));
+    await ensureAuth(firebaseApp);
+    const docRef = doc(firestore, 'bill_images', id);
+    const snap = await getDoc(docRef);
+    if (snap.exists() && snap.data()?.isChunked) {
+      try {
+        const chunksSnap = await getDocs(collection(docRef, 'chunks'));
+        const batch = writeBatch(firestore);
+        chunksSnap.forEach((c) => batch.delete(c.ref));
+        await batch.commit();
+      } catch (cErr) {
+        console.warn('Notice deleting subcollection chunks:', cErr);
+      }
+    }
+    await deleteDoc(docRef);
   } catch (err) {
     console.warn(`Error deleting bill image ${id} from Firestore:`, err);
   }

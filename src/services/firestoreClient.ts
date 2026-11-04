@@ -258,7 +258,24 @@ export async function deleteDebtorDirect(debtorId: string): Promise<void> {
 export async function saveTransactionDirect(tx: Transaction): Promise<void> {
   await ensureClientAuth();
   const db = getClientFirestore();
-  await setDoc(doc(db, 'transactions', tx.id), cleanClientObject(tx), { merge: true });
+
+  const safeTx = { ...tx };
+  // Safety guard: If a raw data URL is larger than 500KB, offload to bill_images doc so transaction doc never exceeds 1MB
+  if (safeTx.billImage && typeof safeTx.billImage === 'string' && safeTx.billImage.startsWith('data:') && safeTx.billImage.length > 500000) {
+    try {
+      const imgId = `bill_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      await setDoc(doc(db, 'bill_images', imgId), {
+        id: imgId,
+        base64Data: safeTx.billImage,
+        createdAt: new Date().toISOString(),
+      });
+      safeTx.billImage = `/api/images/${imgId}.jpg`;
+    } catch (e) {
+      console.warn('Could not offload giant dataUrl directly to bill_images:', e);
+    }
+  }
+
+  await setDoc(doc(db, 'transactions', safeTx.id), cleanClientObject(safeTx), { merge: true });
 }
 
 export async function deleteTransactionDirect(txId: string): Promise<void> {

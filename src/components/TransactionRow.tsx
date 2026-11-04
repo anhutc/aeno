@@ -139,8 +139,8 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           {/* Tag phân loại giao dịch */}
           {isParty ? (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100/90 text-amber-900 border border-amber-200/90 shrink-0">
-              Chia tiền nhóm
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100/90 text-amber-900 border border-amber-300 shrink-0 inline-flex items-center gap-1">
+              <span>🎉 Bill nhóm</span>
             </span>
           ) : isAdd ? (
             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100/90 text-rose-800 border border-rose-200/90 shrink-0">
@@ -222,7 +222,7 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
       {/* 4. Bottom Level: Bill receipt thumbnail + Action Controls */}
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100/90 text-xs">
         {/* Bill receipt viewer */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {allImgs.length > 0 ? (
             allImgs.map((img, imgIdx) => (
               <button
@@ -234,16 +234,21 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
                     isParty ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`
                   )
                 }
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-slate-50 text-emerald-800 border border-emerald-200/90 rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-                title="Xem ảnh hóa đơn / chứng từ đính kèm"
+                className="inline-flex items-center gap-2 px-2 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200/90 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs hover:scale-102"
+                title="Bấm để phóng to ảnh hóa đơn / chứng từ"
               >
                 <img
                   src={img}
                   alt="Hóa đơn"
-                  className="w-4 h-4 rounded object-cover border border-emerald-300 shrink-0"
+                  className="w-8 h-8 rounded-lg object-cover border border-emerald-300 shrink-0 shadow-2xs"
                 />
-                <Receipt className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Xem hóa đơn {allImgs.length > 1 ? `#${imgIdx + 1}` : ''}</span>
+                <div className="text-left">
+                  <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                    <Receipt className="w-3 h-3 text-emerald-600" />
+                    <span>Hóa đơn {allImgs.length > 1 ? `#${imgIdx + 1}` : ''}</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-600 font-medium">Bấm xem ảnh</span>
+                </div>
               </button>
             ))
           ) : (

@@ -542,14 +542,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
             {/* Thanh Phân Bổ Tỷ Lệ Dòng Tiền (Live Cashflow Ratio Meter) */}
             <div className="mt-5 pt-4 border-t border-slate-100">
-              <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+              <div className="flex flex-wrap items-center justify-between text-xs font-bold gap-1 mb-1.5">
                 <span className="flex items-center gap-1.5 text-emerald-700">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  Phải thu: {receivableRatio}%
+                  <span>Phải thu: {formatVND(totalReceivable)} <span className="text-emerald-600/80 font-normal">({receivableRatio}%)</span></span>
                 </span>
                 <span className="flex items-center gap-1.5 text-rose-700">
                   <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                  Phải trả: {payableRatio}%
+                  <span>Phải trả: {formatVND(totalPayable)} <span className="text-rose-600/80 font-normal">({payableRatio}%)</span></span>
                 </span>
               </div>
               <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex p-0.5 ring-1 ring-slate-200/80">
@@ -1092,12 +1092,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 return (
                   <div
                     key={debtor.id}
-                    className={`bg-white rounded-3xl border p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 relative overflow-hidden group ${
+                    className={`rounded-3xl border p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 relative overflow-hidden group ${
                       balance > 0
-                        ? 'border-emerald-200/90 hover:border-emerald-300'
+                        ? 'bg-white border-emerald-200/90 hover:border-emerald-300'
                         : balance < 0
-                        ? 'border-rose-200/90 hover:border-rose-300'
-                        : 'border-slate-200/90 hover:border-slate-300'
+                        ? 'bg-white border-rose-200/90 hover:border-rose-300'
+                        : 'bg-slate-50/70 border-slate-200/70 hover:border-slate-300'
                     }`}
                   >
                     <div>
@@ -1178,11 +1178,11 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/70'
                                 : balance < 0
                                 ? 'bg-rose-50 text-rose-700 border border-rose-200/70'
-                                : 'bg-slate-100 text-slate-600 border border-slate-200/70'
+                                : 'bg-emerald-100/70 text-emerald-800 border border-emerald-300 font-bold'
                             }`}
                           >
                             <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                            {balance > 0 ? 'Đang nợ bạn' : balance < 0 ? 'Bạn nợ họ' : 'Đã hết nợ'}
+                            {balance > 0 ? 'Đang nợ bạn' : balance < 0 ? 'Bạn nợ họ' : 'Đã tất toán (0 đ)'}
                           </span>
                         </div>
                       </div>
@@ -2185,6 +2185,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           }
         }}
       />
+
+      {/* Floating Action Button (FAB) on Mobile for instant transaction logging */}
+      <div className="fixed bottom-6 right-4 sm:hidden z-30 pointer-events-auto">
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          type="button"
+          onClick={() => {
+            triggerHaptic('medium');
+            onOpenAddTx();
+          }}
+          className="w-13 h-13 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-700/35 border-2 border-white cursor-pointer active:scale-95"
+          title="Ghi nợ / Thu tiền nhanh"
+        >
+          <PlusCircle className="w-6 h-6 text-white" />
+        </motion.button>
+      </div>
 
       {/* Toast Notification Banner */}
       <AnimatePresence>

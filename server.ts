@@ -132,9 +132,9 @@ function saveDatabase(db: DatabaseSchema) {
 // Instantiate Express App for both standalone and serverless (Vercel) runtimes
 const app = express();
 
-// Allow larger payload for image uploads (receipt / bill images)
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+// Allow larger payload for high-resolution image uploads (receipt / bill images up to 50MB)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Initial async Firestore synchronization (100% Pure Cloud)
 let firestoreSyncPromise: Promise<void> | null = null;
@@ -223,28 +223,26 @@ app.use(async (req, _res, next) => {
 
   // --- UNCOMPRESSED FULL-RESOLUTION IMAGE STORAGE ROUTES (100% FREE & ZERO QUALITY LOSS) ---
 
-  // Upload original bill image
-  app.post('/api/upload-image', async (req, res) => {
+  // Offload raw base64 data URLs into static /api/images vault and Cloud Firestore chunked store
+  async function processAndOffloadBillImage(
+    rawImage?: string,
+    providedMimeType?: string
+  ): Promise<string | undefined> {
+    if (!rawImage || typeof rawImage !== 'string') return undefined;
+    if (!rawImage.startsWith('data:')) return rawImage;
+
     try {
-      const { image, filename: originalFilename, mimeType: providedMimeType } = req.body;
-      if (!image || typeof image !== 'string') {
-        return res.status(400).json({ success: false, message: 'Dữ liệu hình ảnh không hợp lệ' });
-      }
-
       let mimeType = providedMimeType || 'image/jpeg';
-      let cleanBase64 = image;
+      let cleanBase64 = rawImage;
 
-      if (image.startsWith('data:')) {
-        const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-        if (matches && matches.length === 3) {
-          mimeType = matches[1];
-          cleanBase64 = matches[2];
-        } else {
-          cleanBase64 = image.split(',')[1] || image;
-        }
+      const matches = rawImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        mimeType = matches[1];
+        cleanBase64 = matches[2];
+      } else {
+        cleanBase64 = rawImage.split(',')[1] || rawImage;
       }
 
-      // Determine clean extension
       let ext = '.jpg';
       if (mimeType.includes('png')) ext = '.png';
       else if (mimeType.includes('webp')) ext = '.webp';
@@ -255,21 +253,42 @@ app.use(async (req, _res, next) => {
       const safeFilename = `${imageId}${ext}`;
       const buffer = Buffer.from(cleanBase64, 'base64');
 
-      // 1. Save directly to server disk for instant static delivery
-      const localFilePath = path.join(UPLOADS_DIR, safeFilename);
-      fs.writeFileSync(localFilePath, buffer);
+      // 1. Save to local disk cache if possible
+      try {
+        const localFilePath = path.join(UPLOADS_DIR, safeFilename);
+        fs.writeFileSync(localFilePath, buffer);
+      } catch (fErr: any) {
+        console.warn('Local disk image cache notice (safe in serverless):', fErr?.message);
+      }
 
-      // 2. Persist in Cloud Firestore chunked store asynchronously so it never gets lost across container restarts
+      // 2. Persist in Cloud Firestore chunked vault asynchronously
       saveBillImageToFirestore(imageId, cleanBase64, mimeType, safeFilename).catch((err) => {
         console.warn('Async saveBillImageToFirestore notice:', err?.message);
       });
 
+      return `/api/images/${safeFilename}`;
+    } catch (err: any) {
+      console.warn('Could not offload base64 bill image on server:', err?.message);
+      return rawImage;
+    }
+  }
+
+  // Upload original bill image
+  app.post('/api/upload-image', async (req, res) => {
+    try {
+      const { image, filename: originalFilename, mimeType: providedMimeType } = req.body;
+      if (!image || typeof image !== 'string') {
+        return res.status(400).json({ success: false, message: 'Dữ liệu hình ảnh không hợp lệ' });
+      }
+
+      const imageUrl = await processAndOffloadBillImage(image, providedMimeType);
+      const safeFilename = imageUrl && imageUrl.startsWith('/api/images/') ? path.basename(imageUrl) : 'bill.jpg';
+
       return res.json({
         success: true,
-        url: `/api/images/${safeFilename}`,
+        url: imageUrl || image,
         filename: safeFilename,
-        size: buffer.length,
-        mimeType,
+        mimeType: providedMimeType || 'image/jpeg',
       });
     } catch (err: any) {
       console.error('Error handling /api/upload-image:', err);
@@ -734,6 +753,7 @@ app.use(async (req, _res, next) => {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin giao dịch' });
     }
 
+    const processedBillImage = await processAndOffloadBillImage(billImage);
     const db = getDatabase();
     const newTx: Transaction = {
       id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -743,7 +763,7 @@ app.use(async (req, _res, next) => {
       date,
       note: note || '',
       category: category || 'SINGLE',
-      ...(billImage ? { billImage } : {}),
+      ...(processedBillImage ? { billImage: processedBillImage } : {}),
       ...(partyId ? { partyId } : {}),
       createdAt: new Date().toISOString(),
     };
@@ -782,7 +802,7 @@ app.use(async (req, _res, next) => {
     };
     if (billImage !== undefined) {
       if (billImage) {
-        updatedTx.billImage = billImage;
+        updatedTx.billImage = await processAndOffloadBillImage(billImage);
       } else {
         delete updatedTx.billImage;
       }

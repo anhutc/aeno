@@ -572,7 +572,12 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-300 transition-all">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-900">Xuất File JSON Sao Lưu</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-900">Xuất File JSON Sao Lưu</span>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-300">
+                    Bảo mật
+                  </span>
+                </div>
                 <Download className="w-4 h-4 text-emerald-600" />
               </div>
               <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">

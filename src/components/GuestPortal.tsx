@@ -35,6 +35,7 @@ import {
   Search,
   Sparkles,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
@@ -92,6 +93,8 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [copiedAmount, setCopiedAmount] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
+  const [downloadedQr, setDownloadedQr] = useState(false);
+  const [reportedPaid, setReportedPaid] = useState(false);
 
   // Sync if prop changes
   useEffect(() => {
@@ -202,6 +205,26 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   const currentBalance = getDebtorBalance(debtor.id, transactions);
   const statement = getDebtorStatement(debtor.id, transactions);
+
+  const handleDownloadQr = () => {
+    const vietQr = generateVietQrUrl({
+      bankId: activeSettings.bankId,
+      accountNumber: activeSettings.accountNumber,
+      accountName: activeSettings.accountName,
+      amount: currentBalance > 0 ? currentBalance : undefined,
+      memo: '',
+    });
+    if (!vietQr) return;
+    triggerHaptic('success');
+    const a = document.createElement('a');
+    a.href = vietQr;
+    a.download = `VietQR_Thanh_Toan_${debtor?.name || 'So_No'}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setDownloadedQr(true);
+    setTimeout(() => setDownloadedQr(false), 2500);
+  };
 
   // Tự động bắn pháo hoa ăn mừng khi tra cứu nếu đã hết nợ (số dư <= 0)
   const hasCelebratedOnMount = useRef(false);
@@ -440,64 +463,75 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
             {/* Grid for Bank Info and VietQR */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Thông tin tài khoản ngân hàng */}
-              <div className="p-5 sm:p-6 bg-white rounded-3xl border border-slate-200/90 space-y-3.5 text-xs sm:text-sm text-slate-700 shadow-2xs flex flex-col justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                    <span className="text-slate-500 font-medium">Ngân hàng:</span>
-                    <strong className="text-slate-900 font-bold text-sm sm:text-base">{activeSettings.bankName}</strong>
-                  </div>
+              {/* Thẻ Ngân Hàng Ảo Cao Cấp (Virtual Bank Card) */}
+              <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-tr from-slate-900 via-slate-800 to-emerald-950 text-white shadow-md relative overflow-hidden flex flex-col justify-between space-y-4 border border-slate-700/80">
+                <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-emerald-500/15 rounded-full blur-2xl pointer-events-none" />
 
-                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                    <div>
-                      <span className="text-slate-500 font-medium block text-xs sm:text-sm">Số tài khoản:</span>
-                      <strong className="text-slate-900 font-extrabold font-mono text-base sm:text-lg tracking-wider">
-                        {activeSettings.accountNumber}
-                      </strong>
+                {/* Card Top: Chip & Bank Name */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-6 rounded-md bg-gradient-to-br from-amber-300 to-amber-500 border border-amber-200/50 flex items-center justify-center shadow-xs">
+                      <div className="w-4 h-3 border border-amber-700/40 rounded-xs" />
                     </div>
+                    <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-300">
+                      {activeSettings.bankName}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
+                    VietQR 24/7
+                  </span>
+                </div>
+
+                {/* Card Number & Copy */}
+                <div>
+                  <span className="text-[11px] text-slate-400 block font-medium">Số Tài Khoản:</span>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <span className="text-xl sm:text-2xl font-black font-mono tracking-wider text-white">
+                      {activeSettings.accountNumber}
+                    </span>
                     <button
                       type="button"
                       onClick={copyAccountNumber}
-                      className="inline-flex items-center gap-1 text-xs sm:text-sm px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 rounded-xl transition-all font-bold cursor-pointer border border-slate-200/80 shadow-2xs"
+                      className="px-2.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 text-white font-bold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-xs shrink-0"
                     >
-                      {copiedAcc ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                      <span>{copiedAcc ? 'Đã chép STK' : 'Sao chép'}</span>
+                      {copiedAcc ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedAcc ? 'Đã sao chép' : 'Sao chép STK'}</span>
                     </button>
                   </div>
+                </div>
 
-                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                    <span className="text-slate-500 font-medium">Chủ tài khoản:</span>
-                    <strong className="text-slate-900 font-bold uppercase text-xs sm:text-sm">
+                {/* Card Footer: Account Holder & Amount */}
+                <div className="pt-3 border-t border-white/10 flex items-end justify-between gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Chủ Tài Khoản</span>
+                    <span className="font-extrabold text-xs sm:text-sm uppercase text-slate-100 tracking-wide">
                       {activeSettings.accountName}
-                    </strong>
+                    </span>
                   </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Cần Chuyển</span>
+                    <span className="font-extrabold text-sm sm:text-base font-mono text-emerald-400">
+                      {formatVND(currentBalance)}
+                    </span>
+                  </div>
+                </div>
 
-                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                    <span className="text-slate-500 font-medium">SĐT Liên hệ:</span>
+                {/* Phone contact if available */}
+                {contactPhone && (
+                  <div className="text-[11px] text-slate-400 pt-1 flex items-center justify-between">
+                    <span>SĐT liên hệ:</span>
                     <a
                       href={`tel:${contactPhone}`}
-                      className="text-emerald-700 font-bold font-mono hover:underline inline-flex items-center gap-1.5 text-xs sm:text-sm"
-                      title="Bấm để gọi điện liên hệ"
+                      className="text-emerald-400 font-bold font-mono hover:underline inline-flex items-center gap-1"
                     >
-                      <Phone className="w-3.5 h-3.5" />
+                      <Phone className="w-3 h-3" />
                       <span>{contactPhone}</span>
                     </a>
                   </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500 font-medium">Số tiền cần thanh toán:</span>
-                    <strong className="text-rose-600 font-black text-base sm:text-lg font-mono">
-                      {formatVND(currentBalance)}
-                    </strong>
-                  </div>
-                </div>
+                )}
               </div>
 
-              {/* MÃ VIETQR QUÉT NHANH */}
+              {/* MÃ VIETQR QUÉT NHANH & NÚT LƯU ẢNH */}
               {vietQrUrl && (
                 <div className="p-5 sm:p-6 bg-white rounded-3xl border border-emerald-200/90 shadow-2xs space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
@@ -515,16 +549,43 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                     <img
                       src={vietQrUrl}
                       alt="Mã VietQR thanh toán"
-                      className="max-h-56 sm:max-h-64 max-w-full object-contain rounded-2xl bg-white p-2.5 shadow-sm border border-slate-200/60"
+                      className="max-h-52 sm:max-h-56 max-w-full object-contain rounded-2xl bg-white p-2.5 shadow-sm border border-slate-200/60"
                       loading="lazy"
                     />
-                    <div className="mt-2.5 text-center space-y-0.5">
+                    <div className="mt-2.5 text-center space-y-1 w-full">
                       <p className="text-xs sm:text-sm font-bold text-slate-800">
                         👉 Mở App ngân hàng quét mã
                       </p>
-                      <p className="text-xs sm:text-sm text-slate-500">
-                        Bạn chỉ cần gõ số tiền muốn chuyển ngay trên ứng dụng ngân hàng.
+                      <p className="text-[11px] text-slate-500">
+                        Số tiền {formatVND(currentBalance)} đã được điền sẵn trong mã QR.
                       </p>
+                      
+                      {/* Action 1: Tải ảnh QR về máy */}
+                      <button
+                        type="button"
+                        onClick={handleDownloadQr}
+                        className="w-full mt-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+                      >
+                        <Download className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{downloadedQr ? 'Đã tải ảnh về máy!' : 'Lưu ảnh QR để quét trong App'}</span>
+                      </button>
+
+                      {/* Action 2: Tôi đã chuyển khoản xong */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic('success');
+                          setReportedPaid(true);
+                        }}
+                        className={`w-full mt-1.5 py-2 px-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                          reportedPaid
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-xs'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{reportedPaid ? 'Đã báo chuyển khoản cho Chủ Sổ!' : 'Tôi đã chuyển khoản xong ✓'}</span>
+                      </button>
                     </div>
                   </div>
                 </div>

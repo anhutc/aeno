@@ -1071,8 +1071,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   className="p-3.5 bg-white hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-700">
-                      Xuất File Sao Lưu
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 flex items-center gap-1.5">
+                      <span>Xuất File Sao Lưu</span>
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-300">
+                        Bảo mật
+                      </span>
                     </span>
                     <Download className="w-4 h-4 text-emerald-600" />
                   </div>

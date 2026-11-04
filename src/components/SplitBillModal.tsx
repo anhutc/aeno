@@ -814,15 +814,14 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                     <button
                       type="button"
                       onClick={handleSelectAll}
-                      className="text-amber-700 hover:text-amber-900 font-semibold cursor-pointer whitespace-nowrap px-1.5 py-0.5 rounded hover:bg-amber-50 active:bg-amber-100"
+                      className="text-amber-800 hover:text-amber-950 font-bold cursor-pointer whitespace-nowrap px-2 py-0.5 rounded-lg bg-amber-100/80 hover:bg-amber-200 border border-amber-300 active:bg-amber-300 transition-colors shadow-2xs"
                     >
-                      Chọn tất cả
+                      Chọn tất cả ({debtors.length})
                     </button>
-                    <span className="text-slate-300">|</span>
                     <button
                       type="button"
                       onClick={() => setSelectedDebtorIds([])}
-                      className="text-slate-500 hover:text-slate-700 font-medium cursor-pointer whitespace-nowrap px-1.5 py-0.5 rounded hover:bg-slate-100 active:bg-slate-200"
+                      className="text-slate-500 hover:text-slate-800 font-semibold cursor-pointer whitespace-nowrap px-2 py-0.5 rounded-lg hover:bg-slate-200/70 active:bg-slate-300 transition-colors"
                     >
                       Bỏ chọn
                     </button>
