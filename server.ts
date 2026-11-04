@@ -248,6 +248,8 @@ app.use(async (req, _res, next) => {
       else if (mimeType.includes('webp')) ext = '.webp';
       else if (mimeType.includes('gif')) ext = '.gif';
       else if (mimeType.includes('svg')) ext = '.svg';
+      else if (mimeType.includes('heic')) ext = '.heic';
+      else if (mimeType.includes('heif')) ext = '.heif';
 
       const imageId = `bill_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const safeFilename = `${imageId}${ext}`;
@@ -302,8 +304,20 @@ app.use(async (req, _res, next) => {
       const safeFilename = path.basename(req.params.filename);
       const localFilePath = path.join(UPLOADS_DIR, safeFilename);
 
+      // Helper to determine accurate content type
+      const getContentType = (fn: string) => {
+        if (fn.endsWith('.png')) return 'image/png';
+        if (fn.endsWith('.webp')) return 'image/webp';
+        if (fn.endsWith('.gif')) return 'image/gif';
+        if (fn.endsWith('.svg')) return 'image/svg+xml';
+        if (fn.endsWith('.heic')) return 'image/heic';
+        if (fn.endsWith('.heif')) return 'image/heif';
+        return 'image/jpeg';
+      };
+
       // Check if file is cached locally on disk
       if (fs.existsSync(localFilePath)) {
+        res.setHeader('Content-Type', getContentType(safeFilename));
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         return res.sendFile(localFilePath);
       }
