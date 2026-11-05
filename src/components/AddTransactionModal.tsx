@@ -37,6 +37,7 @@ import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerato
 import { ThousandAmountInput } from './ThousandAmountInput';
 import { uploadBillImage } from '../utils/imageUploader';
 import { cleanStorageIfQuotaBloated } from '../utils/storage';
+import { getBillImageDirect } from '../services/firestoreClient';
 
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -656,7 +657,14 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 <img
                   src={billImage}
                   alt="Bill preview"
-                  className="w-14 h-14 object-cover rounded-lg border border-slate-200"
+                  onError={(e) => {
+                    if (billImage && (billImage.startsWith('/api/images/') || billImage.startsWith('/uploads/'))) {
+                      getBillImageDirect(billImage).then((direct) => {
+                        if (direct) (e.target as HTMLImageElement).src = direct;
+                      });
+                    }
+                  }}
+                  className="w-14 h-14 object-cover rounded-lg border border-slate-200 bg-white"
                 />
                 <div className="flex-1 min-w-0 text-xs text-slate-600">
                   <div className="font-semibold text-slate-800 truncate">Ảnh đính kèm gốc</div>

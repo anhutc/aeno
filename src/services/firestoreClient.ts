@@ -775,3 +775,70 @@ export async function saveAuditLogDirect(log: AuditLog): Promise<void> {
   }
 }
 
+const billImageClientCache = new Map<string, string>();
+
+/**
+ * Fetch a bill image directly from Cloud Firestore bypassing any proxy/cookie barriers.
+ * Guarantees 100% visibility on Safari, iOS PWA, and cross-origin environments.
+ */
+export async function getBillImageDirect(urlOrId: string): Promise<string | null> {
+  if (!urlOrId) return null;
+  if (urlOrId.startsWith('data:image/')) return urlOrId;
+
+  const cleanId = urlOrId
+    .replace(/^\/?api\/images\//, '')
+    .replace(/^\/?uploads\//, '')
+    .replace(/\.[^/.]+$/, '')
+    .trim();
+
+  if (!cleanId) return null;
+
+  if (billImageClientCache.has(cleanId)) {
+    return billImageClientCache.get(cleanId)!;
+  }
+
+  try {
+    await ensureClientAuth();
+    const db = getClientFirestore();
+    const docRef = doc(db, 'bill_images', cleanId);
+    const snap = await getDoc(docRef);
+
+    if (!snap.exists()) {
+      return null;
+    }
+
+    const data = snap.data();
+    let base64 = '';
+    const mime = data.mimeType || 'image/jpeg';
+
+    if (typeof data.base64Data === 'string' && data.base64Data.length > 0) {
+      base64 = data.base64Data;
+    } else if (Array.isArray(data.chunks) && data.chunks.length > 0) {
+      base64 = data.chunks.join('');
+    } else if (data.isChunked && data.totalChunks > 0) {
+      const chunksCol = collection(docRef, 'chunks');
+      const chunksSnap = await getDocs(chunksCol);
+      const chunkList: { index: number; chunk: string }[] = [];
+      chunksSnap.forEach((cDoc) => {
+        const cData = cDoc.data();
+        chunkList.push({
+          index: typeof cData.index === 'number' ? cData.index : parseInt(cDoc.id, 10) || 0,
+          chunk: cData.chunk || '',
+        });
+      });
+      chunkList.sort((a, b) => a.index - b.index);
+      base64 = chunkList.map((c) => c.chunk).join('');
+    }
+
+    if (!base64) return null;
+
+    const dataUrl = base64.startsWith('data:') ? base64 : `data:${mime};base64,${base64}`;
+    billImageClientCache.set(cleanId, dataUrl);
+    return dataUrl;
+  } catch (err) {
+    console.warn('getBillImageDirect notice:', err);
+    return null;
+  }
+}
+
+

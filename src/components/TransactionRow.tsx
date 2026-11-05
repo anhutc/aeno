@@ -14,6 +14,7 @@ import {
 import { Debtor, Transaction, PartySplit } from '../types';
 import { formatVND } from '../utils/vietqr';
 import { resolveSplitBillDetails, getCustomSplitNote } from '../utils/splitBillHelper';
+import { getBillImageDirect } from '../services/firestoreClient';
 
 export interface TransactionRowProps {
   transaction: Transaction;
@@ -30,6 +31,34 @@ export interface TransactionRowProps {
   onEditParty?: (party: PartySplit) => void;
   readOnly?: boolean;
 }
+
+const SafeReceiptThumbnail: React.FC<{ src: string }> = ({ src }) => {
+  const [thumbSrc, setThumbSrc] = React.useState<string>(src);
+
+  React.useEffect(() => {
+    setThumbSrc(src);
+    if (src.startsWith('/api/images/') || src.startsWith('/uploads/')) {
+      getBillImageDirect(src).then((direct) => {
+        if (direct) setThumbSrc(direct);
+      });
+    }
+  }, [src]);
+
+  return (
+    <img
+      src={thumbSrc}
+      alt="Hóa đơn"
+      onError={() => {
+        if (src.startsWith('/api/images/') || src.startsWith('/uploads/')) {
+          getBillImageDirect(src).then((direct) => {
+            if (direct) setThumbSrc(direct);
+          });
+        }
+      }}
+      className="w-8 h-8 rounded-lg object-cover border border-emerald-300 shrink-0 shadow-2xs bg-white"
+    />
+  );
+};
 
 const TransactionRowComponent: React.FC<TransactionRowProps> = ({
   transaction: tx,
@@ -237,11 +266,7 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
                 className="inline-flex items-center gap-2 px-2 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200/90 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs hover:scale-102"
                 title="Bấm để phóng to ảnh hóa đơn / chứng từ"
               >
-                <img
-                  src={img}
-                  alt="Hóa đơn"
-                  className="w-8 h-8 rounded-lg object-cover border border-emerald-300 shrink-0 shadow-2xs"
-                />
+                <SafeReceiptThumbnail src={img} />
                 <div className="text-left">
                   <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
                     <Receipt className="w-3 h-3 text-emerald-600" />
