@@ -102,8 +102,10 @@ export interface AppSettings {
   // Cài đặt đồng bộ Google Sheets & Google Drive (100% Cloud)
   googleSheetId?: string;
   googleSheetUrl?: string;
+  googleAppsScriptUrl?: string; // Webhook Web App URL từ Google Apps Script (Không cần OAuth, không bao giờ bị lỗi origin_mismatch)
   lastGoogleSheetSyncAt?: string;
   autoSyncGoogleSheets?: boolean;
+  customGoogleClientId?: string; // Tùy chọn: Google OAuth Client ID riêng khi triển khai trên Vercel / tên miền riêng (khắc phục origin_mismatch)
 }
 
 export interface BankOption {

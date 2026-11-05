@@ -23,6 +23,9 @@ import {
   Layers,
   ArrowUpRight,
   Lock,
+  Globe,
+  Settings2,
+  Code,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
 import { loadAuditLogs } from '../utils/storage';
@@ -32,12 +35,16 @@ import {
   signInWithGoogle,
   signOutGoogle,
   syncDatabaseToGoogleSheets,
+  syncViaAppsScript,
+  GOOGLE_APPS_SCRIPT_TEMPLATE,
   getGoogleAccessToken,
   getCurrentGoogleUser,
   setManualAccessToken,
   exportGoogleSheetsCsvFile,
   getCurrentDomain,
   triggerDebouncedAutoSync,
+  getActiveOAuthClientId,
+  setCustomOAuthClientId,
   SyncResult,
   GoogleUserProfile,
 } from '../services/googleSheetsService';
@@ -68,6 +75,30 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const isAutoSyncEnabled = settings.autoSyncGoogleSheets !== false;
+
+  // Custom Google OAuth Client ID State (Fixes origin_mismatch on Vercel)
+  const [customClientIdInput, setCustomClientIdInput] = useState<string>(() => settings.customGoogleClientId || '');
+  const [activeClientId, setActiveClientId] = useState<string>(() => getActiveOAuthClientId(settings));
+  const [showClientIdConfig, setShowClientIdConfig] = useState(false);
+  const [vercelOriginCopied, setVercelOriginCopied] = useState(false);
+
+  // Google Apps Script Webhook State (Zero-OAuth sync - Không cần Client ID)
+  const [appsScriptUrlInput, setAppsScriptUrlInput] = useState<string>(() => settings.googleAppsScriptUrl || '');
+  const [showAppsScriptConfig, setShowAppsScriptConfig] = useState<boolean>(() => Boolean(settings.googleAppsScriptUrl));
+  const [scriptCopied, setScriptCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (settings.customGoogleClientId !== undefined) {
+      setCustomClientIdInput(settings.customGoogleClientId || '');
+      setActiveClientId(getActiveOAuthClientId(settings));
+    }
+  }, [settings.customGoogleClientId]);
+
+  useEffect(() => {
+    if (settings.googleAppsScriptUrl !== undefined) {
+      setAppsScriptUrlInput(settings.googleAppsScriptUrl || '');
+    }
+  }, [settings.googleAppsScriptUrl]);
 
   useEffect(() => {
     const handleAutoSyncStart = () => {
@@ -181,7 +212,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const handleGoogleSignIn = async () => {
     setIsSigningIn(true);
     try {
-      const res = await signInWithGoogle();
+      const res = await signInWithGoogle(settings);
       setGoogleUser(res.user);
       setHasToken(true);
       showToast(`Đã kết nối tài khoản Google: ${res.user.email || res.user.displayName}`, 'success');
@@ -207,10 +238,25 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
         return;
       }
       console.error('Sign-in failed:', err);
-      if (err?.code === 'auth/unauthorized-domain' || String(err?.message || '').includes('unauthorized-domain')) {
+      const errLower = String(err?.message || '').toLowerCase();
+      if (
+        err?.code === 'origin_mismatch' ||
+        errLower.includes('origin_mismatch') ||
+        errLower.includes('origin mismatch')
+      ) {
         setDomainModalOpen(true);
+        showToast(
+          'Lỗi 400: origin_mismatch. Tên miền https://aeno.vercel.app chưa được thêm vào Google Cloud Console.',
+          'error'
+        );
+      } else if (err?.code === 'auth/unauthorized-domain' || errLower.includes('unauthorized-domain')) {
+        setDomainModalOpen(true);
+        showToast('Tên miền chưa được thêm vào Firebase Authorized Domains.', 'error');
       } else if (err?.code === 'access_denied') {
-        showToast('Đã chặn quyền truy cập (Lỗi uỷ quyền): Cần cấu hình Test Users trong Google Cloud Console.', 'error');
+        showToast(
+          'Đã chặn quyền truy cập (Lỗi uỷ quyền): Cần thêm tài khoản vào Test Users trong Google Cloud Console.',
+          'error'
+        );
         setDomainModalOpen(true);
       } else {
         showToast(err?.message || 'Không thể đăng nhập Google. Vui lòng thử lại.', 'error');
@@ -232,7 +278,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   };
 
   const handleTriggerSync = () => {
-    if (!hasToken) {
+    if (!hasToken && !settings.googleAppsScriptUrl) {
       handleGoogleSignIn();
       return;
     }
@@ -245,14 +291,29 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
     setSyncStatusStep('Đang chuẩn bị dữ liệu đồng bộ...');
 
     try {
-      setSyncStatusStep('Đang kết nối Google Drive & tạo cấu trúc 4 tab (kèm Nhật ký thao tác)...');
-      const result = await syncDatabaseToGoogleSheets({
-        debtors,
-        transactions,
-        parties,
-        settings,
-        auditLogs: loadAuditLogs(),
-      });
+      let result: SyncResult;
+      if (settings.googleAppsScriptUrl && !hasToken) {
+        setSyncStatusStep('Đang gửi dữ liệu sang Google Sheet qua Google Apps Script Web App (Không cần OAuth)...');
+        result = await syncViaAppsScript(
+          {
+            debtors,
+            transactions,
+            parties,
+            settings,
+            auditLogs: loadAuditLogs(),
+          },
+          settings.googleAppsScriptUrl
+        );
+      } else {
+        setSyncStatusStep('Đang kết nối Google Drive & tạo cấu trúc 4 tab (kèm Nhật ký thao tác)...');
+        result = await syncDatabaseToGoogleSheets({
+          debtors,
+          transactions,
+          parties,
+          settings,
+          auditLogs: loadAuditLogs(),
+        });
+      }
 
       setSyncResult(result);
       setSyncStatusStep('Đang hoàn tất lưu thông tin...');
@@ -260,8 +321,8 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
       // Save Google Sheet URL & ID into settings
       const updatedSettings: AppSettings = {
         ...settings,
-        googleSheetId: result.spreadsheetId,
-        googleSheetUrl: result.spreadsheetUrl,
+        googleSheetId: result.spreadsheetId !== 'apps_script' ? result.spreadsheetId : settings.googleSheetId,
+        googleSheetUrl: result.spreadsheetUrl || settings.googleSheetUrl,
         lastGoogleSheetSyncAt: result.updatedAt,
       };
       await onSaveSettings(updatedSettings);
@@ -315,8 +376,59 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const copyVercelDomainToClipboard = () => {
     navigator.clipboard.writeText('aeno.vercel.app');
     setVercelDomainCopied(true);
-    showToast('Đã sao chép tên miền: aeno.vercel.app', 'success');
+    showToast('Đã sao chép tên miền: aeno.vercel.app (cho Firebase Console)', 'success');
     setTimeout(() => setVercelDomainCopied(false), 3000);
+  };
+
+  const copyVercelOriginToClipboard = () => {
+    navigator.clipboard.writeText('https://aeno.vercel.app');
+    setVercelOriginCopied(true);
+    showToast('Đã sao chép URI nguồn: https://aeno.vercel.app (cho Google Cloud Console)', 'success');
+    setTimeout(() => setVercelOriginCopied(false), 3000);
+  };
+
+  const handleSaveCustomClientId = async () => {
+    const trimmed = customClientIdInput.trim();
+    setCustomOAuthClientId(trimmed);
+    const updatedSettings: AppSettings = {
+      ...settings,
+      customGoogleClientId: trimmed || undefined,
+    };
+    await onSaveSettings(updatedSettings);
+    setActiveClientId(getActiveOAuthClientId(updatedSettings));
+    showToast(
+      trimmed
+        ? 'Đã lưu Google OAuth Client ID cho Vercel thành công!'
+        : 'Đã xóa Client ID riêng và dùng Client ID mặc định.',
+      'success'
+    );
+  };
+
+  const handleSaveAppsScriptUrl = async () => {
+    const trimmed = appsScriptUrlInput.trim();
+    if (trimmed && !trimmed.startsWith('https://script.google.com/')) {
+      showToast('Đường link Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...', 'error');
+      return;
+    }
+    const updatedSettings: AppSettings = {
+      ...settings,
+      googleAppsScriptUrl: trimmed || undefined,
+      autoSyncGoogleSheets: trimmed ? true : settings.autoSyncGoogleSheets,
+    };
+    await onSaveSettings(updatedSettings);
+    showToast(
+      trimmed
+        ? 'Đã kết nối Google Apps Script thành công! Bạn có thể đồng bộ ngay.'
+        : 'Đã xóa liên kết Google Apps Script.',
+      'success'
+    );
+  };
+
+  const copyAppsScriptTemplate = () => {
+    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+    setScriptCopied(true);
+    showToast('Đã sao chép toàn bộ mã Google Apps Script!', 'success');
+    setTimeout(() => setScriptCopied(false), 3000);
   };
 
   const handleToggleAutoSync = async () => {
@@ -801,24 +913,224 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
         </div>
       </div>
 
-      {/* Manual Token Option Toggle */}
-      <div className="pt-1 text-right">
+      {/* Advanced Settings Row: Google Apps Script Web App, Custom Client ID for Vercel & Manual Token */}
+      <div className="pt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Apps Script Zero-OAuth Sync Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowAppsScriptConfig(!showAppsScriptConfig);
+              setShowClientIdConfig(false);
+            }}
+            className={`text-[11px] font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border ${
+              settings.googleAppsScriptUrl
+                ? 'bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+            }`}
+          >
+            <Code className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{showAppsScriptConfig ? 'Ẩn Apps Script' : 'Đồng bộ qua Apps Script (Khuyên dùng - Không cần OAuth)'}</span>
+            {settings.googleAppsScriptUrl ? (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-600 text-white font-extrabold">Đã bật</span>
+            ) : (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-200 text-emerald-800 font-bold">Dễ nhất</span>
+            )}
+          </button>
+
+          {/* Client ID Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowClientIdConfig(!showClientIdConfig);
+              setShowAppsScriptConfig(false);
+            }}
+            className="text-[11px] text-slate-600 hover:text-slate-800 font-medium transition-colors inline-flex items-center gap-1.5 cursor-pointer bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1.5 rounded-xl border border-slate-200"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span>{showClientIdConfig ? 'Ẩn Client ID' : 'OAuth Client ID'}</span>
+            {settings.customGoogleClientId && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            )}
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={() => setShowManualTokenInput(!showManualTokenInput)}
-          className="text-[11px] text-slate-400 hover:text-emerald-700 font-medium transition-colors inline-flex items-center gap-1 cursor-pointer"
+          className="text-[11px] text-slate-400 hover:text-slate-700 font-medium transition-colors inline-flex items-center gap-1 cursor-pointer ml-auto"
         >
           <Key className="w-3 h-3" />
-          <span>{showManualTokenInput ? 'Ẩn nhập token thủ công' : 'Tùy chọn nâng cao: Nhập Access Token Google'}</span>
+          <span>{showManualTokenInput ? 'Ẩn token' : 'Token tạm thời'}</span>
         </button>
       </div>
+
+      {/* Google Apps Script Web App Configuration Box (Zero-OAuth, No origin_mismatch) */}
+      {showAppsScriptConfig && (
+        <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 space-y-3 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/60 pb-2.5">
+            <div>
+              <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                <Code className="w-4 h-4 text-emerald-600" />
+                Đồng Bộ Google Sheets Bằng Google Apps Script (100% Không Lỗi origin_mismatch)
+              </span>
+              <p className="text-[11px] text-emerald-800/80 mt-0.5">
+                Không cần tạo Google Cloud Project, không cần Client ID, không bao giờ bị Google chặn trên bất kỳ tên miền nào!
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={copyAppsScriptTemplate}
+              className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer"
+            >
+              {scriptCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{scriptCopied ? 'Đã sao chép mã Script' : 'Sao chép mã Apps Script'}</span>
+            </button>
+          </div>
+
+          <div className="space-y-1.5 text-xs text-slate-700 bg-white/80 p-3 rounded-xl border border-emerald-200/60">
+            <p className="font-bold text-slate-800 text-[11px]">3 Bước đơn giản trên Google Sheet của bạn (chỉ mất 1 phút):</p>
+            <ol className="list-decimal list-inside text-[11px] space-y-1 text-slate-600 pl-1 leading-relaxed">
+              <li>Mở Google Sheet trên Drive của bạn &gt; chọn <strong>Tiện ích mở rộng (Extensions) &gt; Apps Script</strong>.</li>
+              <li>Xóa hết nội dung cũ, bấm nút <strong>&quot;Sao chép mã Apps Script&quot;</strong> ở trên rồi dán vào &gt; Nhấn <strong>Lưu (Ctrl+S)</strong>.</li>
+              <li>Bấm <strong>Triển khai (Deploy) &gt; Triển khai mới (New deployment)</strong> &gt; Chọn <strong>Ứng dụng web (Web app)</strong>:
+                <br />
+                <span className="pl-4 text-[10px] text-emerald-800 font-semibold block mt-0.5">
+                  - Ai có quyền truy cập (Who has access): Chọn <strong>&quot;Bất kỳ ai&quot; (Anyone)</strong>.
+                </span>
+                <span className="pl-4 text-[10px] text-slate-500 block">
+                  - Bấm Triển khai &gt; Sao chép <strong>URL ứng dụng web</strong> (dạng <code>https://script.google.com/macros/s/.../exec</code>) và dán vào ô bên dưới:
+                </span>
+              </li>
+            </ol>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold text-slate-700 block">Dán URL ứng dụng web Google Apps Script của bạn vào đây:</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={appsScriptUrlInput}
+                onChange={(e) => setAppsScriptUrlInput(e.target.value)}
+                placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                className="flex-1 px-3 py-2 text-xs font-mono rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={handleSaveAppsScriptUrl}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shrink-0 shadow-xs"
+              >
+                Lưu URL
+              </button>
+            </div>
+          </div>
+
+          {settings.googleAppsScriptUrl && (
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px]">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Đã kết nối Apps Script: Sẵn sàng đồng bộ 4 tab tự động!
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAppsScriptUrlInput('');
+                  const updated: AppSettings = { ...settings, googleAppsScriptUrl: undefined };
+                  onSaveSettings(updated);
+                  showToast('Đã xóa liên kết Apps Script', 'info');
+                }}
+                className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer"
+              >
+                Hủy liên kết này
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Custom Google Client ID Configuration Box */}
+      {showClientIdConfig && (
+        <div className="bg-slate-50 border border-emerald-200 rounded-2xl p-4 space-y-3 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+            <div>
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Globe className="w-4 h-4 text-emerald-600" />
+                Google OAuth Client ID cho tên miền triển khai
+              </span>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Dùng khi chạy trên <span className="font-bold text-slate-700">https://aeno.vercel.app</span> để khắc phục hoàn toàn <span className="text-rose-600 font-bold">Lỗi 400: origin_mismatch</span>.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDomainModalOpen(true)}
+              className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>Xem hướng dẫn 4 bước</span>
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <label className="font-semibold text-slate-700">Client ID từ Google Cloud Console của bạn:</label>
+              {activeClientId && (
+                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">
+                  Hiện tại: {activeClientId.slice(0, 16)}...
+                </span>
+              )}
+            </div>
+            <input
+              type="text"
+              value={customClientIdInput}
+              onChange={(e) => setCustomClientIdInput(e.target.value)}
+              placeholder="Dán Client ID dạng: 123456789-xxxxxxxx.apps.googleusercontent.com"
+              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+            <div className="text-[10px] text-slate-500">
+              {settings.customGoogleClientId ? (
+                <span className="text-emerald-700 font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  Đang dùng Client ID tùy chỉnh (Lưu trên máy &amp; đám mây)
+                </span>
+              ) : (
+                <span>Chưa cài đặt Client ID riêng (Đang dùng mặc định của hệ thống)</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {settings.customGoogleClientId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomClientIdInput('');
+                    handleSaveCustomClientId();
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold cursor-pointer"
+                >
+                  Khôi phục mặc định
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveCustomClientId}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+              >
+                Lưu Client ID
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manual Token Input Box */}
       {showManualTokenInput && (
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5 animate-in fade-in">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-700">Dán Google OAuth Access Token</span>
-            <span className="text-[10px] text-slate-400">Token chỉ lưu trong RAM, không lưu ổ đĩa</span>
+            <span className="text-xs font-bold text-slate-700">Dán Google OAuth Access Token tạm thời</span>
+            <span className="text-[10px] text-slate-400">Chỉ lưu trong RAM, không lưu ổ đĩa</span>
           </div>
           <input
             type="text"
@@ -847,21 +1159,22 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
         </div>
       )}
 
-      {/* Domain Authorization Help Modal (Fixes auth/unauthorized-domain) */}
+      {/* Comprehensive Domain & OAuth Configuration Guidance Modal */}
       {domainModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl p-5 sm:p-6 max-w-lg w-full shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-3">
+          <div className="bg-white rounded-3xl p-5 sm:p-6 max-w-xl w-full shadow-2xl border border-slate-100 space-y-4 max-h-[92vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
                   <ShieldAlert className="w-5 h-5 text-amber-600" />
                 </div>
                 <div>
                   <h4 className="text-sm font-extrabold text-slate-900">
-                    Ủy Quyền Tên Miền Firebase &amp; Google
+                    Khắc Phục Lỗi Đăng Nhập Google Trên aeno.vercel.app
                   </h4>
-                  <p className="text-xs text-slate-500">
-                    Khắc phục lỗi: auth/unauthorized-domain &amp; Lỗi uỷ quyền
+                  <p className="text-xs text-rose-600 font-bold">
+                    Lỗi 400: origin_mismatch (Không thể đăng nhập)
                   </p>
                 </div>
               </div>
@@ -874,112 +1187,107 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               </button>
             </div>
 
-            <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 text-xs text-amber-900 space-y-3">
-              <p className="font-semibold leading-relaxed">
-                Để đăng nhập Google OAuth và đồng bộ Google Sheets không bị lỗi <span className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded border border-rose-200">auth/unauthorized-domain</span>, bạn cần thêm tên miền vào danh sách <strong>Authorized domains</strong> trong Firebase Console:
+            {/* Explanation */}
+            <div className="bg-rose-50/70 border border-rose-200/80 rounded-2xl p-3.5 text-xs text-rose-950 space-y-1.5">
+              <p className="font-bold flex items-center gap-1.5 text-rose-800">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                Bạn không cần tự tạo Client ID! Hãy chọn 1 trong 3 cách dễ dàng sau:
               </p>
+              <p className="text-[11px] leading-relaxed text-rose-900/90">
+                Lỗi <code>origin_mismatch</code> xảy ra vì Google chặn đăng nhập từ tên miền mới <code>https://aeno.vercel.app</code> khi chưa khai báo quyền. Bạn không cần vào Google Cloud Console phức tạp, hãy áp dụng giải pháp bên dưới:
+              </p>
+            </div>
 
-              {/* Tên miền chính thức Vercel */}
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  Tên miền chính thức của ứng dụng:
+            {/* SOLUTION 1: GOOGLE APPS SCRIPT (RECOMMENDED - ZERO OAUTH) */}
+            <div className="bg-emerald-50/80 border-2 border-emerald-300 rounded-2xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
+                  Cách 1 (Khuyên Dùng): Đồng Bộ Qua Google Apps Script
                 </span>
-                <div className="flex items-center justify-between gap-2 bg-white/95 p-2 rounded-xl border border-emerald-300 font-mono text-[11px] text-slate-900 shadow-2xs">
-                  <span className="font-bold text-emerald-900">aeno.vercel.app</span>
-                  <button
-                    type="button"
-                    onClick={copyVercelDomainToClipboard}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
-                  >
-                    {vercelDomainCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    <span>{vercelDomainCopied ? 'Đã sao chép' : 'Sao chép'}</span>
-                  </button>
-                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-200 text-emerald-900">
+                  Không cần OAuth
+                </span>
               </div>
-
-              {/* Tên miền môi trường xem trước hiện tại */}
-              {activeHostname && activeHostname !== 'aeno.vercel.app' && (
-                <div className="space-y-1 pt-1 border-t border-amber-200/50">
-                  <span className="text-[11px] font-medium text-slate-600">
-                    Tên miền môi trường xem trước Cloud Run hiện tại:
-                  </span>
-                  <div className="flex items-center justify-between gap-2 bg-white/90 p-2 rounded-xl border border-amber-200 font-mono text-[11px] text-slate-800">
-                    <span className="truncate">{activeHostname}</span>
-                    <button
-                      type="button"
-                      onClick={copyDomainToClipboard}
-                      className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
-                    >
-                      {domainCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                      <span>{domainCopied ? 'Đã sao chép' : 'Sao chép'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              <p className="text-[11px] text-emerald-800 leading-relaxed">
+                Chỉ cần mở Google Sheet &gt; Tiện ích mở rộng &gt; Apps Script &gt; Dán đoạn mã có sẵn &gt; Triển khai ứng dụng web và dán link vào ứng dụng là đồng bộ 100% tự động vĩnh viễn!
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={copyAppsScriptTemplate}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  {scriptCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{scriptCopied ? 'Đã sao chép mã script' : 'Sao chép mã Apps Script (1-Click)'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDomainModalOpen(false);
+                    setShowAppsScriptConfig(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 text-xs font-bold cursor-pointer"
+                >
+                  Dán link Web App tại đây &rarr;
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2 text-xs text-slate-600">
-              <p className="font-bold text-slate-800">3 bước thực hiện trên Firebase Console (chỉ mất 30 giây):</p>
-              <ol className="space-y-1.5 list-decimal list-inside text-[11px] text-slate-600 pl-1">
-                <li>
-                  Nhấn nút <strong>&quot;Mở Firebase Console&quot;</strong> bên dưới.
-                </li>
-                <li>
-                  Vào mục <strong>Authentication &gt; Settings &gt; Authorized domains</strong>.
-                </li>
-                <li>
-                  Nhấn <strong>Add domain</strong> &gt; Dán <strong>aeno.vercel.app</strong> (và tên miền xem trước nếu cần) &gt; Nhấn <strong>Save</strong>.
-                </li>
-              </ol>
+            {/* SOLUTION 2: PRE-AUTHORIZED PREVIEW LINK */}
+            <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-3.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-black text-blue-950 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-black">2</span>
+                  Cách 2: Đăng Nhập 1 Lần Qua Đường Link Đã Cấp Phép Sẵn
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
+                  Chung Database
+                </span>
+              </div>
+              <p className="text-[11px] text-blue-900/80 leading-relaxed">
+                Đường link xem trước AI Studio bên dưới đã được Google uỷ quyền sẵn. Vì cả 2 trang web dùng chung cơ sở dữ liệu Cloud Firestore, bạn chỉ cần mở link này lên và bấm <strong>Đăng nhập Google</strong> 1 lần, Google Sheet sẽ được tạo và dùng chung cho cả Vercel:
+              </p>
+              <div className="pt-1">
+                <a
+                  href="https://ais-pre-dbguopx4atmnkvwv5o33rk-599901176434.asia-east1.run.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Mở Link Xem Trước Đã Cấp Phép OAuth</span>
+                </a>
+              </div>
             </div>
 
-            <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-2xl p-3 text-xs text-emerald-900 flex items-center justify-between gap-2">
+            {/* SOLUTION 3: INSTANT CSV EXPORT */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs text-slate-700 flex items-center justify-between gap-2">
               <div>
-                <p className="font-bold">Cách xem ngay trên Google Sheets mà không cần cài đặt:</p>
-                <p className="text-[11px] text-emerald-700 mt-0.5">
-                  Tải tệp CSV chuẩn 3 tab và nhập trực tiếp vào Google Sheets.
+                <p className="font-bold text-slate-800">Cách 3: Tải file Sheets (CSV) mở ngay lập tức</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Tải tệp bảng tính CSV chuẩn 4 tab để mở trực tiếp trên Google Sheets.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleExportCsv}
-                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 flex items-center gap-1 cursor-pointer shadow-xs"
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold shrink-0 flex items-center gap-1 cursor-pointer shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Tải tệp</span>
+                <span>Tải tệp Sheets</span>
               </button>
             </div>
 
+            {/* Modal Footer */}
             <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => {
-                  setDomainModalOpen(false);
-                  setShowManualTokenInput(true);
-                }}
-                className="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5"
+                onClick={() => setDomainModalOpen(false)}
+                className="px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-all"
               >
-                <span>Nhập Token Google thủ công</span>
+                Đóng
               </button>
-              <a
-                href="https://console.cloud.google.com/apis/credentials?project=gen-lang-client-0583644686"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3.5 py-2 rounded-2xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                <span>Google Cloud Console</span>
-              </a>
-              <a
-                href="https://console.firebase.google.com/project/gen-lang-client-0583644686/authentication/settings"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer shadow-xs transition-all flex items-center gap-1.5"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Mở Firebase Console</span>
-              </a>
             </div>
           </div>
         </div>

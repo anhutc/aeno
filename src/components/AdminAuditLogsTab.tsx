@@ -160,7 +160,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     triggerHaptic('medium');
     setIsSigningInGoogle(true);
     try {
-      const res = await signInWithGoogle();
+      const res = await signInWithGoogle(settings);
       setGoogleUser(res.user);
       setHasGoogleToken(true);
       showToast(`Đã kết nối tài khoản Google: ${res.user.email}`, 'success');

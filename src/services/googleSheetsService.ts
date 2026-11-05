@@ -248,10 +248,55 @@ export const setManualAccessToken = (token: string, userEmail?: string) => {
 };
 
 /**
+ * Get active Google OAuth Client ID based on priority:
+ * 1. AppSettings (saved in Firestore / App state)
+ * 2. Local browser storage override
+ * 3. Vite environment variable (VITE_GOOGLE_CLIENT_ID for Vercel)
+ * 4. Built-in default AI Studio Client ID
+ */
+export const getActiveOAuthClientId = (settings?: AppSettings): string => {
+  if (settings?.customGoogleClientId && settings.customGoogleClientId.trim()) {
+    return settings.customGoogleClientId.trim();
+  }
+  try {
+    if (typeof window !== 'undefined') {
+      const local = window.localStorage?.getItem('aeno_custom_google_client_id');
+      if (local && local.trim()) return local.trim();
+    }
+  } catch {
+    // ignore
+  }
+  const envId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID;
+  if (envId && typeof envId === 'string' && envId.trim()) {
+    return envId.trim();
+  }
+  return BUILTIN_FIREBASE_CONFIG.oAuthClientId || '';
+};
+
+/**
+ * Persist custom OAuth client ID to browser local storage
+ */
+export const setCustomOAuthClientId = (clientId: string) => {
+  try {
+    if (typeof window !== 'undefined') {
+      if (clientId && clientId.trim()) {
+        window.localStorage?.setItem('aeno_custom_google_client_id', clientId.trim());
+      } else {
+        window.localStorage?.removeItem('aeno_custom_google_client_id');
+      }
+    }
+  } catch {
+    // ignore
+  }
+};
+
+/**
  * Sign in using Google Identity Services (Direct token client - optimal for iframes/popups)
  * with graceful fallback to Firebase signInWithPopup.
  */
-export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; accessToken: string }> => {
+export const signInWithGoogle = async (
+  explicitClientIdOrSettings?: string | AppSettings
+): Promise<{ user: GoogleUserProfile; accessToken: string }> => {
   if (isSigningIn) {
     throw new Error('Đang có yêu cầu đăng nhập Google đang xử lý...');
   }
@@ -260,7 +305,15 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
   setOAuthActive(true);
 
   try {
-    const oAuthClientId = BUILTIN_FIREBASE_CONFIG.oAuthClientId;
+    let oAuthClientId = '';
+    if (typeof explicitClientIdOrSettings === 'string') {
+      oAuthClientId = explicitClientIdOrSettings.trim();
+    } else if (explicitClientIdOrSettings && typeof explicitClientIdOrSettings === 'object') {
+      oAuthClientId = getActiveOAuthClientId(explicitClientIdOrSettings);
+    } else {
+      oAuthClientId = getActiveOAuthClientId();
+    }
+
     if (!oAuthClientId) {
       throw new Error('Chưa cấu hình Google OAuth Client ID');
     }
@@ -274,7 +327,9 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
       await ensureGsiScript();
       const googleObj = typeof window !== 'undefined' ? (window as any).google : null;
       if (googleObj?.accounts?.oauth2?.initTokenClient) {
-        console.log('Initiating Google sign-in via Google Identity Services (GIS)...');
+        console.log('Initiating Google sign-in via Google Identity Services (GIS)...', {
+          clientIdPrefix: oAuthClientId.slice(0, 15) + '...',
+        });
         const tokenResult = await new Promise<{ access_token: string }>((resolve, reject) => {
           let isResolved = false;
           const startTime = Date.now();
@@ -289,6 +344,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
 
                 if (response.error) {
                   console.warn('GIS Token Response Notice:', response);
+                  const errStr = String(response.error_description || response.error || '').toLowerCase();
                   if (response.error === 'popup_closed_by_user') {
                     const err = new Error('Bạn đã đóng cửa sổ đăng nhập Google.');
                     (err as any).code = 'popup_closed';
@@ -298,6 +354,13 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
                       'Đã chặn quyền truy cập (Lỗi uỷ quyền): Tài khoản Google chưa được thêm vào Danh sách người dùng thử nghiệm (Test Users) trong Google Cloud Console.'
                     );
                     (err as any).code = 'access_denied';
+                    reject(err);
+                  } else if (response.error === 'origin_mismatch' || errStr.includes('origin_mismatch') || errStr.includes('origin mismatch')) {
+                    const err = new Error(
+                      'Lỗi 400: origin_mismatch - Tên miền của ứng dụng chưa được thêm vào "Authorized JavaScript origins" trong Google Cloud Console.'
+                    );
+                    (err as any).code = 'origin_mismatch';
+                    (err as any).domain = getCurrentDomain();
                     reject(err);
                   } else {
                     const err = new Error(response.error_description || response.error);
@@ -373,7 +436,7 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
         gisSuccess = true;
       }
     } catch (gisErr: any) {
-      if (gisErr?.code === 'popup_closed') {
+      if (gisErr?.code === 'popup_closed' || gisErr?.code === 'origin_mismatch') {
         throw gisErr;
       }
       console.warn('GIS sign-in notice, falling back to Firebase Auth popup:', gisErr?.message || gisErr);
@@ -423,7 +486,21 @@ export const signInWithGoogle = async (): Promise<{ user: GoogleUserProfile; acc
       (err as any).code = 'popup_closed';
       throw err;
     }
-    if (error?.code === 'auth/unauthorized-domain') {
+    const errText = String(error?.message || '').toLowerCase();
+    if (
+      error?.code === 'origin_mismatch' ||
+      errText.includes('origin_mismatch') ||
+      errText.includes('origin mismatch')
+    ) {
+      const currentHost = getCurrentDomain();
+      const err = new Error(
+        `Lỗi 400: origin_mismatch - Tên miền "https://${currentHost}" chưa được thêm vào mục "Authorized JavaScript origins" của Google OAuth Client ID trong Google Cloud Console.`
+      );
+      (err as any).code = 'origin_mismatch';
+      (err as any).domain = currentHost;
+      throw err;
+    }
+    if (error?.code === 'auth/unauthorized-domain' || errText.includes('unauthorized-domain')) {
       console.warn('Firebase Auth unauthorized-domain:', error?.message);
       const currentHost = getCurrentDomain();
       const err = new Error(
@@ -797,7 +874,7 @@ export async function syncDatabaseToGoogleSheets(
 
   // If no token cached, prompt user to sign in first
   if (!token) {
-    const loginRes = await signInWithGoogle();
+    const loginRes = await signInWithGoogle(payload.settings);
     token = loginRes.accessToken;
   }
 
@@ -1216,6 +1293,181 @@ const autoSyncState = {
 
 export const getAutoSyncStatus = () => ({ ...autoSyncState });
 
+export const GOOGLE_APPS_SCRIPT_TEMPLATE = `// === GOOGLE APPS SCRIPT ĐỒNG BỘ SỔ GHI NỢ (AENO) ===
+// Hướng dẫn:
+// 1. Mở trang Google Sheet của bạn > Tiện ích mở rộng (Extensions) > Apps Script
+// 2. Xóa hết code cũ trong file Code.gs, dán toàn bộ đoạn mã này vào > Bấm Lưu (Ctrl+S)
+// 3. Bấm "Triển khai" (Deploy) > "Triển khai mới" (New deployment)
+// 4. Chọn loại: "Ứng dụng web" (Web app)
+//    - Mô tả: AENO Sync
+//    - Người thực thi: Tôi (tài khoản của bạn)
+//    - Người có quyền truy cập: "Bất kỳ ai" (Anyone)
+// 5. Bấm "Triển khai" > Cấp quyền truy cập tài khoản > Sao chép "URL ứng dụng web"
+// 6. Dán URL đó vào ứng dụng Sổ Nợ AENO!
+
+function doPost(e) {
+  try {
+    var raw = e.postData.contents;
+    var data = JSON.parse(raw);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Tab 1: Tổng Hợp Công Nợ
+    var sheet1 = getOrCreateSheet(ss, "Tổng Hợp Công Nợ");
+    sheet1.clear();
+    var rows1 = [["STT", "Họ Và Tên Người Nợ", "Số Dư Nợ Hiện Tại (VNĐ)", "Trạng Thái", "Tổng Nợ Thêm (+)", "Tổng Đã Trả (-)", "Số Giao Dịch", "Mã PIN Tra Cứu", "Ghi Chú"]];
+    var debtors = data.debtors || [];
+    var txs = data.transactions || [];
+    for (var i = 0; i < debtors.length; i++) {
+      var d = debtors[i];
+      var dTxs = txs.filter(function(t) { return t.debtorId === d.id; });
+      var add = dTxs.filter(function(t) { return t.type === 'ADD'; }).reduce(function(s, t) { return s + (Number(t.amount)||0); }, 0);
+      var sub = dTxs.filter(function(t) { return t.type === 'SUB'; }).reduce(function(s, t) { return s + (Number(t.amount)||0); }, 0);
+      var bal = add - sub;
+      var status = bal > 0 ? "Đang còn nợ" : (bal < 0 ? "Chủ nợ đang nợ lại" : "Đã hết nợ");
+      rows1.push([i + 1, d.name, bal, status, add, sub, dTxs.length, d.pin || "", d.note || ""]);
+    }
+    sheet1.getRange(1, 1, rows1.length, rows1[0].length).setValues(rows1);
+    formatHeader(sheet1, "#047857");
+
+    // 2. Tab 2: Lịch Sử Giao Dịch
+    var sheet2 = getOrCreateSheet(ss, "Lịch Sử Giao Dịch");
+    sheet2.clear();
+    var rows2 = [["STT", "Ngày Giao Dịch", "Người Nợ", "Loại", "Số Tiền (VNĐ)", "Nội Dung", "Phân Loại", "Cuộc Vui"]];
+    var dMap = {};
+    for (var j = 0; j < debtors.length; j++) { dMap[debtors[j].id] = debtors[j].name; }
+    for (var k = 0; k < txs.length; k++) {
+      var t = txs[k];
+      rows2.push([k + 1, t.date || "", dMap[t.debtorId] || "Không xác định", t.type === 'ADD' ? "Ghi Nợ (+)" : "Trả Nợ (-)", t.amount || 0, t.note || "", t.category || "", t.partyName || ""]);
+    }
+    if (rows2.length > 1) {
+      sheet2.getRange(1, 1, rows2.length, rows2[0].length).setValues(rows2);
+    } else {
+      sheet2.getRange(1, 1, 1, rows2[0].length).setValues(rows2);
+    }
+    formatHeader(sheet2, "#0284c7");
+
+    // 3. Tab 3: Các Cuộc Chia Tiền
+    var sheet3 = getOrCreateSheet(ss, "Các Cuộc Chia Tiền");
+    sheet3.clear();
+    var parties = data.parties || [];
+    var rows3 = [["STT", "Ngày Tổ Chức", "Tên Cuộc Vui", "Tổng Tiền (VNĐ)", "Số Người", "Tiền/Người (VNĐ)", "Ghi Chú"]];
+    for (var p = 0; p < parties.length; p++) {
+      var pt = parties[p];
+      rows3.push([p + 1, pt.date || "", pt.name || "", pt.totalAmount || 0, pt.totalPeopleCount || 0, pt.splitAmountPerPerson || 0, pt.note || ""]);
+    }
+    if (rows3.length > 1) {
+      sheet3.getRange(1, 1, rows3.length, rows3[0].length).setValues(rows3);
+    } else {
+      sheet3.getRange(1, 1, 1, rows3[0].length).setValues(rows3);
+    }
+    formatHeader(sheet3, "#9333ea");
+
+    // 4. Tab 4: Nhật Ký Thao Tác (Logs - Chỉ ghi thêm)
+    var sheet4 = getOrCreateSheet(ss, "Nhật Ký Thao Tác (Logs)");
+    var logs = data.auditLogs || [];
+    if (sheet4.getLastRow() === 0) {
+      sheet4.appendRow(["STT", "Thời Gian", "Người Làm", "Thao Tác", "Tiêu Đề", "Người Nợ", "Số Tiền", "Chi Tiết", "Mã ID"]);
+      formatHeader(sheet4, "#d97706");
+    }
+    var existingIds = {};
+    var lastRow = sheet4.getLastRow();
+    if (lastRow > 1) {
+      var idValues = sheet4.getRange(2, 9, lastRow - 1, 1).getValues();
+      for (var r = 0; r < idValues.length; r++) { existingIds[String(idValues[r][0]).trim()] = true; }
+    }
+    for (var l = 0; l < logs.length; l++) {
+      var log = logs[l];
+      if (log.id && !existingIds[log.id]) {
+        sheet4.appendRow([sheet4.getLastRow(), new Date(log.timestamp).toLocaleString("vi-VN"), log.actor || "Chủ Sổ", log.action || "", log.title || "", log.debtorName || "-", log.amount || 0, log.description || "", log.id]);
+      }
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Đã cập nhật 4 tab thành công!" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function getOrCreateSheet(ss, name) {
+  var s = ss.getSheetByName(name);
+  if (!s) { s = ss.insertSheet(name); }
+  return s;
+}
+
+function formatHeader(sheet, bgColor) {
+  var range = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+  range.setBackground(bgColor);
+  range.setFontColor("#ffffff");
+  range.setFontWeight("bold");
+  range.setHorizontalAlignment("center");
+  sheet.setFrozenRows(1);
+}
+`;
+
+/**
+ * Sync entire database to Google Sheets via Apps Script Web App (No OAuth / No Client ID required)
+ */
+export async function syncViaAppsScript(
+  payload: SyncDataPayload,
+  appsScriptUrl: string
+): Promise<SyncResult> {
+  const url = appsScriptUrl.trim();
+  if (!url || !url.startsWith('https://script.google.com/')) {
+    throw new Error('Đường link Google Apps Script không hợp lệ. Đường link phải bắt đầu bằng https://script.google.com/macros/s/...');
+  }
+
+  const cleanPayload = {
+    action: 'SYNC_ALL',
+    ownerName: payload.settings.ownerName || 'Chủ Sổ',
+    timestamp: new Date().toISOString(),
+    debtors: payload.debtors,
+    transactions: payload.transactions,
+    parties: payload.parties,
+    auditLogs: payload.auditLogs || loadAuditLogs(),
+  };
+
+  await fetch(url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8',
+    },
+    body: JSON.stringify(cleanPayload),
+  });
+
+  const now = new Date().toISOString();
+  try {
+    recordAuditLog({
+      action: 'SYNC_SHEETS',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Đồng bộ Google Sheets (Apps Script)',
+      description: `Đã đồng bộ ${payload.debtors.length} người nợ, ${payload.transactions.length} giao dịch sang Google Sheet qua Apps Script Web App.`,
+      beforeState: 'Bắt đầu gửi dữ liệu sang Google Sheet',
+      afterState: 'Đã hoàn tất đồng bộ qua Apps Script Web App',
+      changes: [{ fieldLabel: 'Phương thức', before: 'Trực tiếp', after: 'Google Apps Script Web App' }],
+    });
+  } catch {
+    // ignore
+  }
+
+  return {
+    success: true,
+    spreadsheetId: 'apps_script',
+    spreadsheetUrl: payload.settings.googleSheetUrl || 'https://docs.google.com/spreadsheets',
+    title: `[AENO] Sổ Nợ & Đối Soát - ${payload.settings.ownerName || 'Chủ Sổ'}`,
+    updatedAt: now,
+    summary: {
+      debtorsCount: payload.debtors.length,
+      transactionsCount: payload.transactions.length,
+      partiesCount: payload.parties.length,
+      auditLogsCount: (payload.auditLogs || loadAuditLogs()).length,
+      totalActiveDebt: 0,
+    },
+  };
+}
+
 /**
  * Triggers a debounced background sync to Google Sheets (2-second debounce).
  * Silently synchronizes without disrupting user workflow or throwing popups.
@@ -1233,10 +1485,11 @@ export function triggerDebouncedAutoSync(
     return;
   }
 
-  // Check if we have an active access token
+  // Check if we have an active access token OR an Apps Script webhook URL
   const token = getGoogleAccessToken();
-  if (!token) {
-    // Silently skip if user has not authorized Google yet
+  const appsScriptUrl = payload.settings?.googleAppsScriptUrl?.trim();
+  if (!token && !appsScriptUrl) {
+    // Silently skip if user has not authorized Google yet and has not set Apps Script URL
     return;
   }
 
@@ -1247,7 +1500,6 @@ export function triggerDebouncedAutoSync(
   autoSyncTimer = setTimeout(async () => {
     autoSyncTimer = null;
     if (isAutoSyncingActive) {
-      // If already syncing, reschedule for next cycle
       triggerDebouncedAutoSync(payload, onSyncComplete);
       return;
     }
@@ -1262,7 +1514,12 @@ export function triggerDebouncedAutoSync(
       }
 
       console.log('🔄 Đang tự động đồng bộ ngầm dữ liệu lên Google Sheets...');
-      const result = await syncDatabaseToGoogleSheets(payload);
+      let result: SyncResult;
+      if (appsScriptUrl && !token) {
+        result = await syncViaAppsScript(payload, appsScriptUrl);
+      } else {
+        result = await syncDatabaseToGoogleSheets(payload);
+      }
 
       autoSyncState.lastAutoSyncAt = result.updatedAt;
       autoSyncState.isAutoSyncing = false;
