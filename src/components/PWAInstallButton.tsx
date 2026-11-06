@@ -283,7 +283,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowGuideModal(false)}
-                      className="w-full py-2.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center"
+                      className="w-full py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 hover:text-slate-900 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center border border-slate-200"
                     >
                       Đã hiểu
                     </button>

@@ -556,7 +556,7 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
                         }}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer ${
                           typeFilter === 'ALL'
-                            ? 'bg-slate-900 text-white shadow-2xs'
+                            ? 'bg-emerald-600 text-white shadow-2xs'
                             : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                         }`}
                       >

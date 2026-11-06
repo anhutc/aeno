@@ -1272,7 +1272,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               <button
                 type="button"
                 onClick={handleExportCsv}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold shrink-0 flex items-center gap-1 cursor-pointer shadow-xs"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 flex items-center gap-1 cursor-pointer shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Tải tệp Sheets</span>

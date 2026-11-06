@@ -830,7 +830,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                     type="button"
                     onClick={handleCreateBackup}
                     disabled={isCreatingBackup}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
                   >
                     {isCreatingBackup ? 'Đang tạo...' : '+ Tạo Snapshot Ngay'}
                   </button>

@@ -260,7 +260,7 @@ export const AdminAutoLockModal: React.FC<AdminAutoLockModalProps> = ({
             <button
               type="submit"
               disabled={isLoading || !passcode.trim()}
-              className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 active:bg-black text-white font-bold text-sm rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-sm rounded-2xl transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
             >
               {isLoading ? (
                 <>
