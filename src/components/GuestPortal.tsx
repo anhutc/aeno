@@ -463,54 +463,54 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
             {/* Grid for Bank Info and VietQR */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Thẻ Ngân Hàng Ảo Cao Cấp (Virtual Bank Card) */}
-              <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-tr from-slate-900 via-slate-800 to-emerald-950 text-white shadow-md relative overflow-hidden flex flex-col justify-between space-y-4 border border-slate-700/80">
-                <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-emerald-500/15 rounded-full blur-2xl pointer-events-none" />
+              {/* Thẻ Ngân Hàng Ảo Cao Cấp - Giao diện sáng (Light Theme Bank Card) */}
+              <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white text-slate-900 shadow-sm relative overflow-hidden flex flex-col justify-between space-y-4 border-2 border-emerald-200/90">
+                <div className="absolute -right-8 -bottom-8 w-36 h-36 bg-emerald-400/15 rounded-full blur-2xl pointer-events-none" />
 
                 {/* Card Top: Chip & Bank Name */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-6 rounded-md bg-gradient-to-br from-amber-300 to-amber-500 border border-amber-200/50 flex items-center justify-center shadow-xs">
-                      <div className="w-4 h-3 border border-amber-700/40 rounded-xs" />
+                    <div className="w-8 h-6 rounded-md bg-gradient-to-br from-amber-300 to-amber-500 border border-amber-400/80 flex items-center justify-center shadow-xs">
+                      <div className="w-4 h-3 border border-amber-700/50 rounded-xs" />
                     </div>
-                    <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-300">
+                    <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-800">
                       {activeSettings.bankName}
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200/70">
                     VietQR 24/7
                   </span>
                 </div>
 
                 {/* Card Number & Copy */}
                 <div>
-                  <span className="text-[11px] text-slate-400 block font-medium">Số Tài Khoản:</span>
+                  <span className="text-[11px] text-slate-500 block font-bold">Số Tài Khoản:</span>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <span className="text-xl sm:text-2xl font-black font-mono tracking-wider text-white">
+                    <span className="text-xl sm:text-2xl font-black font-mono tracking-wider text-slate-900 select-all">
                       {activeSettings.accountNumber}
                     </span>
                     <button
                       type="button"
                       onClick={copyAccountNumber}
-                      className="px-2.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 text-white font-bold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-xs shrink-0"
+                      className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs shrink-0"
                     >
-                      {copiedAcc ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedAcc ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-emerald-700" />}
                       <span>{copiedAcc ? 'Đã sao chép' : 'Sao chép STK'}</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Card Footer: Account Holder & Amount */}
-                <div className="pt-3 border-t border-white/10 flex items-end justify-between gap-2 text-xs">
+                <div className="pt-3 border-t border-emerald-100/90 flex items-end justify-between gap-2 text-xs">
                   <div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Chủ Tài Khoản</span>
-                    <span className="font-extrabold text-xs sm:text-sm uppercase text-slate-100 tracking-wide">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">Chủ Tài Khoản</span>
+                    <span className="font-extrabold text-xs sm:text-sm uppercase text-slate-900 tracking-wide">
                       {activeSettings.accountName}
                     </span>
                   </div>
                   <div className="text-right">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Cần Chuyển</span>
-                    <span className="font-extrabold text-sm sm:text-base font-mono text-emerald-400">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">Cần Chuyển</span>
+                    <span className="font-extrabold text-sm sm:text-base font-mono text-rose-600">
                       {formatVND(currentBalance)}
                     </span>
                   </div>
@@ -518,13 +518,13 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
                 {/* Phone contact if available */}
                 {contactPhone && (
-                  <div className="text-[11px] text-slate-400 pt-1 flex items-center justify-between">
-                    <span>SĐT liên hệ:</span>
+                  <div className="text-[11px] text-slate-600 pt-1.5 flex items-center justify-between border-t border-emerald-100/60">
+                    <span className="font-medium">SĐT liên hệ:</span>
                     <a
                       href={`tel:${contactPhone}`}
-                      className="text-emerald-400 font-bold font-mono hover:underline inline-flex items-center gap-1"
+                      className="text-emerald-700 font-bold font-mono hover:underline inline-flex items-center gap-1"
                     >
-                      <Phone className="w-3 h-3" />
+                      <Phone className="w-3 h-3 text-emerald-600" />
                       <span>{contactPhone}</span>
                     </a>
                   </div>
@@ -564,9 +564,9 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                       <button
                         type="button"
                         onClick={handleDownloadQr}
-                        className="w-full mt-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+                        className="w-full mt-2 py-2 px-3 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-slate-800 hover:text-emerald-900 border border-slate-300 hover:border-emerald-300 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs active:scale-98"
                       >
-                        <Download className="w-3.5 h-3.5 text-emerald-400" />
+                        <Download className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{downloadedQr ? 'Đã tải ảnh về máy!' : 'Lưu ảnh QR để quét trong App'}</span>
                       </button>
 
@@ -908,7 +908,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       <AnimatePresence>
         {showQrModal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/35 backdrop-blur-xs"
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/25 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setShowQrModal(false);
             }}
@@ -996,7 +996,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowQrModal(false)}
-                className="w-full py-2.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center"
+                className="w-full py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 hover:text-slate-900 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center border border-slate-200"
               >
                 Đóng
               </button>
@@ -1009,7 +1009,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       <AnimatePresence>
         {showContactModal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/35 backdrop-blur-xs"
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/25 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setShowContactModal(false);
             }}
@@ -1110,7 +1110,7 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowContactModal(false)}
-                className="w-full py-2.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center"
+                className="w-full py-2.5 sm:py-3 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 hover:text-slate-900 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer text-center border border-slate-200"
               >
                 Đóng
               </button>
