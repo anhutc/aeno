@@ -94,7 +94,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
   const [copiedAmount, setCopiedAmount] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [downloadedQr, setDownloadedQr] = useState(false);
-  const [reportedPaid, setReportedPaid] = useState(false);
 
   // Sync if prop changes
   useEffect(() => {
@@ -568,23 +567,6 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
                       >
                         <Download className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{downloadedQr ? 'Đã tải ảnh về máy!' : 'Lưu ảnh QR để quét trong App'}</span>
-                      </button>
-
-                      {/* Action 2: Tôi đã chuyển khoản xong */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          triggerHaptic('success');
-                          setReportedPaid(true);
-                        }}
-                        className={`w-full mt-1.5 py-2 px-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
-                          reportedPaid
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                            : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-xs'
-                        }`}
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>{reportedPaid ? 'Đã báo chuyển khoản cho Chủ Sổ!' : 'Tôi đã chuyển khoản xong ✓'}</span>
                       </button>
                     </div>
                   </div>
