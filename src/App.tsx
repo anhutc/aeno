@@ -152,8 +152,11 @@ export default function App() {
       customSettings?: AppSettings
     ) => {
       const activeSettings = customSettings || settingsRef.current;
-      // Auto-Sync is active by default once Google account is authorized, unless explicitly disabled (=== false)
-      if (activeSettings?.autoSyncGoogleSheets !== false && getGoogleAccessToken()) {
+      // Tự động đồng bộ sang Google Sheets qua Google Apps Script hoặc token Google
+      if (
+        activeSettings?.autoSyncGoogleSheets !== false &&
+        (activeSettings?.googleAppsScriptUrl || getGoogleAccessToken())
+      ) {
         triggerDebouncedAutoSync({
           debtors: currentDebtors || debtorsRef.current,
           transactions: currentTxs || transactionsRef.current,

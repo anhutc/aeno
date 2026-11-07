@@ -36,6 +36,7 @@ import {
   signInWithGoogle,
   signOutGoogle,
   syncDatabaseToGoogleSheets,
+  syncViaAppsScript,
   exportGoogleSheetsCsvFile,
   getGoogleAccessToken,
   getCurrentGoogleUser,
@@ -186,13 +187,27 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     triggerHaptic('medium');
     setIsSyncingSheets(true);
     try {
-      const result = await syncDatabaseToGoogleSheets({
-        debtors,
-        transactions,
-        parties,
-        settings,
-        auditLogs,
-      });
+      let result;
+      if (settings.googleAppsScriptUrl) {
+        result = await syncViaAppsScript(
+          {
+            debtors,
+            transactions,
+            parties,
+            settings,
+            auditLogs,
+          },
+          settings.googleAppsScriptUrl
+        );
+      } else {
+        result = await syncDatabaseToGoogleSheets({
+          debtors,
+          transactions,
+          parties,
+          settings,
+          auditLogs,
+        });
+      }
 
       const updatedSettings: AppSettings = {
         ...settings,

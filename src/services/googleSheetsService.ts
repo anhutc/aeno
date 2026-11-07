@@ -20,8 +20,8 @@ import {
 } from 'firebase/auth';
 import { app } from '../firebase';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
+import { loadAuditLogs, recordAuditLog, loadSettings, saveSettings } from '../utils/storage';
 import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
-import { loadAuditLogs, recordAuditLog } from '../utils/storage';
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -1294,7 +1294,7 @@ const autoSyncState = {
 export const getAutoSyncStatus = () => ({ ...autoSyncState });
 
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `// === GOOGLE APPS SCRIPT ĐỒNG BỘ SỔ GHI NỢ (AENO) ===
-// Hướng dẫn:
+// Hướng dẫn triển khai (Chỉ mất 1 phút):
 // 1. Mở trang Google Sheet của bạn > Tiện ích mở rộng (Extensions) > Apps Script
 // 2. Xóa hết code cũ trong file Code.gs, dán toàn bộ đoạn mã này vào > Bấm Lưu (Ctrl+S)
 // 3. Bấm "Triển khai" (Deploy) > "Triển khai mới" (New deployment)
@@ -1305,13 +1305,21 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `// === GOOGLE APPS SCRIPT ĐỒNG B�
 // 5. Bấm "Triển khai" > Cấp quyền truy cập tài khoản > Sao chép "URL ứng dụng web"
 // 6. Dán URL đó vào ứng dụng Sổ Nợ AENO!
 
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "ok",
+    message: "Google Apps Script Web App AENO đang hoạt động sẵn sàng nhận dữ liệu đồng bộ!",
+    timestamp: new Date().toISOString()
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   try {
     var raw = e.postData.contents;
     var data = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // 1. Tab 1: Tổng Hợp Công Nợ
+    // 1. Tab 1: Tổng Hợp Công Nợ (Cập nhật số dư hiện tại)
     var sheet1 = getOrCreateSheet(ss, "Tổng Hợp Công Nợ");
     sheet1.clear();
     var rows1 = [["STT", "Họ Và Tên Người Nợ", "Số Dư Nợ Hiện Tại (VNĐ)", "Trạng Thái", "Tổng Nợ Thêm (+)", "Tổng Đã Trả (-)", "Số Giao Dịch", "Mã PIN Tra Cứu", "Ghi Chú"]];
@@ -1329,7 +1337,7 @@ function doPost(e) {
     sheet1.getRange(1, 1, rows1.length, rows1[0].length).setValues(rows1);
     formatHeader(sheet1, "#047857");
 
-    // 2. Tab 2: Lịch Sử Giao Dịch
+    // 2. Tab 2: Lịch Sử Giao Dịch (Danh sách giao dịch đang hoạt động)
     var sheet2 = getOrCreateSheet(ss, "Lịch Sử Giao Dịch");
     sheet2.clear();
     var rows2 = [["STT", "Ngày Giao Dịch", "Người Nợ", "Loại", "Số Tiền (VNĐ)", "Nội Dung", "Phân Loại", "Cuộc Vui"]];
@@ -1362,28 +1370,48 @@ function doPost(e) {
     }
     formatHeader(sheet3, "#9333ea");
 
-    // 4. Tab 4: Nhật Ký Thao Tác (Logs - Chỉ ghi thêm)
+    // 4. Tab 4: Nhật Ký Thao Tác (Logs - LƯU VĨNH VIỄN, CHỈ GHI THÊM, KỂ CẢ XÓA TRÊN APP)
     var sheet4 = getOrCreateSheet(ss, "Nhật Ký Thao Tác (Logs)");
     var logs = data.auditLogs || [];
     if (sheet4.getLastRow() === 0) {
-      sheet4.appendRow(["STT", "Thời Gian", "Người Làm", "Thao Tác", "Tiêu Đề", "Người Nợ", "Số Tiền", "Chi Tiết", "Mã ID"]);
+      sheet4.appendRow(["STT", "Thời Gian Ghi Nhận", "Người Thực Hiện", "Loại Thao Tác", "Tiêu Đề Nhật Ký", "Người Nợ Liên Quan", "Số Tiền (VNĐ)", "Chi Tiết Biến Động", "Mã Log ID"]);
       formatHeader(sheet4, "#d97706");
     }
     var existingIds = {};
     var lastRow = sheet4.getLastRow();
     if (lastRow > 1) {
       var idValues = sheet4.getRange(2, 9, lastRow - 1, 1).getValues();
-      for (var r = 0; r < idValues.length; r++) { existingIds[String(idValues[r][0]).trim()] = true; }
+      for (var r = 0; r < idValues.length; r++) { 
+        var val = String(idValues[r][0]).trim();
+        if (val) existingIds[val] = true;
+      }
     }
     for (var l = 0; l < logs.length; l++) {
       var log = logs[l];
       if (log.id && !existingIds[log.id]) {
-        sheet4.appendRow([sheet4.getLastRow(), new Date(log.timestamp).toLocaleString("vi-VN"), log.actor || "Chủ Sổ", log.action || "", log.title || "", log.debtorName || "-", log.amount || 0, log.description || "", log.id]);
+        var actionLabel = log.action || "";
+        if (actionLabel.indexOf("DELETE") !== -1 || actionLabel.indexOf("CLEAR") !== -1) {
+          actionLabel = "🗑️ " + actionLabel + " (Đã xóa trên app)";
+        }
+        sheet4.appendRow([
+          sheet4.getLastRow(), 
+          log.timestamp ? new Date(log.timestamp).toLocaleString("vi-VN") : new Date().toLocaleString("vi-VN"), 
+          log.actor || "Chủ Sổ", 
+          actionLabel, 
+          log.title || "", 
+          log.debtorName || "-", 
+          Number(log.amount) || 0, 
+          log.description || "", 
+          log.id
+        ]);
+        existingIds[log.id] = true;
       }
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Đã cập nhật 4 tab thành công!" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: true, 
+      message: "Đã cập nhật 4 tab thành công! Nhật ký logs đã được bảo toàn vĩnh viễn trên Google Sheets." 
+    })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -1397,7 +1425,9 @@ function getOrCreateSheet(ss, name) {
 }
 
 function formatHeader(sheet, bgColor) {
-  var range = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return;
+  var range = sheet.getRange(1, 1, 1, lastCol);
   range.setBackground(bgColor);
   range.setFontColor("#ffffff");
   range.setFontWeight("bold");
@@ -1515,8 +1545,16 @@ export function triggerDebouncedAutoSync(
 
       console.log('🔄 Đang tự động đồng bộ ngầm dữ liệu lên Google Sheets...');
       let result: SyncResult;
-      if (appsScriptUrl && !token) {
+      if (appsScriptUrl) {
         result = await syncViaAppsScript(payload, appsScriptUrl);
+        try {
+          const currentSaved = loadSettings();
+          if (currentSaved) {
+            saveSettings({ ...currentSaved, lastGoogleSheetSyncAt: result.updatedAt });
+          }
+        } catch {
+          // ignore
+        }
       } else {
         result = await syncDatabaseToGoogleSheets(payload);
       }
@@ -1533,7 +1571,7 @@ export function triggerDebouncedAutoSync(
           new CustomEvent('googlesheets-autosynced', { detail: result })
         );
       }
-      console.log('✅ Đã tự động đồng bộ Google Sheets thành công:', result.updatedAt);
+      console.log('✅ Đã tự động đồng bộ Google Sheets tức thì thành công:', result.updatedAt);
     } catch (err: any) {
       console.warn('Lưu ý đồng bộ Google Sheets ngầm (non-fatal):', err?.message);
       autoSyncState.isAutoSyncing = false;
@@ -1548,6 +1586,6 @@ export function triggerDebouncedAutoSync(
       isAutoSyncingActive = false;
       autoSyncState.isAutoSyncing = false;
     }
-  }, 2000);
+  }, 300);
 }
 

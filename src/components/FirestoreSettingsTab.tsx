@@ -12,6 +12,7 @@ import {
   Trash2,
   Download,
   Archive,
+  Upload,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import {
@@ -38,6 +39,8 @@ export interface FirestoreSettingsTabProps {
   showToast: (msg: string, type?: 'success' | 'error') => void;
   onSwitchToSecurityTab?: () => void;
   onSaveSettings?: (newSettings: AppSettings) => void;
+  onImportJsonFile?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onOpenClearAllModal?: () => void;
 }
 
 export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
@@ -49,6 +52,8 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   showToast,
   onSwitchToSecurityTab,
   onSaveSettings,
+  onImportJsonFile,
+  onOpenClearAllModal,
 }) => {
   // Live Status State
   const [status, setStatus] = useState<FirestoreStatusInfo | null>(null);
@@ -344,16 +349,16 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   return (
     <div className="space-y-5">
       {/* =========================================================================
-          TOP HEADER: 2. ĐỒNG BỘ ĐÁM MÂY & QUẢN LÝ DỮ LIỆU
+          TOP HEADER: ĐỒNG BỘ GOOGLE SHEETS & QUẢN TRỊ DỮ LIỆU
          ========================================================================= */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 flex items-center gap-2">
-            <Cloud className="w-4 h-4 text-blue-600" />
-            <span>2. Đồng Bộ Đám Mây &amp; Quản Lý Dữ Liệu</span>
+            <Cloud className="w-4 h-4 text-emerald-600" />
+            <span>Đồng Bộ Google Sheets &amp; Quản Trị Dữ Liệu</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Dữ liệu lưu trữ tập trung trên máy chủ Cloud Firestore – cập nhật tức thì trên mọi máy tính và điện thoại.
+            Đồng bộ tự động tức thì lên Google Sheets (lưu log vĩnh viễn) và đám mây máy chủ Cloud Firestore.
           </p>
         </div>
 
@@ -533,28 +538,74 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           </div>
         </div>
 
-      {/* Card 2: Dọn Dẹp Dữ Liệu Rác & Sao Lưu Cloud */}
-      <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4 space-y-3.5">
+      {/* Card 2: Quản Trị Dữ Liệu & Sao Lưu Sổ Nợ Toàn Diện */}
+      <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Dọn Dẹp Dữ Liệu Rác &amp; Sao Lưu Chuẩn Cloud</span>
+            <span>Quản Trị Dữ Liệu &amp; Sao Lưu Sổ Nợ</span>
           </div>
           <span className="text-[11px] text-slate-500 font-medium">
             Hiện có: <strong className="text-slate-800">{debtors.length}</strong> người nợ • <strong className="text-slate-800">{transactions.length}</strong> giao dịch • <strong className="text-slate-800">{parties?.length || 0}</strong> cuộc vui
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* Action 1: Quét dọn mồ côi */}
-          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-amber-300 transition-all">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Action 1: Xuất Backup JSON */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-300 transition-all shadow-2xs">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900">Xuất File Sao Lưu (.JSON)</span>
+                <Download className="w-4 h-4 text-emerald-600" />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Tải tệp JSON lưu trữ an toàn (tự động loại trừ mật khẩu quản trị).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportJson}
+              className="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Tải File JSON</span>
+            </button>
+          </div>
+
+          {/* Action 2: Khôi Phục Từ File JSON */}
+          {onImportJsonFile && (
+            <label className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-blue-300 transition-all shadow-2xs cursor-pointer group">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900 group-hover:text-blue-700">Khôi Phục Từ File JSON</span>
+                  <Upload className="w-4 h-4 text-blue-600" />
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Nạp tệp JSON đã sao lưu trước đây để phục hồi lại dữ liệu.
+                </p>
+              </div>
+              <div className="mt-3 w-full bg-blue-600 group-hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors">
+                <Upload className="w-3.5 h-3.5" />
+                <span>Nạp Tệp Phục Hồi</span>
+              </div>
+              <input
+                type="file"
+                accept=".json"
+                onChange={onImportJsonFile}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          {/* Action 3: Quét dọn mồ côi */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-amber-300 transition-all shadow-2xs">
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-900">Quét &amp; Dọn Dữ Liệu Rác</span>
                 <Trash2 className="w-4 h-4 text-amber-500" />
               </div>
               <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Tự động tìm kiếm các giao dịch mồ côi hoặc không hợp lệ để dọn dẹp sạch sẽ khỏi Cloud Firestore.
+                Tự động tìm kiếm các giao dịch mồ côi hoặc sai lệch để làm sạch Cloud.
               </p>
             </div>
             <button
@@ -564,59 +615,32 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
               className="mt-3 w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
             >
               <ShieldCheck className={`w-3.5 h-3.5 ${isCleaningOrphans ? 'animate-spin' : ''}`} />
-              <span>{isCleaningOrphans ? 'Đang Quét Dữ Liệu...' : 'Quét Dọn Rác Ngay'}</span>
+              <span>{isCleaningOrphans ? 'Đang Quét...' : 'Quét Dọn Rác'}</span>
             </button>
           </div>
 
-          {/* Action 2: Xuất Backup JSON */}
-          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-300 transition-all">
-            <div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-slate-900">Xuất File JSON Sao Lưu</span>
-                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-300">
-                    Bảo mật
-                  </span>
+          {/* Action 4: Xóa sạch tất cả dữ liệu */}
+          {onOpenClearAllModal && (
+            <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-rose-300 transition-all shadow-2xs">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">Xóa Sạch Tất Cả Ghi Chép</span>
+                  <Trash2 className="w-4 h-4 text-rose-600" />
                 </div>
-                <Download className="w-4 h-4 text-emerald-600" />
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Xóa toàn bộ người nợ và lịch sử giao dịch để làm mới sổ về trạng thái trống.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Tải tệp JSON chuẩn Cloud lưu người nợ, giao dịch, chia tiền (tự động bảo mật, không xuất mật khẩu quản lý).
-              </p>
+              <button
+                type="button"
+                onClick={onOpenClearAllModal}
+                className="mt-3 w-full bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Làm Mới Sổ Trống</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleExportJson}
-              className="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Tải File Sao Lưu (.JSON)</span>
-            </button>
-          </div>
-
-          {/* Action 3: Bản Snapshot Máy Chủ */}
-          <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-col justify-between hover:border-purple-300 transition-all">
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-900">Bản Snapshot Máy Chủ</span>
-                <Archive className="w-4 h-4 text-purple-600" />
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Đang lưu trữ {backups.length} điểm khôi phục snapshot an toàn trên hệ thống máy chủ.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSourceModalTab('SNAPSHOTS');
-                setIsCloudSourceModalOpen(true);
-              }}
-              className="mt-3 w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Archive className="w-3.5 h-3.5" />
-              <span>Quản Lý Snapshot ({backups.length})</span>
-            </button>
-          </div>
+          )}
         </div>
       </div>
 

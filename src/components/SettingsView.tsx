@@ -635,7 +635,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Ngân Hàng</span>
+          <span>Ngân Hàng &amp; QR</span>
         </button>
 
         <button
@@ -648,7 +648,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           }`}
         >
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Bảo Mật &amp; Dữ Liệu</span>
+          <span>Bảo Mật &amp; Khóa Sổ</span>
         </button>
 
         <button
@@ -661,7 +661,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           }`}
         >
           <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Mẫu Tin &amp; Lời Nhắn</span>
+          <span>Thương Hiệu &amp; Mẫu Tin</span>
         </button>
 
         <button
@@ -674,7 +674,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           }`}
         >
           <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Đám Mây Firestore</span>
+          <span>Đồng Bộ &amp; Dữ Liệu</span>
         </button>
       </div>
 
@@ -688,10 +688,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="border-b border-slate-100 pb-4">
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <CreditCard className="w-5 h-5 text-emerald-600" />
-                <span>Thông Tin Tài Khoản Nhận Tiền &amp; Mã VietQR</span>
+                <span>Cấu Hình Nhận Tiền &amp; Mã VietQR</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Thông tin này sẽ được hiển thị khi người nợ quét mã QR để chuyển khoản hoặc xem số tài khoản nhận tiền.
+                Thông tin tài khoản thụ hưởng, cấu hình mã QR chuyển khoản và thông tin người đại diện.
               </p>
             </div>
 
@@ -774,7 +774,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Kiểu Khung Hiển Thị VietQR:
@@ -789,7 +789,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <option value="qr_only">Chỉ Mã QR (Không khung)</option>
                     </select>
                     <p className="text-[11px] text-slate-400 mt-1.5">
-                      Định dạng mã QR chuyển khoản liên ngân hàng NAPAS 247 chuẩn quốc gia.
+                      Định dạng chuẩn chuyển khoản NAPAS 247 quốc gia.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Chế Độ Nạp Tiền Mã QR:
+                    </label>
+                    <select
+                      value={formData.defaultQrMode || 'MANUAL_AMOUNT'}
+                      onChange={(e) => setFormData({ ...formData, defaultQrMode: e.target.value as any })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-2xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 cursor-pointer"
+                    >
+                      <option value="MANUAL_AMOUNT">Nhập tay số tiền khi quét (Linh hoạt)</option>
+                      <option value="EXACT_DEBT">Điền sẵn số tiền nợ chính xác</option>
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1.5">
+                      Tự động điền số dư nợ hoặc để người nợ tự gõ số tiền.
                     </p>
                   </div>
                 </div>
@@ -853,95 +870,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
 
         {/* ==================================================================== */}
-        {/* TAB 2: BẢO MẬT & HỆ THỐNG / DỮ LIỆU                                  */}
+        {/* TAB 2: BẢO MẬT & KHÓA SỔ                                             */}
         {/* ==================================================================== */}
         {activeTab === 'SECURITY' && (
           <div className="space-y-6 animate-in fade-in">
             <div className="border-b border-slate-100 pb-4">
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                <span>Bảo Mật Tài Khoản &amp; Quản Trị Dữ Liệu</span>
+                <span>Bảo Mật Quyền Quản Trị &amp; Khóa Sổ</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Mật khẩu quản lý, thông tin thương hiệu và các thao tác sao lưu, khôi phục dữ liệu.
+                Mật khẩu quản lý chủ sổ, xác thực sinh trắc học và thiết lập tự động khóa bảo vệ dữ liệu.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Branding / Titles section */}
-              <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
-                <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
-                  <Sparkles className="w-4 h-4 text-emerald-600" />
-                  <span>Tiêu Đề &amp; Thương Hiệu Ứng Dụng</span>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Tên Ứng Dụng:
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.appTitle}
-                      onChange={(e) => setFormData({ ...formData, appTitle: e.target.value })}
-                      placeholder={DEFAULT_APP_TITLE}
-                      className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                    />
-                    <p className="text-[11px] text-emerald-700 font-medium mt-1 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>Tên này được tự động dùng làm tên ứng dụng khi cài đặt (PWA) lên màn hình chính điện thoại.</span>
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Khẩu Hiệu / Mô Tả Phụ:
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.appSubtitle}
-                      onChange={(e) => setFormData({ ...formData, appSubtitle: e.target.value })}
-                      placeholder={DEFAULT_APP_SUBTITLE}
-                      className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                    />
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Hiển thị ngay dưới tên ứng dụng tại màn hình đăng nhập / tra cứu và thanh điều hướng đầu trang.
-                    </p>
-                  </div>
-                </div>
+            {/* Mật Khẩu Đăng Nhập Quản Lý */}
+            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
+                <Lock className="w-4 h-4 text-emerald-600" />
+                <span>Mật Khẩu Đăng Nhập Quản Lý</span>
               </div>
-              {/* Security section */}
-              <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
-                <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
-                  <Lock className="w-4 h-4 text-emerald-600" />
-                  <span>Mật Khẩu Đăng Nhập Quản Lý</span>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Mật khẩu quản lý:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={formData.ownerPassword}
-                      onChange={(e) => setFormData({ ...formData, ownerPassword: e.target.value })}
-                      placeholder="Nhập mật khẩu quản lý..."
-                      className="w-full px-3.5 py-2.5 pr-10 bg-white border border-slate-300 rounded-2xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
-                      title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-                    Dùng để đăng nhập vào trang quản lý số dư, thêm bớt người nợ và sửa giao dịch.
-                  </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Mật khẩu quản trị chủ sổ:
+                </label>
+                <div className="relative max-w-md">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.ownerPassword}
+                    onChange={(e) => setFormData({ ...formData, ownerPassword: e.target.value })}
+                    placeholder="Nhập mật khẩu quản lý..."
+                    className="w-full px-3.5 py-2.5 pr-10 bg-white border border-slate-300 rounded-2xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                    title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  Mật khẩu này dùng để đăng nhập vào trang quản lý số dư, thêm bớt người nợ, chỉnh sửa giao dịch và cài đặt hệ thống.
+                </p>
               </div>
             </div>
 
@@ -1048,112 +1021,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 ))}
               </div>
             </div>
-
-
-            {/* PWA App Installation Section */}
-            <PWAInstallButton variant="settings" />
-
-            {/* Data management actions */}
-            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                  Thao Tác Dữ Liệu
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  Hiện có: <strong>{debtors.length}</strong> người, <strong>{transactions.length}</strong> giao dịch
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <button
-                  type="button"
-                  onClick={handleExportData}
-                  className="p-3.5 bg-white hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 flex items-center gap-1.5">
-                      <span>Xuất File Sao Lưu</span>
-                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-300">
-                        Bảo mật
-                      </span>
-                    </span>
-                    <Download className="w-4 h-4 text-emerald-600" />
-                  </div>
-                  <span className="text-[11px] text-slate-500 leading-tight">
-                    Tải tệp JSON lưu trữ an toàn (tự động loại trừ mật khẩu quản lý, mật khẩu luôn lưu trên Cloud).
-                  </span>
-                </button>
-
-                <label className="p-3.5 bg-white hover:bg-blue-50 hover:border-blue-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-blue-700">
-                      Khôi Phục Từ File JSON
-                    </span>
-                    <Upload className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <span className="text-[11px] text-slate-500 leading-tight">
-                    Nạp dữ liệu từ tệp JSON sao lưu trước đây để phục hồi dữ liệu.
-                  </span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportJsonFile}
-                    className="hidden"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => setIsConfirmClearOpen(true)}
-                  className="p-3.5 bg-white hover:bg-rose-50 hover:border-rose-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-rose-700">
-                      Xóa Sạch Tất Cả Ghi Chép
-                    </span>
-                    <Trash2 className="w-4 h-4 text-rose-600" />
-                  </div>
-                  <span className="text-[11px] text-slate-500 leading-tight">
-                    Xóa toàn bộ người nợ và lịch sử giao dịch để làm mới sổ về trạng thái trống.
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCleanOrphans}
-                  disabled={isCleaningOrphans}
-                  className="p-3.5 bg-white hover:bg-amber-50 hover:border-amber-300 border border-slate-200 rounded-2xl text-left transition-all group flex flex-col justify-between gap-2 cursor-pointer shadow-2xs disabled:opacity-50"
-                  title="Quét và phát hiện các giao dịch không có người nợ hoặc sai lệch để dọn dẹp sạch sẽ"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-amber-800">
-                      {isCleaningOrphans ? 'Đang Quét Dữ Liệu...' : 'Quét & Dọn Dữ Liệu Rác'}
-                    </span>
-                    <ShieldCheck className={`w-4 h-4 text-amber-600 ${isCleaningOrphans ? 'animate-spin' : ''}`} />
-                  </div>
-                  <span className="text-[11px] text-slate-500 leading-tight">
-                    Quét toàn bộ sổ để loại bỏ các giao dịch mồ côi và làm sạch Firestore Cloud.
-                  </span>
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
         {/* ==================================================================== */}
-        {/* TAB 3: MẪU TIN HƯỚNG DẪN TRA CỨU                                    */}
+        {/* TAB 3: THƯƠNG HIỆU & MẪU TIN                                         */}
         {/* ==================================================================== */}
         {activeTab === 'TEXTS' && (
           <div className="space-y-6 animate-in fade-in">
             <div className="border-b border-slate-100 pb-4">
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-emerald-600" />
-                <span>Mẫu Tin Nhắn Hướng Dẫn Tra Cứu</span>
+                <span>Thương Hiệu Ứng Dụng &amp; Mẫu Tin Tra Cứu</span>
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Tùy chỉnh nội dung tin nhắn gửi Zalo/SMS kèm đường dẫn và mật khẩu để người nợ tự kiểm tra sao kê giao dịch.
+                Tên ứng dụng, cài đặt PWA lên màn hình chính và nội dung tin nhắn hướng dẫn gửi người nợ.
               </p>
             </div>
+
+            {/* Branding / Titles section */}
+            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-xs uppercase tracking-wider">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <span>Tiêu Đề &amp; Thương Hiệu Ứng Dụng</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Tên Ứng Dụng:
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.appTitle}
+                    onChange={(e) => setFormData({ ...formData, appTitle: e.target.value })}
+                    placeholder={DEFAULT_APP_TITLE}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                  />
+                  <p className="text-[11px] text-emerald-700 font-medium mt-1.5 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Tự động làm tên ứng dụng khi cài đặt (PWA) lên màn hình chính điện thoại.</span>
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Khẩu Hiệu / Mô Tả Phụ:
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.appSubtitle}
+                    onChange={(e) => setFormData({ ...formData, appSubtitle: e.target.value })}
+                    placeholder={DEFAULT_APP_SUBTITLE}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    Hiển thị ngay dưới tên ứng dụng tại màn hình đăng nhập / tra cứu và thanh đầu trang.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* PWA App Installation Section */}
+            <PWAInstallButton variant="settings" />
 
             {/* Template editor */}
             <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/80 space-y-4">
@@ -1254,7 +1184,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
 
         {/* ==================================================================== */}
-        {/* TAB 4: ĐÁM MÂY FIRESTORE                                             */}
+        {/* TAB 4: ĐỒNG BỘ & DỮ LIỆU                                             */}
         {/* ==================================================================== */}
         {activeTab === 'CLOUD' && (
           <div className="space-y-4 animate-in fade-in">
@@ -1267,6 +1197,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               showToast={showToast}
               onSwitchToSecurityTab={() => setActiveTab('SECURITY')}
               onSaveSettings={onSaveSettings}
+              onImportJsonFile={handleImportJsonFile}
+              onOpenClearAllModal={() => setIsConfirmClearOpen(true)}
             />
           </div>
         )}
