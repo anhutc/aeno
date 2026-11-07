@@ -55,6 +55,11 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   const [isEditingUrl, setIsEditingUrl] = useState<boolean>(
     () => !settings.googleAppsScriptUrl
   );
+  const [sheetUrlInput, setSheetUrlInput] = useState<string>(
+    () => settings.googleSheetUrl || ''
+  );
+  const [isEditingSheetUrl, setIsEditingSheetUrl] = useState<boolean>(false);
+  const [copiedSheetLink, setCopiedSheetLink] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isTestingUrl, setIsTestingUrl] = useState(false);
   const [syncStatusStep, setSyncStatusStep] = useState<string>('');
@@ -72,6 +77,12 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
       setAppsScriptUrlInput(settings.googleAppsScriptUrl || '');
     }
   }, [settings.googleAppsScriptUrl]);
+
+  useEffect(() => {
+    if (settings.googleSheetUrl !== undefined) {
+      setSheetUrlInput(settings.googleSheetUrl || '');
+    }
+  }, [settings.googleSheetUrl]);
 
   // Listen to background auto-sync events
   useEffect(() => {
@@ -190,6 +201,44 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
     } else {
       showToast('Đã xóa liên kết Google Apps Script.', 'success');
     }
+  };
+
+  const handleSaveGoogleSheetUrl = async () => {
+    const raw = sheetUrlInput.trim();
+    if (!raw) {
+      await onSaveSettings({
+        ...settings,
+        googleSheetUrl: undefined,
+        googleSheetId: undefined,
+      });
+      setIsEditingSheetUrl(false);
+      showToast('Đã xóa liên kết Google Sheet.', 'info');
+      return;
+    }
+
+    if (!raw.includes('docs.google.com/spreadsheets')) {
+      showToast('Đường link cần có định dạng docs.google.com/spreadsheets', 'error');
+      return;
+    }
+
+    const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const sheetId = match ? match[1] : undefined;
+
+    await onSaveSettings({
+      ...settings,
+      googleSheetUrl: raw,
+      googleSheetId: sheetId || settings.googleSheetId,
+    });
+    setIsEditingSheetUrl(false);
+    showToast('Đã lưu đường link Google Sheet thành công!', 'success');
+  };
+
+  const handleCopySheetUrl = () => {
+    if (!settings.googleSheetUrl) return;
+    navigator.clipboard.writeText(settings.googleSheetUrl);
+    setCopiedSheetLink(true);
+    showToast('Đã sao chép link Google Sheet vào bộ nhớ tạm!', 'success');
+    setTimeout(() => setCopiedSheetLink(false), 2500);
   };
 
   const handleTestConnection = async () => {
@@ -363,6 +412,19 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
 
         {/* Quick action buttons */}
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          {settings.googleSheetUrl && (
+            <a
+              href={settings.googleSheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Mở trực tiếp bảng tính Google Sheets trong tab mới"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Mở Google Sheet ↗</span>
+            </a>
+          )}
+
           {isConnected && (
             <button
               type="button"
@@ -382,7 +444,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
             title="Tải tệp bảng tính CSV dự phòng mở trên Google Sheets"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span className="hidden xs:inline">Tải CSV dự phòng</span>
+            <span className="hidden xs:inline">Tải CSV</span>
           </button>
         </div>
       </div>
@@ -397,6 +459,142 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
           Tab <strong>&quot;Nhật Ký Thao Tác (Logs)&quot;</strong> trên Google Sheets hoạt động theo cơ chế <strong className="text-emerald-800">Chỉ Ghi Thêm (Append-Only)</strong>. 
           Mọi thao tác tạo mới, sửa đổi, gạch nợ hay thậm chí <strong className="text-rose-700">XÓA GIAO DỊCH</strong>, <strong className="text-rose-700">XÓA NGƯỜI NỢ</strong> hoặc <strong className="text-rose-700">LÀM SẠCH NHẬT KÝ</strong> trên ứng dụng này thì <strong>toàn bộ lịch sử log trên Google Sheets vẫn được lưu trữ vĩnh viễn và không bao giờ bị xóa mất</strong>.
         </p>
+      </div>
+
+      {/* 2b. Bảng Tính Google Sheets Đã Liên Kết (MỞ TRỰC TIẾP TRANG TÍNH) */}
+      <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/40 to-slate-50 border border-emerald-300/80 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <FileSpreadsheet className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs sm:text-sm font-bold text-slate-900 block">
+                Bảng Tính Google Sheets Đã Liên Kết
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                Bấm nút bên dưới để mở trực tiếp file trang tính trên Google Drive trong tab mới.
+              </span>
+            </div>
+          </div>
+
+          {settings.googleSheetUrl && !isEditingSheetUrl && (
+            <div className="flex items-center gap-2">
+              <a
+                href={settings.googleSheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Mở Google Sheet (Tab Mới) ↗</span>
+              </a>
+            </div>
+          )}
+        </div>
+
+        {isEditingSheetUrl ? (
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="url"
+                value={sheetUrlInput}
+                onChange={(e) => setSheetUrlInput(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/1R6Hzbif.../edit"
+                className="flex-1 px-3.5 py-2.5 text-xs font-mono rounded-xl border border-emerald-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-slate-900"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveGoogleSheetUrl}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs transition-all shrink-0"
+                >
+                  Lưu Link Google Sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetUrlInput(settings.googleSheetUrl || '');
+                    setIsEditingSheetUrl(false);
+                  }}
+                  className="px-3 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+            <p className="text-[10.5px] text-slate-500">
+              * Dán link trình duyệt từ thanh địa chỉ của file Google Sheet (dạng <code>https://docs.google.com/spreadsheets/d/.../edit</code>).
+            </p>
+          </div>
+        ) : settings.googleSheetUrl ? (
+          <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <div className="min-w-0">
+                <span className="text-[10.5px] uppercase font-bold text-slate-400 block tracking-wider">
+                  Đường Dẫn Bảng Tính
+                </span>
+                <a
+                  href={settings.googleSheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-xs text-emerald-800 hover:text-emerald-950 underline truncate block max-w-sm sm:max-w-md select-all"
+                  title="Nhấn để mở trang tính trong tab mới"
+                >
+                  {settings.googleSheetUrl}
+                </a>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+              <a
+                href={settings.googleSheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1 shadow-2xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Mở Ngay</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={handleCopySheetUrl}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                title="Sao chép đường link Google Sheet"
+              >
+                {copiedSheetLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedSheetLink ? 'Đã chép' : 'Sao chép'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsEditingSheetUrl(true)}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+              >
+                Đổi link
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white p-3.5 rounded-xl border border-dashed border-emerald-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="text-xs text-slate-600">
+              <span className="font-bold text-slate-800 block">Chưa lưu đường link file Google Sheet</span>
+              <span className="text-[11px] text-slate-500">
+                Thêm link để có nút bấm 1-chạm mở trực tiếp Google Sheet khi cần kiểm tra.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsEditingSheetUrl(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shrink-0 flex items-center gap-1.5"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span>Thêm Link Google Sheet</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 3. Khung Cấu Hình URL Google Apps Script Web App */}
