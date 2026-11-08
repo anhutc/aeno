@@ -28,6 +28,8 @@ import {
   Upload,
   Trash2,
   Loader2,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Debtor, PartySplit, Transaction, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -79,6 +81,8 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
   const [payerIncluded, setPayerIncluded] = useState(true);
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [noteInput, setNoteInput] = useState('');
   const [error, setError] = useState('');
 
@@ -1189,13 +1193,39 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
             <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
               Ảnh hóa đơn / Chứng từ (Tùy chọn)
             </label>
+
+            {/* Hidden file inputs: using sr-only ensures iOS WebKit reliably fires onChange */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+              capture="environment"
+              onChange={handleImageUpload}
+              onClick={(e) => {
+                (e.target as HTMLInputElement).value = '';
+              }}
+              className="sr-only"
+              tabIndex={-1}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+              onChange={handleImageUpload}
+              onClick={(e) => {
+                (e.target as HTMLInputElement).value = '';
+              }}
+              className="sr-only"
+              tabIndex={-1}
+            />
+
             {isUploadingImage ? (
-              <div className="flex items-center justify-center gap-2 p-3.5 border border-slate-200 bg-slate-50 rounded-xl text-slate-600 text-xs font-medium">
-                <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
-                <span>Đang tải ảnh gốc chất lượng cao lên đám mây...</span>
+              <div className="flex items-center justify-center gap-2.5 p-4 border border-amber-200 bg-amber-50/60 rounded-2xl text-amber-800 text-xs font-semibold shadow-2xs">
+                <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+                <span>Đang xử lý và tải ảnh hóa đơn lên hệ thống...</span>
               </div>
             ) : billImage ? (
-              <div className="flex items-center gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="flex items-center gap-3 p-3 bg-amber-50/50 border border-amber-200 rounded-2xl shadow-2xs">
                 <img
                   src={billImage}
                   alt="Bill preview"
@@ -1206,33 +1236,52 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
                       });
                     }
                   }}
-                  className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-white"
+                  className="w-14 h-14 object-cover rounded-xl border border-amber-200 bg-white shrink-0 shadow-2xs"
                 />
                 <div className="flex-1 min-w-0 text-xs text-slate-600">
-                  <div className="font-semibold text-slate-800 truncate">Ảnh đính kèm gốc cuộc vui</div>
-                  <div className="text-[11px] text-emerald-600 font-medium">Lưu trữ đám mây sắc nét 100%</div>
+                  <div className="font-bold text-slate-900 truncate">Ảnh đính kèm cuộc vui</div>
+                  <div className="text-[11px] text-amber-700 font-semibold mt-0.5">Đã lưu trữ chất lượng cao</div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setBillImage(undefined)}
-                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shrink-0"
-                  title="Xóa ảnh này"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Xóa ảnh</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                  >
+                    Đổi ảnh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBillImage(undefined)}
+                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                    title="Xóa ảnh này"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ) : (
-              <label className="flex items-center justify-center gap-2 p-3.5 border border-dashed border-slate-300 hover:border-amber-500 hover:bg-amber-50/40 rounded-xl text-slate-600 hover:text-amber-800 transition-colors cursor-pointer text-xs font-medium">
-                <Upload className="w-4 h-4 text-slate-400" />
-                <span>Tải ảnh hóa đơn / chuyển khoản (Chất lượng gốc)</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                />
-              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-1.5 p-3.5 border border-dashed border-slate-300 hover:border-amber-500 hover:bg-amber-50/40 rounded-2xl text-slate-700 hover:text-amber-800 transition-all cursor-pointer bg-white shadow-2xs active:scale-[0.98]"
+                >
+                  <Camera className="w-5 h-5 text-amber-600" />
+                  <span className="text-xs font-bold">Chụp ảnh hóa đơn</span>
+                  <span className="text-[10px] text-slate-400">Dùng camera</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-1.5 p-3.5 border border-dashed border-slate-300 hover:border-amber-500 hover:bg-amber-50/40 rounded-2xl text-slate-700 hover:text-amber-800 transition-all cursor-pointer bg-white shadow-2xs active:scale-[0.98]"
+                >
+                  <ImageIcon className="w-5 h-5 text-teal-600" />
+                  <span className="text-xs font-bold">Chọn từ thư viện</span>
+                  <span className="text-[10px] text-slate-400">Tệp ảnh / Album</span>
+                </button>
+              </div>
             )}
           </div>
 

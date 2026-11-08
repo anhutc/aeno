@@ -78,23 +78,14 @@ export const AdminAutoLockModal: React.FC<AdminAutoLockModalProps> = ({
     }
   };
 
-  // Auto trigger FaceID once when lock screen opens
+  // Reset states when lock screen opens/closes (no auto-trigger of FaceID popup)
   useEffect(() => {
     if (!isOpen) {
       hasAutoPromptedRef.current = false;
       setPasscode('');
       setError('');
-      return;
     }
-
-    if (isOpen && isEnrolled && !hasAutoPromptedRef.current) {
-      hasAutoPromptedRef.current = true;
-      const timer = setTimeout(() => {
-        handleBiometricUnlock();
-      }, 250);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen, isEnrolled]);
+  }, [isOpen]);
 
   // Submit Password Unlock
   const handlePasswordSubmit = async (e: React.FormEvent) => {

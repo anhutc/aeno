@@ -299,7 +299,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         </div>
 
         {/* 2. Form Nhập Mật Khẩu */}
-        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 space-y-4">
+        <form onSubmit={handleFormSubmit} autoComplete="off" data-lpignore="true" data-1p-ignore="true" className="p-5 sm:p-6 space-y-4">
           <AnimatePresence>
             {error && (
               <motion.div
@@ -348,9 +348,12 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 }}
                 placeholder="Nhập mật khẩu tra cứu..."
                 autoFocus
+                autoComplete="new-password"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 disabled={isLoading}
                 className="w-full pl-3.5 sm:pl-4 pr-11 py-3 sm:py-3.5 text-base sm:text-lg font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl placeholder:text-slate-400 placeholder:text-xs sm:placeholder:text-sm placeholder:font-normal focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner"
               />

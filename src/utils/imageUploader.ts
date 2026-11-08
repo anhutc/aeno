@@ -62,10 +62,7 @@ export async function optimizeBillImageFile(
     };
   }
 
-  // Always read as DataURL first to prevent iOS Safari blob sandbox / permission issues
-  const rawDataUrl = await readFileAsDataUrl(file);
-
-  // Method 1: Try modern createImageBitmap if supported and not an empty file
+  // 1. Try modern createImageBitmap (fastest, preserves EXIF orientation, handles Blobs)
   let imgSource: ImageBitmap | HTMLImageElement | null = null;
   let sourceWidth = 0;
   let sourceHeight = 0;
@@ -73,37 +70,52 @@ export async function optimizeBillImageFile(
   if (typeof window !== 'undefined' && 'createImageBitmap' in window) {
     try {
       const bitmap = await createImageBitmap(file);
-      imgSource = bitmap;
-      sourceWidth = bitmap.width;
-      sourceHeight = bitmap.height;
+      if (bitmap.width > 0 && bitmap.height > 0) {
+        imgSource = bitmap;
+        sourceWidth = bitmap.width;
+        sourceHeight = bitmap.height;
+      }
     } catch {
-      // Fallback to HTMLImageElement
       imgSource = null;
     }
   }
 
-  // Method 2: HTMLImageElement with decode() for iOS Safari Display P3 PNGs
-  if (!imgSource) {
-    const el = new Image();
-    el.crossOrigin = 'anonymous';
-
-    await new Promise<void>((resolve, reject) => {
-      el.onload = () => resolve();
-      el.onerror = () => reject(new Error('Trình duyệt không thể giải mã hình ảnh này'));
-      el.src = rawDataUrl;
-    });
-
-    if ('decode' in el && typeof el.decode === 'function') {
-      try {
-        await el.decode();
-      } catch {
-        // ignore decode warning
+  // 2. Try URL.createObjectURL + HTMLImageElement (compatible with iOS Safari & Android)
+  if (!imgSource && typeof window !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+    let objectUrl = '';
+    try {
+      objectUrl = URL.createObjectURL(file);
+      const el = new Image();
+      await new Promise<void>((resolve, reject) => {
+        el.onload = () => resolve();
+        el.onerror = () => reject(new Error('Lỗi giải mã ảnh qua ObjectURL'));
+        el.src = objectUrl;
+      });
+      imgSource = el;
+      sourceWidth = el.naturalWidth || el.width;
+      sourceHeight = el.naturalHeight || el.height;
+    } catch {
+      imgSource = null;
+    } finally {
+      if (objectUrl) {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          // ignore
+        }
       }
     }
+  }
 
-    // Small 50ms tick to let iOS Safari hardware VRAM settle Display P3 wide-gamut textures
-    await new Promise((r) => setTimeout(r, 50));
-
+  // 3. Fallback: DataURL via FileReader + HTMLImageElement
+  if (!imgSource) {
+    const rawDataUrl = await readFileAsDataUrl(file);
+    const el = new Image();
+    await new Promise<void>((resolve, reject) => {
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error('Trình duyệt không thể giải mã hình ảnh'));
+      el.src = rawDataUrl;
+    });
     imgSource = el;
     sourceWidth = el.naturalWidth || el.width;
     sourceHeight = el.naturalHeight || el.height;
@@ -113,25 +125,26 @@ export async function optimizeBillImageFile(
     throw new Error('Không thể đọc kích thước hình ảnh');
   }
 
-  // Calculate target dimensions (capped at maxDimension, e.g. 2048px)
+  // Target dimension capped at maxDimension (default 1600px for instant upload & crisp bills)
+  const maxLimit = Math.min(maxDimension, 1600);
   let targetWidth = sourceWidth;
   let targetHeight = sourceHeight;
 
-  if (targetWidth > maxDimension || targetHeight > maxDimension) {
+  if (targetWidth > maxLimit || targetHeight > maxLimit) {
     if (targetWidth >= targetHeight) {
-      targetHeight = Math.max(1, Math.round((targetHeight * maxDimension) / targetWidth));
-      targetWidth = maxDimension;
+      targetHeight = Math.max(1, Math.round((targetHeight * maxLimit) / targetWidth));
+      targetWidth = maxLimit;
     } else {
-      targetWidth = Math.max(1, Math.round((targetWidth * maxDimension) / targetHeight));
-      targetHeight = maxDimension;
+      targetWidth = Math.max(1, Math.round((targetWidth * maxLimit) / targetHeight));
+      targetHeight = maxLimit;
     }
   }
 
-  // Draw to 2D Canvas with white background (prevents black background on transparent PNGs)
+  // Draw to 2D Canvas with white background
   const canvas = document.createElement('canvas');
   canvas.width = targetWidth;
   canvas.height = targetHeight;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: false });
   if (!ctx) {
     throw new Error('Canvas 2D context không khả dụng');
   }
@@ -142,7 +155,7 @@ export async function optimizeBillImageFile(
   ctx.fillRect(0, 0, targetWidth, targetHeight);
   ctx.drawImage(imgSource, 0, 0, targetWidth, targetHeight);
 
-  // Close ImageBitmap to free hardware memory immediately on mobile
+  // Close ImageBitmap if applicable
   if ('close' in imgSource && typeof imgSource.close === 'function') {
     try {
       imgSource.close();
@@ -151,14 +164,13 @@ export async function optimizeBillImageFile(
     }
   }
 
-  // Export to high-quality JPEG (0.88 quality is visually lossless for text, but ~10x lighter)
+  // Export to high-quality JPEG (0.82 quality is razor-sharp for receipt numbers while keeping payload ~150-300KB)
   const exportMime = 'image/jpeg';
-  const exportQuality = 0.88;
+  const exportQuality = 0.82;
   const optimizedDataUrl = canvas.toDataURL(exportMime, exportQuality);
 
-  // Validate that canvas didn't return an empty "data:," string (iOS Safari memory crash symptom)
   if (!optimizedDataUrl || optimizedDataUrl.length < 100 || optimizedDataUrl === 'data:,') {
-    throw new Error('Lỗi xuất dữ liệu ảnh từ Canvas Safari');
+    throw new Error('Lỗi xuất dữ liệu ảnh từ Canvas');
   }
 
   const approxBytes = Math.round((optimizedDataUrl.length * 3) / 4);
