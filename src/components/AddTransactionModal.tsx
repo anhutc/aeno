@@ -31,8 +31,6 @@ import {
   FileText,
   Check,
   Loader2,
-  Camera,
-  Image as ImageIcon,
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
 import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerator';
@@ -79,7 +77,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [billImage, setBillImage] = useState<string | undefined>(undefined);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -170,23 +168,42 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     }
   };
 
+  const handleCancelUpload = () => {
+    if (uploadAbortControllerRef.current) {
+      uploadAbortControllerRef.current.abort();
+      uploadAbortControllerRef.current = null;
+    }
+    setIsUploadingImage(false);
+    setError('');
+  };
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 25 * 1024 * 1024) {
-        setError('Kích thước ảnh gốc không vượt quá 25MB');
+      if (file.size > 40 * 1024 * 1024) {
+        setError('Kích thước ảnh không vượt quá 40MB');
         return;
       }
+      const controller = new AbortController();
+      uploadAbortControllerRef.current = controller;
       try {
         setError('');
         setIsUploadingImage(true);
-        // Upload original full-resolution image to cloud vault without lossy compression
-        const uploadedUrl = await uploadBillImage(file);
-        setBillImage(uploadedUrl);
+        // Automatically optimizes & downscales to crisp 1400px JPEG quality 0.80 (~150KB)
+        const uploadedUrl = await uploadBillImage(file, { signal: controller.signal });
+        if (!controller.signal.aborted) {
+          setBillImage(uploadedUrl);
+        }
       } catch (err: any) {
+        if (err?.message?.includes('hủy')) {
+          return;
+        }
         console.error('Image upload failed:', err);
-        setError(err?.message || 'Không thể tải hình ảnh này. Vui lòng chọn ảnh khác.');
+        setError(err?.message || 'Không thể tải hình ảnh này. Vui lòng thử lại.');
       } finally {
+        if (uploadAbortControllerRef.current === controller) {
+          uploadAbortControllerRef.current = null;
+        }
         setIsUploadingImage(false);
       }
     }
@@ -652,23 +669,11 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               Ảnh hóa đơn / Chứng từ (Tùy chọn)
             </label>
 
-            {/* Hidden file inputs: using sr-only ensures iOS WebKit reliably fires onChange */}
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
-              capture="environment"
-              onChange={handleImageUpload}
-              onClick={(e) => {
-                (e.target as HTMLInputElement).value = '';
-              }}
-              className="sr-only"
-              tabIndex={-1}
-            />
+            {/* Hidden file input: native picker handles both Camera and Photo Library */}
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+              accept="image/jpeg,image/png,image/webp,image/*"
               onChange={handleImageUpload}
               onClick={(e) => {
                 (e.target as HTMLInputElement).value = '';
@@ -678,9 +683,18 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             />
 
             {isUploadingImage ? (
-              <div className="flex items-center justify-center gap-2.5 p-4 border border-emerald-200 bg-emerald-50/60 rounded-2xl text-emerald-800 text-xs font-semibold shadow-2xs">
-                <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
-                <span>Đang xử lý và tải ảnh hóa đơn lên hệ thống...</span>
+              <div className="flex items-center justify-between gap-3 p-3.5 border border-emerald-200 bg-emerald-50/70 rounded-2xl text-emerald-900 text-xs font-semibold shadow-2xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
+                  <span className="truncate">Đang tối ưu & tải ảnh hóa đơn...</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelUpload}
+                  className="px-2.5 py-1 text-[11px] font-bold text-rose-600 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg shrink-0 cursor-pointer transition-colors"
+                >
+                  Hủy
+                </button>
               </div>
             ) : billImage ? (
               <div className="flex items-center gap-3 p-3 bg-emerald-50/50 border border-emerald-200 rounded-2xl shadow-2xs">
@@ -719,26 +733,21 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center gap-1.5 p-3.5 border border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/40 rounded-2xl text-slate-700 hover:text-emerald-800 transition-all cursor-pointer bg-white shadow-2xs active:scale-[0.98]"
-                >
-                  <Camera className="w-5 h-5 text-emerald-600" />
-                  <span className="text-xs font-bold">Chụp ảnh hóa đơn</span>
-                  <span className="text-[10px] text-slate-400">Dùng camera</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center gap-1.5 p-3.5 border border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/40 rounded-2xl text-slate-700 hover:text-emerald-800 transition-all cursor-pointer bg-white shadow-2xs active:scale-[0.98]"
-                >
-                  <ImageIcon className="w-5 h-5 text-teal-600" />
-                  <span className="text-xs font-bold">Chọn từ thư viện</span>
-                  <span className="text-[10px] text-slate-400">Tệp ảnh / Album</span>
-                </button>
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-3 p-3.5 border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/40 rounded-2xl text-slate-700 hover:text-emerald-800 transition-all cursor-pointer bg-white shadow-2xs active:scale-[0.99] group"
+              >
+                <div className="w-9 h-9 rounded-xl bg-slate-100 group-hover:bg-emerald-100 flex items-center justify-center shrink-0 transition-colors">
+                  <Upload className="w-4 h-4 text-slate-500 group-hover:text-emerald-700" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-900 truncate">
+                    Tải ảnh hóa đơn / Chứng từ chuyển khoản
+                  </div>
+                  <div className="text-[11px] text-slate-400 group-hover:text-emerald-700/80 truncate">
+                    Chụp trực tiếp từ máy ảnh hoặc chọn từ thư viện ảnh
+                  </div>
+                </div>
               </div>
             )}
           </div>
