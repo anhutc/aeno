@@ -870,17 +870,16 @@ export async function syncDatabaseToGoogleSheets(
   explicitToken?: string
 ): Promise<SyncResult> {
   try {
+    if (payload.settings?.googleAppsScriptUrl) {
+      return await syncViaAppsScript(payload, payload.settings.googleAppsScriptUrl);
+    }
+
     let token = explicitToken || cachedAccessToken;
-
-  // If no token cached, prompt user to sign in first
-  if (!token) {
-    const loginRes = await signInWithGoogle(payload.settings);
-    token = loginRes.accessToken;
-  }
-
-  if (!token) {
-    throw new Error('Chưa đăng nhập Google hoặc phiên làm việc đã hết hạn. Vui lòng kết nối lại tài khoản Google.');
-  }
+    if (!token) {
+      throw new Error(
+        'Hệ thống hiện đồng bộ độc quyền qua Google Apps Script Web App. Vui lòng dán URL Web App trong Cài Đặt ➔ Đồng Bộ & Dữ Liệu.'
+      );
+    }
 
   const { debtors, transactions, parties, settings } = payload;
   const ownerName = settings.ownerName || 'Chủ Sổ';
@@ -1515,11 +1514,10 @@ export function triggerDebouncedAutoSync(
     return;
   }
 
-  // Check if we have an active access token OR an Apps Script webhook URL
-  const token = getGoogleAccessToken();
+  // Check if we have an Apps Script webhook URL
   const appsScriptUrl = payload.settings?.googleAppsScriptUrl?.trim();
-  if (!token && !appsScriptUrl) {
-    // Silently skip if user has not authorized Google yet and has not set Apps Script URL
+  if (!appsScriptUrl) {
+    // Silently skip if Apps Script URL is not set
     return;
   }
 
@@ -1543,20 +1541,15 @@ export function triggerDebouncedAutoSync(
         window.dispatchEvent(new CustomEvent('googlesheets-autosync-start'));
       }
 
-      console.log('🔄 Đang tự động đồng bộ ngầm dữ liệu lên Google Sheets...');
-      let result: SyncResult;
-      if (appsScriptUrl) {
-        result = await syncViaAppsScript(payload, appsScriptUrl);
-        try {
-          const currentSaved = loadSettings();
-          if (currentSaved) {
-            saveSettings({ ...currentSaved, lastGoogleSheetSyncAt: result.updatedAt });
-          }
-        } catch {
-          // ignore
+      console.log('🔄 Đang tự động đồng bộ ngầm dữ liệu lên Google Sheets qua Apps Script...');
+      const result: SyncResult = await syncViaAppsScript(payload, appsScriptUrl);
+      try {
+        const currentSaved = loadSettings();
+        if (currentSaved) {
+          saveSettings({ ...currentSaved, lastGoogleSheetSyncAt: result.updatedAt });
         }
-      } else {
-        result = await syncDatabaseToGoogleSheets(payload);
+      } catch {
+        // ignore
       }
 
       autoSyncState.lastAutoSyncAt = result.updatedAt;

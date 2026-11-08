@@ -44,7 +44,6 @@ import { triggerSettledCelebration } from './utils/confetti';
 import { subscribeToFirestoreData, subscribeToDebtorTransactions } from './services/firestoreClient';
 import {
   triggerDebouncedAutoSync,
-  getGoogleAccessToken,
 } from './services/googleSheetsService';
 import { Header } from './components/Header';
 import { OwnerDashboard } from './components/OwnerDashboard';
@@ -152,10 +151,10 @@ export default function App() {
       customSettings?: AppSettings
     ) => {
       const activeSettings = customSettings || settingsRef.current;
-      // Tự động đồng bộ sang Google Sheets qua Google Apps Script hoặc token Google
+      // Tự động đồng bộ sang Google Sheets qua Google Apps Script Web App
       if (
         activeSettings?.autoSyncGoogleSheets !== false &&
-        (activeSettings?.googleAppsScriptUrl || getGoogleAccessToken())
+        Boolean(activeSettings?.googleAppsScriptUrl)
       ) {
         triggerDebouncedAutoSync({
           debtors: currentDebtors || debtorsRef.current,

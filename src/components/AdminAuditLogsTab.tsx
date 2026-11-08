@@ -32,15 +32,8 @@ import { AuditLog, Debtor, Transaction, PartySplit, AppSettings } from '../types
 import { formatVND } from '../utils/vietqr';
 import { triggerHaptic } from '../utils/haptic';
 import {
-  initGoogleAuth,
-  signInWithGoogle,
-  signOutGoogle,
-  syncDatabaseToGoogleSheets,
   syncViaAppsScript,
   exportGoogleSheetsCsvFile,
-  getGoogleAccessToken,
-  getCurrentGoogleUser,
-  GoogleUserProfile,
 } from '../services/googleSheetsService';
 import { clearAuditLogs, loadAuditLogs, recordAuditLog } from '../utils/storage';
 
@@ -71,21 +64,8 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
   >('ALL');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'TODAY' | '7_DAYS' | '30_DAYS'>('ALL');
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
-  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-
-  // Google Auth integration (shared with GoogleSheetsSyncSection)
-  const [googleUser, setGoogleUser] = useState<GoogleUserProfile | null>(() => getCurrentGoogleUser());
-  const [hasGoogleToken, setHasGoogleToken] = useState<boolean>(() => Boolean(getGoogleAccessToken()));
-
-  useEffect(() => {
-    const unsubscribe = initGoogleAuth((user, token) => {
-      setGoogleUser(user);
-      setHasGoogleToken(Boolean(token));
-    });
-    return () => unsubscribe();
-  }, []);
 
   // Filter logic
   const filteredLogs = useMemo(() => {
@@ -156,58 +136,26 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     return result.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
   }, [auditLogs, filterActionGroup, dateFilter, searchQuery]);
 
-  // Unified Google Login
-  const handleGoogleSignIn = async () => {
-    triggerHaptic('medium');
-    setIsSigningInGoogle(true);
-    try {
-      const res = await signInWithGoogle(settings);
-      setGoogleUser(res.user);
-      setHasGoogleToken(true);
-      showToast(`Đã kết nối tài khoản Google: ${res.user.email}`, 'success');
-    } catch (err: any) {
-      if (err?.code !== 'popup_closed') {
-        showToast(err?.message || 'Lỗi đăng nhập Google', 'info');
-      }
-    } finally {
-      setIsSigningInGoogle(false);
-    }
-  };
-
-  const handleGoogleSignOut = async () => {
-    triggerHaptic('light');
-    await signOutGoogle();
-    setGoogleUser(null);
-    setHasGoogleToken(false);
-    showToast('Đã đăng xuất tài khoản Google', 'info');
-  };
-
   // Master Sync to Google Sheets (4 Tabs together: Debtors, Transactions, Parties, and Audit Logs)
   const handleMasterSyncToGoogleSheets = async () => {
     triggerHaptic('medium');
+    if (!settings.googleAppsScriptUrl) {
+      showToast('Vui lòng thiết lập URL Google Apps Script Web App trong Cài Đặt trước khi đồng bộ.', 'info');
+      return;
+    }
+
     setIsSyncingSheets(true);
     try {
-      let result;
-      if (settings.googleAppsScriptUrl) {
-        result = await syncViaAppsScript(
-          {
-            debtors,
-            transactions,
-            parties,
-            settings,
-            auditLogs,
-          },
-          settings.googleAppsScriptUrl
-        );
-      } else {
-        result = await syncDatabaseToGoogleSheets({
+      const result = await syncViaAppsScript(
+        {
           debtors,
           transactions,
           parties,
           settings,
           auditLogs,
-        });
-      }
+        },
+        settings.googleAppsScriptUrl
+      );
 
       const updatedSettings: AppSettings = {
         ...settings,
