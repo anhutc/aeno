@@ -1915,6 +1915,7 @@ app.use(async (req, _res, next) => {
         server: {
           middlewareMode: true,
           hmr: false,
+          ws: false,
         },
         appType: 'spa',
       });

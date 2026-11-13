@@ -56,8 +56,22 @@ import { ConfirmDeleteDebtorModal } from './ConfirmDeleteDebtorModal';
 import { ConfirmDeletePartyModal } from './ConfirmDeletePartyModal';
 import { ConfirmDeleteTxModal } from './ConfirmDeleteTxModal';
 import { TransactionRow } from './TransactionRow';
+import { GroupedPartyRow } from './GroupedPartyRow';
 import { resolveSplitBillDetails } from '../utils/splitBillHelper';
 import { AdminAuditLogsTab } from './AdminAuditLogsTab';
+
+export type DisplayTransactionItem =
+  | {
+      kind: 'TX';
+      id: string;
+      tx: Transaction;
+    }
+  | {
+      kind: 'PARTY';
+      id: string;
+      party: PartySplit;
+      partyTransactions: Transaction[];
+    };
 
 interface OwnerDashboardProps {
   debtors: Debtor[];
@@ -360,6 +374,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [txSortBy, setTxSortBy] = useState<'DATE_DESC' | 'DATE_ASC' | 'AMOUNT_DESC' | 'AMOUNT_ASC'>('DATE_DESC');
   const [txDateRangeFilter, setTxDateRangeFilter] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH'>('ALL');
   const [txVisibleLimit, setTxVisibleLimit] = useState<number>(30);
+  const [groupPartySplits, setGroupPartySplits] = useState<boolean>(true);
 
   const now = new Date();
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -472,10 +487,52 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     };
   }, [allFilteredTransactions]);
 
-  const displayedTransactions = useMemo(() => {
-    if (txVisibleLimit <= 0) return allFilteredTransactions;
-    return allFilteredTransactions.slice(0, txVisibleLimit);
-  }, [allFilteredTransactions, txVisibleLimit]);
+  // Grouped transaction items: when groupPartySplits is true and viewing all debtors (txDebtorFilter === 'ALL')
+  const allDisplayItems = useMemo<DisplayTransactionItem[]>(() => {
+    if (!groupPartySplits || txDebtorFilter !== 'ALL') {
+      return allFilteredTransactions.map((tx) => ({
+        kind: 'TX',
+        id: tx.id,
+        tx,
+      }));
+    }
+
+    const items: DisplayTransactionItem[] = [];
+    const seenPartyIds = new Set<string>();
+
+    for (const tx of allFilteredTransactions) {
+      if (tx.partyId) {
+        if (seenPartyIds.has(tx.partyId)) {
+          continue; // Already grouped into a single card for this party
+        }
+        seenPartyIds.add(tx.partyId);
+        const party = partiesMap.get(tx.partyId);
+        if (party) {
+          const partyTxs = transactions.filter((t) => t.partyId === party.id);
+          items.push({
+            kind: 'PARTY',
+            id: `grouped-${party.id}`,
+            party,
+            partyTransactions: partyTxs,
+          });
+          continue;
+        }
+      }
+
+      items.push({
+        kind: 'TX',
+        id: tx.id,
+        tx,
+      });
+    }
+
+    return items;
+  }, [allFilteredTransactions, groupPartySplits, txDebtorFilter, partiesMap, transactions]);
+
+  const displayedItems = useMemo(() => {
+    if (txVisibleLimit <= 0) return allDisplayItems;
+    return allDisplayItems.slice(0, txVisibleLimit);
+  }, [allDisplayItems, txVisibleLimit]);
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -1761,6 +1818,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     <Users className="w-3 h-3" />
                     <span>Chia cuộc vui</span>
                   </button>
+
+                  {txDebtorFilter === 'ALL' && (
+                    <button
+                      type="button"
+                      onClick={() => setGroupPartySplits(!groupPartySplits)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                        groupPartySplits
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-bold'
+                          : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                      title="Gộp các giao dịch chia tiền cùng một đợt thành 1 thẻ duy nhất"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-600" />
+                      <span>Gộp chia bill: {groupPartySplits ? 'Bật' : 'Tắt'}</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1831,7 +1904,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             </div>
 
             {/* List of Transactions */}
-            {allFilteredTransactions.length === 0 ? (
+            {allDisplayItems.length === 0 ? (
               <div className="p-10 text-center space-y-2">
                 <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                   <Search className="w-5 h-5" />
@@ -1860,84 +1933,105 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               </div>
             ) : (
               <div className="p-3.5 sm:p-4 space-y-2.5">
-                {displayedTransactions.map((tx) => (
-                  <TransactionRow
-                    key={tx.id}
-                    transaction={tx}
-                    debtors={debtors}
-                    debtorsMap={debtorsMap}
-                    parties={parties}
-                    showDebtorName={true}
-                    onSelectDebtor={onSelectDebtor}
-                    onViewImage={onViewImage}
-                    onEditTx={(t) => {
-                      if (t.partyId || t.category === 'PARTY_SPLIT') {
-                        if (onEditParty) {
-                          const p = parties.find(
-                            (party) =>
-                              party.id === t.partyId ||
-                              (party.name && t.note && t.note.includes(party.name))
-                          );
-                          if (p) onEditParty(p);
+                {displayedItems.map((item) => {
+                  if (item.kind === 'PARTY') {
+                    return (
+                      <GroupedPartyRow
+                        key={item.id}
+                        party={item.party}
+                        transactions={item.partyTransactions}
+                        debtorsMap={debtorsMap}
+                        settings={settings}
+                        onSelectDebtor={onSelectDebtor}
+                        onViewImage={onViewImage}
+                        onEditParty={onEditParty}
+                      />
+                    );
+                  }
+
+                  const tx = item.tx;
+                  return (
+                    <TransactionRow
+                      key={tx.id}
+                      transaction={tx}
+                      debtors={debtors}
+                      debtorsMap={debtorsMap}
+                      parties={parties}
+                      showDebtorName={true}
+                      onSelectDebtor={onSelectDebtor}
+                      onViewImage={onViewImage}
+                      onEditTx={(t) => {
+                        if (t.partyId || t.category === 'PARTY_SPLIT') {
+                          if (onEditParty) {
+                            const p = parties.find(
+                              (party) =>
+                                party.id === t.partyId ||
+                                (party.name && t.note && t.note.includes(party.name))
+                            );
+                            if (p) onEditParty(p);
+                          }
+                          return;
                         }
-                        return;
-                      }
-                      if (onEditTx) onEditTx(t);
-                    }}
-                    onDeleteTx={(t) => {
-                      if (t.partyId || t.category === 'PARTY_SPLIT') {
-                        return; // Khóa xóa lẻ giao dịch cuộc vui
-                      }
-                      setTxToDelete(t);
-                    }}
-                    onEditParty={onEditParty}
-                  />
-                ))}
+                        if (onEditTx) onEditTx(t);
+                      }}
+                      onDeleteTx={(t) => {
+                        if (t.partyId || t.category === 'PARTY_SPLIT') {
+                          return; // Khóa xóa lẻ giao dịch cuộc vui
+                        }
+                        setTxToDelete(t);
+                      }}
+                      onEditParty={onEditParty}
+                    />
+                  );
+                })}
               </div>
             )}
 
             {/* Pagination & Load More Footer */}
-            {allFilteredTransactions.length > 0 && (
+            {allDisplayItems.length > 0 && (
               <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                 <div className="text-slate-500 font-medium">
                   Đang hiển thị{' '}
                   <strong className="text-slate-800">
-                    {displayedTransactions.length}
+                    {displayedItems.length}
                   </strong>{' '}
                   trên tổng số{' '}
                   <strong className="text-slate-800">
-                    {allFilteredTransactions.length}
+                    {allDisplayItems.length}
                   </strong>{' '}
-                  giao dịch khớp bộ lọc
+                  mục
+                  {groupPartySplits && txDebtorFilter === 'ALL' && allDisplayItems.length !== allFilteredTransactions.length && (
+                    <span className="text-slate-400"> (đã gộp từ {allFilteredTransactions.length} giao dịch)</span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  {allFilteredTransactions.length > displayedTransactions.length && (
+                  {allDisplayItems.length > displayedItems.length && (
                     <>
                       <button
                         type="button"
                         onClick={() => setTxVisibleLimit((prev) => prev + 30)}
                         className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-200 transition-colors cursor-pointer shadow-2xs"
                       >
-                        Xem thêm 30 giao dịch
+                        Xem thêm 30 mục
                       </button>
                       <button
                         type="button"
-                        onClick={() => setTxVisibleLimit(allFilteredTransactions.length)}
+                        onClick={() => setTxVisibleLimit(allDisplayItems.length)}
                         className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold rounded-xl transition-colors cursor-pointer shadow-xs"
                       >
-                        Hiển thị toàn bộ ({allFilteredTransactions.length})
+                        Hiển thị toàn bộ ({allDisplayItems.length})
                       </button>
                     </>
                   )}
 
-                  {displayedTransactions.length >= allFilteredTransactions.length && allFilteredTransactions.length > 30 && (
+                  {displayedItems.length >= allDisplayItems.length && allDisplayItems.length > 30 && (
                     <button
                       type="button"
                       onClick={() => setTxVisibleLimit(30)}
                       className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 font-semibold rounded-xl border border-slate-200 transition-colors cursor-pointer text-xs"
                     >
-                      Thu gọn về 30 giao dịch
+                      Thu gọn về 30 mục
                     </button>
                   )}
                 </div>

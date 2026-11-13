@@ -122,6 +122,7 @@ export default defineConfig(() => {
     server: {
       // HMR is disabled in AI Studio per environment constraints.
       hmr: false,
+      ws: false,
       watch: null,
     },
   };

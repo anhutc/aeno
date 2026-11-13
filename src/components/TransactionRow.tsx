@@ -163,27 +163,12 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
         </div>
       </div>
 
-      {/* 2. Subline Level: Classification Tag, Date, Time & Running Balance - Optimized for Mobile & Desktop */}
+      {/* 2. Subline Level: Date, Time & Details - Clean without redundant badges */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs text-slate-500">
         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-          {/* Tag phân loại giao dịch */}
-          {isParty ? (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100/90 text-amber-900 border border-amber-300 shrink-0 inline-flex items-center gap-1">
-              <span>🎉 Bill nhóm</span>
-            </span>
-          ) : isAdd ? (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100/90 text-rose-800 border border-rose-200/90 shrink-0">
-              Cho vay (+)
-            </span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-200/90 shrink-0">
-              Đã thu hồi (-)
-            </span>
-          )}
-
           {/* Ngày tháng */}
           <span className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-500 shrink-0">
-            <Calendar className="w-3 h-3 text-slate-400" />
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
             <span>{tx.date}</span>
           </span>
 
@@ -263,16 +248,16 @@ const TransactionRowComponent: React.FC<TransactionRowProps> = ({
                     isParty ? `Hóa đơn: ${split.partyName}` : `Hóa đơn: ${tx.note || 'Chứng từ'}`
                   )
                 }
-                className="inline-flex items-center gap-2 px-2 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200/90 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs hover:scale-102"
+                className="inline-flex items-center gap-2 px-2 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/90 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs hover:scale-102"
                 title="Bấm để phóng to ảnh hóa đơn / chứng từ"
               >
                 <SafeReceiptThumbnail src={img} />
                 <div className="text-left">
                   <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-                    <Receipt className="w-3 h-3 text-emerald-600" />
+                    <Receipt className="w-3 h-3 text-slate-600" />
                     <span>Hóa đơn {allImgs.length > 1 ? `#${imgIdx + 1}` : ''}</span>
                   </div>
-                  <span className="text-[10px] text-emerald-600 font-medium">Bấm xem ảnh</span>
+                  <span className="text-[10px] text-slate-500 font-medium">Bấm xem ảnh</span>
                 </div>
               </button>
             ))
