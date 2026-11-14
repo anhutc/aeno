@@ -651,21 +651,69 @@ export function loadAuditLogs(): AuditLog[] {
 
 export function saveAuditLogs(logs: AuditLog[]): void {
   try {
-    // Keep max 200 most recent logs locally to prevent storage quota issues
-    const trimmed = logs.slice(0, 200);
+    // Keep max 500 most recent logs locally for thorough audit trail without exceeding storage quota
+    const trimmed = logs.slice(0, 500);
     safeSetItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(trimmed));
   } catch (err) {
     console.warn('[Storage] Failed to save audit logs:', err);
   }
 }
 
+function getAuditEnvironmentContext(): Record<string, any> {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return { environment: 'Server / Node' };
+  }
+  try {
+    const ua = navigator.userAgent || '';
+    let os = 'Không rõ OS';
+    if (/iPhone|iPad|iPod/i.test(ua)) os = 'iOS';
+    else if (/Android/i.test(ua)) os = 'Android';
+    else if (/Mac OS X/i.test(ua)) os = 'macOS';
+    else if (/Windows/i.test(ua)) os = 'Windows';
+    else if (/Linux/i.test(ua)) os = 'Linux';
+
+    let browser = 'Trình duyệt';
+    if (/Edg\//i.test(ua)) browser = 'Edge';
+    else if (/CriOS|Chrome\//i.test(ua)) browser = 'Chrome';
+    else if (/FxiOS|Firefox\//i.test(ua)) browser = 'Firefox';
+    else if (/Safari\//i.test(ua)) browser = 'Safari';
+
+    const isStandalone =
+      (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
+      (navigator as any).standalone === true;
+
+    return {
+      device: `${os} · ${browser}`,
+      appMode: isStandalone ? 'PWA (Đã cài đặt)' : 'Trình duyệt Web',
+      viewport: `${window.innerWidth}×${window.innerHeight}`,
+      online: navigator.onLine,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function recordAuditLog(
   log: Omit<AuditLog, 'id' | 'timestamp'> & { timestamp?: string }
 ): AuditLog {
+  const ts = log.timestamp || new Date().toISOString();
+  const envContext = getAuditEnvironmentContext();
+  let localTimeStr = ts;
+  try {
+    localTimeStr = new Date(ts).toLocaleString('vi-VN');
+  } catch {
+    // ignore
+  }
+
   const newLog: AuditLog = {
     ...log,
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    timestamp: log.timestamp || new Date().toISOString(),
+    timestamp: ts,
+    metadata: {
+      recordedAtLocal: localTimeStr,
+      ...envContext,
+      ...(log.metadata || {}),
+    },
   };
 
   try {

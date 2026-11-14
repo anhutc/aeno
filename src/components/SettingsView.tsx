@@ -44,6 +44,7 @@ import {
   saveParties,
   saveSettings,
   getDebtorBalance,
+  recordAuditLog,
 } from '../utils/storage';
 import { apiUploadJsonToFirestore, apiCleanOrphanTransactions } from '../utils/api';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -157,8 +158,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsBiometricProcessing(false);
     if (res.success) {
       setIsBiometricEnrolled(true);
+      recordAuditLog({
+        action: 'BIOMETRIC_AUTH',
+        actor: `Chủ Sổ (${formData.ownerName || 'Admin'})`,
+        title: 'Kích hoạt / Cập nhật FaceID & Vân tay',
+        description: 'Chủ sổ đã đăng ký thành công xác thực sinh trắc học (FaceID / Touch ID) trên thiết bị hiện tại.',
+        beforeState: 'Chưa kích hoạt hoặc dùng khóa cũ',
+        afterState: 'Đã liên kết FaceID / Touch ID trên thiết bị',
+        changes: [{ fieldLabel: 'Sinh trắc học (WebAuthn)', before: 'Chưa kích hoạt', after: 'Đã kích hoạt' }],
+      });
       showToast(res.message || 'Đã kích hoạt FaceID thành công!', 'success');
     } else {
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: `Chủ Sổ (${formData.ownerName || 'Admin'})`,
+        title: 'Kích hoạt FaceID thất bại',
+        description: `Không thể thiết lập FaceID / Touch ID: ${res.message || 'Người dùng hủy hoặc trình duyệt không hỗ trợ'}`,
+        beforeState: 'Yêu cầu đăng ký sinh trắc học',
+        afterState: 'Thất bại',
+      });
       showToast(res.message || 'Không thể thiết lập FaceID', 'error');
     }
   };
@@ -166,6 +184,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleDisableFaceId = () => {
     disableBiometrics();
     setIsBiometricEnrolled(false);
+    recordAuditLog({
+      action: 'BIOMETRIC_AUTH',
+      actor: `Chủ Sổ (${formData.ownerName || 'Admin'})`,
+      title: 'Hủy liên kết FaceID / Vân tay',
+      description: 'Chủ sổ đã hủy liên kết đăng nhập bằng sinh trắc học trên thiết bị này.',
+      beforeState: 'Đang bật FaceID / Touch ID',
+      afterState: 'Đã hủy liên kết (Chỉ dùng mật khẩu)',
+      changes: [{ fieldLabel: 'Sinh trắc học (WebAuthn)', before: 'Đang kích hoạt', after: 'Đã tắt' }],
+    });
     showToast('Đã hủy liên kết FaceID trên thiết bị này', 'success');
   };
 
@@ -366,9 +393,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
+    const filename = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+    recordAuditLog({
+      action: 'EXPORT_DATA',
+      actor: `Chủ Sổ (${formData.ownerName || 'Admin'})`,
+      title: 'Xuất tệp sao lưu toàn bộ JSON',
+      description: `Đã tải xuống tệp sao lưu JSON "${filename}" (${activeDebtors.length} người nợ, ${cleanTransactions.length} giao dịch, ${activeParties.length} cuộc vui; mật khẩu quản lý được ẩn an toàn).`,
+      beforeState: 'Dữ liệu hiện hành',
+      afterState: `Đã xuất tệp ${filename}`,
+      changes: [
+        { fieldLabel: 'Định dạng sao lưu', before: '-', after: 'JSON Schema v2' },
+        { fieldLabel: 'Dữ liệu đã xuất', before: '-', after: `${activeDebtors.length} người nợ · ${cleanTransactions.length} GD · ${activeParties.length} cuộc vui` },
+      ],
+      metadata: {
+        filename,
+        debtorsCount: activeDebtors.length,
+        transactionsCount: cleanTransactions.length,
+        partiesCount: activeParties.length,
+      },
+    });
     showToast(`Đã xuất tệp sao lưu chuẩn Cloud (${activeDebtors.length} người nợ, ${cleanTransactions.length} giao dịch, mật khẩu quản lý được bảo mật riêng)!`, 'success');
   };
 

@@ -9,9 +9,9 @@ import {
 import { triggerHaptic } from '../utils/haptic';
 
 interface BottomNavBarProps {
-  currentView: 'OWNER' | 'GUEST' | 'SETTINGS';
+  currentView: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS';
   isOwnerAuthenticated: boolean;
-  onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS') => void;
+  onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS') => void;
   onOpenAddTx: () => void;
   onOpenSplitParty: () => void;
   onOpenAddDebtor: () => void;

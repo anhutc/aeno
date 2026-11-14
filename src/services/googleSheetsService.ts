@@ -642,13 +642,19 @@ export function getLogActionFriendlyName(action: string): string {
     case 'GUEST_LOOKUP': return 'Khách tra cứu sổ nợ';
     case 'GUEST_REPORT': return 'Khách báo chuyển khoản';
     case 'SYNC_SHEETS': return 'Đồng bộ Google Sheets';
+    case 'CLOUD_SYNC': return 'Cloud Firestore & Sao lưu';
     case 'RESTORE_DATA': return 'Khôi phục sao lưu';
     case 'CLEAR_DATA': return 'Dọn dẹp dữ liệu';
     case 'LOGIN_SUCCESS': return 'Đăng nhập thành công';
     case 'LOGIN_FAILED': return 'Đăng nhập thất bại';
     case 'LOGOUT': return 'Đăng xuất';
+    case 'AUTO_LOCK': return 'Tự động khóa phiên';
+    case 'BIOMETRIC_AUTH': return 'Xác thực FaceID / Vân tay';
     case 'LOOKUP_FAILED': return 'Tra cứu thất bại';
-    case 'EXPORT_DATA': return 'Xuất dữ liệu / CSV';
+    case 'EXPORT_DATA': return 'Xuất dữ liệu / JSON / CSV';
+    case 'EXPORT_STATEMENT': return 'Xuất ảnh bảng kê / QR';
+    case 'SHARE_REMINDER': return 'Chia sẻ / Chép nhắc nợ';
+    case 'VIEW_RECEIPT': return 'Xem ảnh chứng từ';
     case 'OPERATION_FAILED': return 'Lỗi thao tác';
     default: return action;
   }
@@ -710,7 +716,7 @@ export function exportGoogleSheetsCsvFile(payload: SyncDataPayload) {
   // Tab 4: Nhật Ký Thao Tác (Audit Logs)
   const logsToExport = payload.auditLogs || loadAuditLogs();
   csvContent += `\n=== BẢNG 4: NHẬT KÝ THAO TÁC & KIỂM VẾT (AUDIT LOGS) ===\n`;
-  csvContent += `"STT","Thời Gian","Người Thực Hiện","Loại Thao Tác","Tiêu Đề","Đối Tượng / Người Nợ","Số Tiền (VNĐ)","Nội Dung Chi Tiết","Trước Thay Đổi (Before)","Sau Thay Đổi (After)"\n`;
+  csvContent += `"STT","Thời Gian","Người Thực Hiện","Loại Thao Tác","Tiêu Đề","Đối Tượng / Người Nợ","Số Tiền (VNĐ)","Nội Dung Chi Tiết","Trước Thay Đổi (Before)","Sau Thay Đổi (After)","Thiết Bị & Ngữ Cảnh (Metadata)"\n`;
 
   logsToExport.forEach((l, idx) => {
     const beforeStr = l.beforeState
@@ -729,7 +735,14 @@ export function exportGoogleSheetsCsvFile(payload: SyncDataPayload) {
       ? l.changes.map((c) => `${c.fieldLabel}: ${c.after ?? '(Trống)'}`).join('; ')
       : '-';
 
-    csvContent += `"${idx + 1}","${new Date(l.timestamp).toLocaleString('vi-VN')}","${l.actor}","${getLogActionFriendlyName(l.action)}","${(l.title || '').replace(/"/g, '""')}","${l.debtorName || '-'}","${l.amount || 0}","${(l.description || '').replace(/"/g, '""')}","${beforeStr.replace(/"/g, '""')}","${afterStr.replace(/"/g, '""')}"\n`;
+    const metaStr = l.metadata
+      ? Object.entries(l.metadata)
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+          .join(' | ')
+      : '-';
+
+    csvContent += `"${idx + 1}","${new Date(l.timestamp).toLocaleString('vi-VN')}","${l.actor}","${getLogActionFriendlyName(l.action)}","${(l.title || '').replace(/"/g, '""')}","${l.debtorName || '-'}","${l.amount || 0}","${(l.description || '').replace(/"/g, '""')}","${beforeStr.replace(/"/g, '""')}","${afterStr.replace(/"/g, '""')}","${metaStr.replace(/"/g, '""')}"\n`;
   });
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -745,11 +758,20 @@ export function exportGoogleSheetsCsvFile(payload: SyncDataPayload) {
     recordAuditLog({
       action: 'EXPORT_DATA',
       actor: 'Chủ Sổ (Admin)',
-      title: 'Xuất tệp sao lưu CSV',
+      title: 'Xuất tệp sao lưu CSV 4 bảng',
       description: `Đã xuất tệp dữ liệu chuẩn 4 bảng (${debtors.length} người nợ, ${transactions.length} giao dịch, ${parties.length} cuộc vui, ${logsToExport.length} nhật ký).`,
       beforeState: 'Dữ liệu trên ứng dụng',
       afterState: 'Đã tạo tệp CSV tải về thiết bị',
-      changes: [{ fieldLabel: 'Xuất bảng tính', before: 'Hệ thống', after: 'Tệp CSV 4 bảng' }],
+      changes: [
+        { fieldLabel: 'Xuất bảng tính', before: 'Hệ thống', after: 'Tệp CSV 4 bảng' },
+        { fieldLabel: 'Quy mô dữ liệu', before: '-', after: `${debtors.length} người nợ · ${transactions.length} GD · ${parties.length} cuộc vui · ${logsToExport.length} log` },
+      ],
+      metadata: {
+        debtorsCount: debtors.length,
+        transactionsCount: transactions.length,
+        partiesCount: parties.length,
+        auditLogsCount: logsToExport.length,
+      },
     });
   } catch {
     // ignore
@@ -1467,15 +1489,25 @@ export async function syncViaAppsScript(
   });
 
   const now = new Date().toISOString();
+  const logsCount = (payload.auditLogs || loadAuditLogs()).length;
   try {
     recordAuditLog({
       action: 'SYNC_SHEETS',
       actor: 'Chủ Sổ (Admin)',
       title: 'Đồng bộ Google Sheets (Apps Script)',
-      description: `Đã đồng bộ ${payload.debtors.length} người nợ, ${payload.transactions.length} giao dịch sang Google Sheet qua Apps Script Web App.`,
+      description: `Đã đồng bộ 4 bảng (${payload.debtors.length} người nợ, ${payload.transactions.length} giao dịch, ${payload.parties.length} cuộc vui, ${logsCount} nhật ký) sang Google Sheet qua Apps Script Web App.`,
       beforeState: 'Bắt đầu gửi dữ liệu sang Google Sheet',
-      afterState: 'Đã hoàn tất đồng bộ qua Apps Script Web App',
-      changes: [{ fieldLabel: 'Phương thức', before: 'Trực tiếp', after: 'Google Apps Script Web App' }],
+      afterState: 'Đã hoàn tất đồng bộ 4 bảng qua Apps Script Web App',
+      changes: [
+        { fieldLabel: 'Phương thức', before: '-', after: 'Google Apps Script Web App' },
+        { fieldLabel: 'Quy mô đồng bộ', before: '-', after: `${payload.debtors.length} người nợ · ${payload.transactions.length} GD · ${payload.parties.length} cuộc vui · ${logsCount} nhật ký` },
+      ],
+      metadata: {
+        debtorsCount: payload.debtors.length,
+        transactionsCount: payload.transactions.length,
+        partiesCount: payload.parties.length,
+        auditLogsCount: logsCount,
+      },
     });
   } catch {
     // ignore

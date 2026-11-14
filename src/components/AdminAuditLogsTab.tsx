@@ -27,6 +27,15 @@ import {
   ArrowRight,
   History,
   AlertCircle,
+  Cloud,
+  Lock,
+  ScanFace,
+  Share2,
+  Image as ImageIcon,
+  ChevronDown,
+  ChevronUp,
+  Smartphone,
+  ArrowLeft,
 } from 'lucide-react';
 import { AuditLog, Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
@@ -45,7 +54,8 @@ interface AdminAuditLogsTabProps {
   parties: PartySplit[];
   settings: AppSettings;
   onSaveSettings: (newSettings: AppSettings) => Promise<any> | void;
-  showToast: (msg: string, type?: 'success' | 'info') => void;
+  showToast?: (msg: string, type?: 'success' | 'info') => void;
+  onGoBack?: () => void;
 }
 
 export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
@@ -56,8 +66,18 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
   parties,
   settings,
   onSaveSettings,
-  showToast,
+  showToast: externalShowToast,
+  onGoBack,
 }) => {
+  const [internalToast, setInternalToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    if (externalShowToast) {
+      externalShowToast(message, type);
+      return;
+    }
+    setInternalToast({ message, type });
+    setTimeout(() => setInternalToast(null), 4000);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [filterActionGroup, setFilterActionGroup] = useState<
     'ALL' | 'TRANSACTION' | 'LOOKUP' | 'DEBTOR' | 'PARTY' | 'SECURITY' | 'SYSTEM' | 'ERRORS'
@@ -66,6 +86,18 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [expandedMetaIds, setExpandedMetaIds] = useState<Record<string, boolean>>({});
+  const [visibleCount, setVisibleCount] = useState<number>(50);
+
+  const toggleMetadata = (id: string) => {
+    triggerHaptic('selection');
+    setExpandedMetaIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setVisibleCount(50);
+  }, [filterActionGroup, dateFilter, searchQuery]);
 
   // Filter logic
   const filteredLogs = useMemo(() => {
@@ -79,7 +111,9 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
         )
       );
     } else if (filterActionGroup === 'LOOKUP') {
-      result = result.filter((l) => ['GUEST_LOOKUP', 'LOOKUP_FAILED'].includes(l.action));
+      result = result.filter((l) =>
+        ['GUEST_LOOKUP', 'LOOKUP_FAILED', 'SHARE_REMINDER', 'VIEW_RECEIPT'].includes(l.action)
+      );
     } else if (filterActionGroup === 'DEBTOR') {
       result = result.filter((l) =>
         ['ADD_DEBTOR', 'UPDATE_DEBTOR', 'DELETE_DEBTOR'].includes(l.action)
@@ -90,11 +124,11 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
       );
     } else if (filterActionGroup === 'SECURITY') {
       result = result.filter((l) =>
-        ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT'].includes(l.action)
+        ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'AUTO_LOCK', 'BIOMETRIC_AUTH'].includes(l.action)
       );
     } else if (filterActionGroup === 'SYSTEM') {
       result = result.filter((l) =>
-        ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'RESTORE_DATA', 'CLEAR_DATA', 'EXPORT_DATA'].includes(l.action)
+        ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'CLOUD_SYNC', 'RESTORE_DATA', 'CLEAR_DATA', 'EXPORT_DATA', 'EXPORT_STATEMENT'].includes(l.action)
       );
     } else if (filterActionGroup === 'ERRORS') {
       result = result.filter((l) =>
@@ -118,16 +152,29 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
       });
     }
 
-    // Filter by search query
+    // Filter by search query (includes changes & metadata)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter((l) => {
+        const changesHit = l.changes?.some(
+          (c) =>
+            c.fieldLabel.toLowerCase().includes(q) ||
+            String(c.before ?? '').toLowerCase().includes(q) ||
+            String(c.after ?? '').toLowerCase().includes(q)
+        );
+        const metaHit = l.metadata
+          ? JSON.stringify(l.metadata).toLowerCase().includes(q)
+          : false;
         return (
+          l.id.toLowerCase().includes(q) ||
+          l.action.toLowerCase().includes(q) ||
           l.title.toLowerCase().includes(q) ||
           l.description.toLowerCase().includes(q) ||
           (l.debtorName && l.debtorName.toLowerCase().includes(q)) ||
           l.actor.toLowerCase().includes(q) ||
-          (l.amount && String(l.amount).includes(q))
+          (l.amount && String(l.amount).includes(q)) ||
+          Boolean(changesHit) ||
+          metaHit
         );
       });
     }
@@ -135,6 +182,10 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     // Sort newest first
     return result.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
   }, [auditLogs, filterActionGroup, dateFilter, searchQuery]);
+
+  const displayedLogs = useMemo(() => {
+    return filteredLogs.slice(0, visibleCount);
+  }, [filteredLogs, visibleCount]);
 
   // Master Sync to Google Sheets (4 Tabs together: Debtors, Transactions, Parties, and Audit Logs)
   const handleMasterSyncToGoogleSheets = async () => {
@@ -259,143 +310,303 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     switch (action) {
       case 'ADD_TRANSACTION':
         return {
-          icon: <PlusCircle className="w-4 h-4 text-emerald-600" />,
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/90',
+          icon: <PlusCircle className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
           label: 'Ghi nợ (+)',
         };
       case 'UPDATE_TRANSACTION':
         return {
-          icon: <Edit3 className="w-4 h-4 text-blue-600" />,
-          bg: 'bg-blue-50 text-blue-700 border-blue-200/90',
+          icon: <Edit3 className="w-4 h-4 text-blue-700" />,
+          iconBox: 'bg-blue-100 text-blue-700',
+          card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
+          labelColor: 'text-blue-700',
           label: 'Cập nhật / Thu (-)',
         };
       case 'DELETE_TRANSACTION':
         return {
-          icon: <Trash2 className="w-4 h-4 text-rose-600" />,
-          bg: 'bg-rose-50 text-rose-700 border-rose-200/90',
+          icon: <Trash2 className="w-4 h-4 text-rose-700" />,
+          iconBox: 'bg-rose-100 text-rose-700',
+          card: 'bg-rose-50/20 hover:bg-rose-50/40 border-rose-200/80 border-l-rose-500',
+          labelColor: 'text-rose-700',
           label: 'Xóa giao dịch',
         };
       case 'SETTLE_DEBT':
         return {
-          icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />,
-          bg: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          icon: <CheckCircle2 className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
           label: 'Tất toán sạch nợ (0đ)',
         };
       case 'ADD_DEBTOR':
         return {
-          icon: <UserPlus className="w-4 h-4 text-teal-600" />,
-          bg: 'bg-teal-50 text-teal-700 border-teal-200/90',
+          icon: <UserPlus className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
           label: 'Thêm người nợ',
         };
       case 'UPDATE_DEBTOR':
         return {
-          icon: <KeyRound className="w-4 h-4 text-amber-600" />,
-          bg: 'bg-amber-50 text-amber-700 border-amber-200/90',
+          icon: <KeyRound className="w-4 h-4 text-amber-700" />,
+          iconBox: 'bg-amber-100 text-amber-800',
+          card: 'bg-amber-50/20 hover:bg-amber-50/40 border-amber-200/80 border-l-amber-500',
+          labelColor: 'text-amber-700',
           label: 'Sửa người nợ',
         };
       case 'DELETE_DEBTOR':
         return {
-          icon: <UserX className="w-4 h-4 text-rose-600" />,
-          bg: 'bg-rose-50 text-rose-700 border-rose-200/90',
+          icon: <UserX className="w-4 h-4 text-rose-700" />,
+          iconBox: 'bg-rose-100 text-rose-700',
+          card: 'bg-rose-50/20 hover:bg-rose-50/40 border-rose-200/80 border-l-rose-500',
+          labelColor: 'text-rose-700',
           label: 'Xóa người nợ',
         };
       case 'ADD_PARTY':
         return {
-          icon: <Users className="w-4 h-4 text-purple-600" />,
-          bg: 'bg-purple-50 text-purple-700 border-purple-200/90',
+          icon: <Users className="w-4 h-4 text-amber-800" />,
+          iconBox: 'bg-amber-100 text-amber-800',
+          card: 'bg-amber-50/20 hover:bg-amber-50/40 border-amber-200/80 border-l-amber-500',
+          labelColor: 'text-amber-700',
           label: 'Chia bill nhóm',
         };
       case 'UPDATE_PARTY':
         return {
-          icon: <Edit3 className="w-4 h-4 text-purple-600" />,
-          bg: 'bg-purple-50 text-purple-700 border-purple-200/90',
+          icon: <Edit3 className="w-4 h-4 text-amber-800" />,
+          iconBox: 'bg-amber-100 text-amber-800',
+          card: 'bg-amber-50/20 hover:bg-amber-50/40 border-amber-200/80 border-l-amber-500',
+          labelColor: 'text-amber-700',
           label: 'Sửa chia bill',
         };
       case 'DELETE_PARTY':
         return {
-          icon: <Trash2 className="w-4 h-4 text-rose-600" />,
-          bg: 'bg-rose-50 text-rose-700 border-rose-200/90',
+          icon: <Trash2 className="w-4 h-4 text-rose-700" />,
+          iconBox: 'bg-rose-100 text-rose-700',
+          card: 'bg-rose-50/20 hover:bg-rose-50/40 border-rose-200/80 border-l-rose-500',
+          labelColor: 'text-rose-700',
           label: 'Xóa chia bill',
         };
       case 'UPDATE_SETTINGS':
         return {
           icon: <Settings className="w-4 h-4 text-slate-700" />,
-          bg: 'bg-slate-100 text-slate-700 border-slate-200',
+          iconBox: 'bg-slate-200/80 text-slate-700',
+          card: 'bg-slate-50/50 hover:bg-slate-50/90 border-slate-200/80 border-l-slate-500',
+          labelColor: 'text-slate-600',
           label: 'Cài đặt hệ thống',
         };
       case 'SYNC_SHEETS':
         return {
-          icon: <FileSpreadsheet className="w-4 h-4 text-emerald-600" />,
-          bg: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+          icon: <FileSpreadsheet className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
           label: 'Google Sheets',
+        };
+      case 'CLOUD_SYNC':
+        return {
+          icon: <Cloud className="w-4 h-4 text-blue-700" />,
+          iconBox: 'bg-blue-100 text-blue-700',
+          card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
+          labelColor: 'text-blue-700',
+          label: 'Cloud Firestore',
         };
       case 'GUEST_LOOKUP':
         return {
-          icon: <Eye className="w-4 h-4 text-cyan-600" />,
-          bg: 'bg-cyan-50 text-cyan-800 border-cyan-300',
+          icon: <Eye className="w-4 h-4 text-blue-700" />,
+          iconBox: 'bg-blue-100 text-blue-700',
+          card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
+          labelColor: 'text-blue-700',
           label: 'Khách tra cứu',
         };
       case 'LOOKUP_FAILED':
         return {
-          icon: <AlertCircle className="w-4 h-4 text-amber-600" />,
-          bg: 'bg-amber-50 text-amber-800 border-amber-300',
+          icon: <AlertCircle className="w-4 h-4 text-amber-700" />,
+          iconBox: 'bg-amber-100 text-amber-800',
+          card: 'bg-amber-50/20 hover:bg-amber-50/40 border-amber-200/80 border-l-amber-500',
+          labelColor: 'text-amber-700',
           label: 'Tra cứu thất bại',
         };
       case 'GUEST_REPORT':
         return {
-          icon: <CheckCircle2 className="w-4 h-4 text-amber-600" />,
-          bg: 'bg-amber-50 text-amber-800 border-amber-300',
+          icon: <CheckCircle2 className="w-4 h-4 text-amber-800" />,
+          iconBox: 'bg-amber-100 text-amber-800',
+          card: 'bg-amber-50/20 hover:bg-amber-50/40 border-amber-200/80 border-l-amber-500',
+          labelColor: 'text-amber-700',
           label: 'Khách báo CK',
         };
       case 'LOGIN_SUCCESS':
         return {
-          icon: <ShieldCheck className="w-4 h-4 text-emerald-600" />,
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          icon: <ShieldCheck className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
           label: 'Đăng nhập thành công',
+        };
+      case 'BIOMETRIC_AUTH':
+        return {
+          icon: <ScanFace className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
+          label: 'FaceID / Sinh trắc học',
         };
       case 'LOGIN_FAILED':
         return {
-          icon: <AlertCircle className="w-4 h-4 text-rose-600" />,
-          bg: 'bg-rose-50 text-rose-700 border-rose-300',
+          icon: <AlertCircle className="w-4 h-4 text-rose-700" />,
+          iconBox: 'bg-rose-100 text-rose-700',
+          card: 'bg-rose-50/20 hover:bg-rose-50/40 border-rose-200/80 border-l-rose-500',
+          labelColor: 'text-rose-700',
           label: 'Đăng nhập thất bại',
         };
       case 'LOGOUT':
         return {
-          icon: <LogOut className="w-4 h-4 text-slate-600" />,
-          bg: 'bg-slate-100 text-slate-700 border-slate-200',
+          icon: <LogOut className="w-4 h-4 text-slate-700" />,
+          iconBox: 'bg-slate-200/80 text-slate-700',
+          card: 'bg-slate-50/50 hover:bg-slate-50/90 border-slate-200/80 border-l-slate-400',
+          labelColor: 'text-slate-600',
           label: 'Đăng xuất',
+        };
+      case 'AUTO_LOCK':
+        return {
+          icon: <Lock className="w-4 h-4 text-amber-800" />,
+          iconBox: 'bg-amber-100 text-amber-800',
+          card: 'bg-amber-50/20 hover:bg-amber-50/40 border-amber-200/80 border-l-amber-500',
+          labelColor: 'text-amber-700',
+          label: 'Tự động khóa',
         };
       case 'EXPORT_DATA':
         return {
-          icon: <Download className="w-4 h-4 text-indigo-600" />,
-          bg: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-          label: 'Xuất dữ liệu / CSV',
+          icon: <Download className="w-4 h-4 text-blue-700" />,
+          iconBox: 'bg-blue-100 text-blue-700',
+          card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
+          labelColor: 'text-blue-700',
+          label: 'Xuất JSON / CSV',
+        };
+      case 'EXPORT_STATEMENT':
+        return {
+          icon: <Download className="w-4 h-4 text-blue-700" />,
+          iconBox: 'bg-blue-100 text-blue-700',
+          card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
+          labelColor: 'text-blue-700',
+          label: 'Xuất bảng kê / QR',
+        };
+      case 'SHARE_REMINDER':
+        return {
+          icon: <Share2 className="w-4 h-4 text-emerald-700" />,
+          iconBox: 'bg-emerald-100 text-emerald-700',
+          card: 'bg-emerald-50/20 hover:bg-emerald-50/40 border-emerald-200/80 border-l-emerald-500',
+          labelColor: 'text-emerald-700',
+          label: 'Chép / Gửi nhắc nợ',
+        };
+      case 'VIEW_RECEIPT':
+        return {
+          icon: <ImageIcon className="w-4 h-4 text-slate-700" />,
+          iconBox: 'bg-slate-200/80 text-slate-700',
+          card: 'bg-slate-50/50 hover:bg-slate-50/90 border-slate-200/80 border-l-slate-400',
+          labelColor: 'text-slate-600',
+          label: 'Xem ảnh chứng từ',
         };
       case 'RESTORE_DATA':
         return {
-          icon: <History className="w-4 h-4 text-blue-600" />,
-          bg: 'bg-blue-50 text-blue-700 border-blue-200',
+          icon: <History className="w-4 h-4 text-blue-700" />,
+          iconBox: 'bg-blue-100 text-blue-700',
+          card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
+          labelColor: 'text-blue-700',
           label: 'Khôi phục dữ liệu',
         };
       case 'CLEAR_DATA':
         return {
-          icon: <Trash2 className="w-4 h-4 text-rose-600" />,
-          bg: 'bg-rose-50 text-rose-700 border-rose-200',
+          icon: <Trash2 className="w-4 h-4 text-rose-700" />,
+          iconBox: 'bg-rose-100 text-rose-700',
+          card: 'bg-rose-50/20 hover:bg-rose-50/40 border-rose-200/80 border-l-rose-500',
+          labelColor: 'text-rose-700',
           label: 'Xóa dữ liệu / Dọn dẹp',
         };
       case 'OPERATION_FAILED':
         return {
-          icon: <AlertCircle className="w-4 h-4 text-rose-600" />,
-          bg: 'bg-rose-50 text-rose-800 border-rose-300',
+          icon: <AlertCircle className="w-4 h-4 text-rose-700" />,
+          iconBox: 'bg-rose-100 text-rose-700',
+          card: 'bg-rose-50/20 hover:bg-rose-50/40 border-rose-200/80 border-l-rose-500',
+          labelColor: 'text-rose-700',
           label: 'Lỗi thao tác',
         };
       default:
         return {
-          icon: <ClipboardList className="w-4 h-4 text-slate-600" />,
-          bg: 'bg-slate-50 text-slate-700 border-slate-200',
+          icon: <ClipboardList className="w-4 h-4 text-slate-700" />,
+          iconBox: 'bg-slate-200/80 text-slate-700',
+          card: 'bg-slate-50/50 hover:bg-slate-50/90 border-slate-200/80 border-l-slate-400',
+          labelColor: 'text-slate-600',
           label: 'Thao tác',
         };
     }
+  };
+
+  const METADATA_LABELS: Record<string, string> = {
+    recordedAtLocal: 'Giờ thiết bị',
+    device: 'Thiết bị / Trình duyệt',
+    appMode: 'Chế độ chạy',
+    viewport: 'Khung hình',
+    online: 'Trạng thái mạng',
+    authChannel: 'Kênh xác thực',
+    loginMethod: 'Phương thức ĐN',
+    transactionId: 'Mã GD',
+    partyId: 'Mã cuộc vui',
+    debtorId: 'Mã người nợ',
+    date: 'Ngày phát sinh',
+    type: 'Loại',
+    category: 'Phân loại',
+    prevBalance: 'Dư nợ trước',
+    newBalance: 'Dư nợ sau',
+    afterBalance: 'Dư nợ sau xóa',
+    projectedBalance: 'Dư nợ dự kiến',
+    prevTxCount: 'Số GD trước',
+    newTxCount: 'Số GD sau',
+    remainingTxCount: 'Số GD còn lại',
+    hasBillImage: 'Có ảnh hóa đơn',
+    hadBillImage: 'Từng có ảnh hóa đơn',
+    isSettled: 'Tất toán 0đ',
+    pin: 'Mã PIN',
+    source: 'Nguồn tra cứu',
+    totalAdd: 'Tổng ghi nợ (+)',
+    totalSub: 'Tổng đã trả (-)',
+    txCount: 'Tổng số GD',
+    splitCount: 'Số bill nhóm',
+    totalAmount: 'Tổng tiền bill',
+    splitAmountPerPerson: 'Mỗi người',
+    totalPeopleCount: 'Tổng số người',
+    payerName: 'Người trả trước',
+    participants: 'Thành viên',
+    addedParticipants: 'Thành viên mới thêm',
+    removedParticipants: 'Thành viên đã gỡ',
+    databaseId: 'Firestore DB',
+    totalLatencyMs: 'Độ trễ phản hồi',
+    clientPingMs: 'Ping trực tiếp',
+    direction: 'Hướng đồng bộ',
+    filename: 'Tên tệp',
+    method: 'Hình thức',
+    verificationHash: 'Mã đối soát',
+    autoLockTimeout: 'Cấu hình tự khóa',
+    elapsedMs: 'Thời gian ẩn (ms)',
+    debtorsCount: 'Số người nợ',
+    transactionsCount: 'Số giao dịch',
+    partiesCount: 'Số cuộc vui',
+    auditLogsCount: 'Số nhật ký',
+  };
+
+  const formatMetaValue = (key: string, val: any): string => {
+    if (val === undefined || val === null || val === '') return '';
+    if (typeof val === 'boolean') return val ? 'Có' : 'Không';
+    if (Array.isArray(val)) return val.join(', ');
+    if (
+      typeof val === 'number' &&
+      ['prevBalance', 'newBalance', 'afterBalance', 'projectedBalance', 'balance', 'totalAdd', 'totalSub', 'totalAmount', 'splitAmountPerPerson', 'deletedBalance', 'deletedAddTotal', 'deletedSubTotal', 'amount'].includes(key)
+    ) {
+      return `${formatVND(val)} VNĐ`;
+    }
+    if (key === 'totalLatencyMs' || key === 'clientPingMs') return `${val} ms`;
+    return String(val);
   };
 
   const spreadsheetUrl = settings.googleSheetUrl;
@@ -404,31 +615,35 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     : null;
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* 1. Header Banner & Actions - GIAO DIỆN SÁNG ĐỒNG NHẤT, CHỈ CÓ NHẬT KÝ, KHÔNG THỐNG KÊ */}
-      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="p-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-              <ClipboardList className="w-5 h-5" />
-            </span>
-            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
-              Nhật Ký Thao Tác &amp; Kiểm Vết
-            </span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-              Audit Trail
-            </span>
+    <div className="w-full max-w-5xl mx-auto space-y-4 pb-4 animate-in fade-in duration-150">
+      {/* 1. SINGLE HEADER BAR (Đồng nhất với trang Cài Đặt) */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {onGoBack && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('selection');
+                onGoBack();
+              }}
+              className="p-2 rounded-2xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 transition-colors flex items-center justify-center shrink-0 cursor-pointer shadow-2xs"
+              title="Quay lại Tổng quan"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight truncate">
+              Nhật Ký Hoạt Động
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5 truncate">
+              Lưu {auditLogs.length}/500 bản ghi trên máy{lastSyncDateStr ? ` • Sheets: ${lastSyncDateStr}` : ''}
+            </p>
           </div>
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
-            Lịch Sử Kiểm Toán Hệ Thống
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-xl">
-            Ghi nhận chi tiết mọi thao tác nợ, thanh toán, chia bill, tra cứu và thay đổi hệ thống. Toàn bộ lịch sử được lưu trữ an toàn và đồng bộ sang Google Sheets.
-          </p>
         </div>
 
-        {/* Action Buttons: Làm Mới, Xuất CSV, Làm Sạch Nhật Ký */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
           {onRefreshLogs && (
             <button
               type="button"
@@ -437,35 +652,35 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
                 onRefreshLogs();
                 showToast('Đã làm mới danh sách nhật ký!', 'info');
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-bold border border-slate-200 shadow-2xs active:scale-95 transition-all cursor-pointer"
+              className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5"
               title="Tải lại danh sách nhật ký mới nhất"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+              <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
               <span>Làm mới</span>
+            </button>
+          )}
+
+          {settings.googleAppsScriptUrl && (
+            <button
+              type="button"
+              disabled={isSyncingSheets}
+              onClick={handleMasterSyncToGoogleSheets}
+              className="h-9 px-2.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold border border-emerald-200/90 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-60"
+              title="Đồng bộ dữ liệu & nhật ký sang Google Sheets"
+            >
+              <FileSpreadsheet className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingSheets ? 'animate-pulse' : ''}`} />
+              <span>{isSyncingSheets ? 'Đang gửi...' : 'Đồng bộ Sheets'}</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-bold border border-slate-200 shadow-2xs active:scale-95 transition-all cursor-pointer"
-            title="Xuất file CSV kiểm toán 4 bảng"
+            className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5"
+            title="Xuất file CSV 4 bảng (bao gồm Nhật ký)"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <Download className="w-3.5 h-3.5 text-slate-600" />
             <span>Xuất CSV</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('medium');
-              setShowClearConfirm(true);
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs sm:text-sm font-bold border border-rose-200 shadow-2xs active:scale-95 transition-all cursor-pointer"
-            title="Làm sạch danh sách nhật ký trên ứng dụng này (Dữ liệu trên Google Sheets luôn được bảo toàn)"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-            <span>Làm sạch nhật ký</span>
           </button>
 
           {spreadsheetUrl && (
@@ -473,50 +688,62 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
               href={spreadsheetUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs shadow-2xs transition-colors cursor-pointer border border-emerald-200"
+              className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5"
               title="Mở Google Sheets liên kết"
             >
               <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
               <span className="hidden sm:inline">Mở Sheets</span>
             </a>
           )}
+
+          {auditLogs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('medium');
+                setShowClearConfirm(true);
+              }}
+              className="h-9 px-2.5 sm:px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200/90 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5"
+              title="Làm sạch nhật ký trên thiết bị (Google Sheets được bảo toàn)"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span className="hidden sm:inline">Làm sạch</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* 3. Search & Filter Bar */}
-      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-3.5">
+      {/* 2. TOOLBAR TÌM KIẾM & BỘ LỌC (Đồng nhất với thanh điều khiển Tổng quan) */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
           {/* Search Input */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm kiếm theo người nợ, nội dung, số tiền..."
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+              placeholder="Tìm theo người nợ, hành động, số tiền, thiết bị..."
+              className="w-full h-9 sm:h-10 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Date Filter */}
-          <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto pb-1 sm:pb-0">
-            <span className="text-xs text-slate-400 font-bold hidden sm:inline flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5" /> Thời gian:
-            </span>
+          {/* Date Filter (Segmented style matching Header/OwnerDashboard) */}
+          <div className="flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shrink-0 overflow-x-auto no-scrollbar">
             {(
               [
                 { id: 'ALL', label: 'Tất cả' },
                 { id: 'TODAY', label: 'Hôm nay' },
-                { id: '7_DAYS', label: '7 ngày qua' },
+                { id: '7_DAYS', label: '7 ngày' },
                 { id: '30_DAYS', label: '30 ngày' },
               ] as const
             ).map((opt) => (
@@ -527,10 +754,10 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
                   triggerHaptic('selection');
                   setDateFilter(opt.id);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   dateFilter === opt.id
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
+                    ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {opt.label}
@@ -539,21 +766,23 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           </div>
         </div>
 
-        {/* Action Group Filter Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-2 border-t border-slate-100 no-scrollbar">
+        {/* Category Filter Segmented Tabs */}
+        <div className="flex items-center gap-1 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80 overflow-x-auto no-scrollbar">
           {(
             [
               { id: 'ALL', label: 'Tất cả', count: auditLogs.length },
               {
-                id: 'LOOKUP',
-                label: 'Khách tra cứu',
-                count: auditLogs.filter((l) => ['GUEST_LOOKUP', 'LOOKUP_FAILED'].includes(l.action)).length,
-              },
-              {
                 id: 'TRANSACTION',
-                label: 'Giao dịch (+ / -)',
+                label: 'Giao dịch',
                 count: auditLogs.filter((l) =>
                   ['ADD_TRANSACTION', 'UPDATE_TRANSACTION', 'DELETE_TRANSACTION', 'SETTLE_DEBT', 'GUEST_REPORT'].includes(l.action)
+                ).length,
+              },
+              {
+                id: 'LOOKUP',
+                label: 'Tra cứu & Nhắc nợ',
+                count: auditLogs.filter((l) =>
+                  ['GUEST_LOOKUP', 'LOOKUP_FAILED', 'SHARE_REMINDER', 'VIEW_RECEIPT'].includes(l.action)
                 ).length,
               },
               {
@@ -565,276 +794,317 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
               },
               {
                 id: 'PARTY',
-                label: 'Chia bill nhóm',
+                label: 'Chia bill',
                 count: auditLogs.filter((l) =>
                   ['ADD_PARTY', 'UPDATE_PARTY', 'DELETE_PARTY'].includes(l.action)
                 ).length,
               },
               {
                 id: 'SECURITY',
-                label: 'Bảo mật & Đăng nhập',
+                label: 'Bảo mật',
                 count: auditLogs.filter((l) =>
-                  ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT'].includes(l.action)
+                  ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'AUTO_LOCK', 'BIOMETRIC_AUTH'].includes(l.action)
                 ).length,
               },
               {
                 id: 'SYSTEM',
-                label: 'Cài đặt & Đồng bộ',
+                label: 'Đồng bộ & Cài đặt',
                 count: auditLogs.filter((l) =>
-                  ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'RESTORE_DATA', 'CLEAR_DATA', 'EXPORT_DATA'].includes(l.action)
+                  ['UPDATE_SETTINGS', 'SYNC_SHEETS', 'CLOUD_SYNC', 'RESTORE_DATA', 'CLEAR_DATA', 'EXPORT_DATA', 'EXPORT_STATEMENT'].includes(l.action)
                 ).length,
               },
               {
                 id: 'ERRORS',
-                label: 'Lỗi thao tác',
+                label: 'Lỗi',
                 count: auditLogs.filter((l) =>
                   ['OPERATION_FAILED', 'LOGIN_FAILED', 'LOOKUP_FAILED'].includes(l.action)
                 ).length,
               },
             ] as const
-          ).map((chip) => (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => {
-                triggerHaptic('selection');
-                setFilterActionGroup(chip.id);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-                filterActionGroup === chip.id
-                  ? chip.id === 'ERRORS'
-                    ? 'bg-rose-600 text-white shadow-xs'
-                    : 'bg-emerald-600 text-white shadow-xs'
-                  : chip.id === 'ERRORS' && chip.count > 0
-                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                  : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
-              }`}
-            >
-              <span>{chip.label}</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  filterActionGroup === chip.id
-                    ? 'bg-white/25 text-white'
+          ).map((chip) => {
+            const isActive = filterActionGroup === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => {
+                  triggerHaptic('selection');
+                  setFilterActionGroup(chip.id);
+                }}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                     : chip.id === 'ERRORS' && chip.count > 0
-                    ? 'bg-rose-200 text-rose-800'
-                    : 'bg-slate-200 text-slate-600'
+                    ? 'text-rose-700 hover:bg-rose-50/80'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                 }`}
               >
-                {chip.count}
-              </span>
-            </button>
-          ))}
+                <span>{chip.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${
+                    isActive
+                      ? chip.id === 'ERRORS'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-emerald-600 text-white'
+                      : chip.id === 'ERRORS' && chip.count > 0
+                      ? 'bg-rose-100 text-rose-700'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {chip.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* 4. Audit Logs Timeline List */}
-      <div className="space-y-3">
+      {/* 3. DANH SÁCH NHẬT KÝ (Đồng bộ phong cách thẻ TransactionRow bên Tổng quan) */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+            <ClipboardList className="w-4 h-4 text-emerald-600" />
+            <span>
+              Hiển thị <span className="font-mono text-slate-900">{displayedLogs.length}</span> /{' '}
+              <span className="font-mono text-slate-900">{filteredLogs.length}</span> bản ghi khớp bộ lọc
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400 hidden sm:inline">
+            Mới nhất lên đầu • Lưu cục bộ &amp; Sheets Tab 4
+          </span>
+        </div>
+
         {filteredLogs.length === 0 ? (
-          <div className="bg-white rounded-3xl p-10 text-center border border-slate-200/80 shadow-xs">
-            <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
-              <ClipboardList className="w-7 h-7 stroke-[1.5]" />
+          <div className="py-10 px-4 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+              <ClipboardList className="w-6 h-6 stroke-[1.6]" />
             </div>
-            <h4 className="text-base font-bold text-slate-800">Không tìm thấy bản ghi nào</h4>
+            <h4 className="text-sm font-bold text-slate-800">Không có bản ghi nào</h4>
             <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Không có thao tác nào khớp với bộ lọc hiện tại. Thử chọn &quot;Tất cả&quot; hoặc xóa từ khóa tìm kiếm.
+              Chưa có hoạt động nào khớp với bộ lọc hiện tại. Hãy chọn &quot;Tất cả&quot; hoặc xóa từ khóa tìm kiếm.
             </p>
           </div>
         ) : (
-          filteredLogs.map((log) => {
-            const badge = getActionBadge(log.action);
-            return (
-              <motion.div
-                key={log.id}
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-                className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/80 hover:border-emerald-300 shadow-2xs hover:shadow-xs transition-all"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  {/* Left: Badge, Title, Description */}
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div
-                      className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 border mt-0.5 ${badge.bg}`}
-                    >
-                      {badge.icon}
+          <div className="space-y-2.5">
+            {displayedLogs.map((log) => {
+              const badge = getActionBadge(log.action);
+              const metaEntries = log.metadata
+                ? Object.entries(log.metadata).filter(([, v]) => v !== undefined && v !== null && v !== '')
+                : [];
+              const isMetaExpanded = Boolean(expandedMetaIds[log.id]);
+
+              return (
+                <div
+                  key={log.id}
+                  className={`p-3 sm:p-4 rounded-2xl border border-l-4 transition-all space-y-2 shadow-2xs ${badge.card}`}
+                >
+                  {/* Row Header: Icon + Title/Meta on Left, Amount + Action Label on Right */}
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${badge.iconBox}`}>
+                        {badge.icon}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <h3 className="font-bold text-slate-900 text-xs sm:text-sm leading-snug break-words">
+                            {log.title}
+                          </h3>
+                          {log.debtorName && (
+                            <span className="text-[11px] font-bold text-emerald-700">
+                              • {log.debtorName}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-slate-500">
+                          <span className="font-medium text-slate-600">{log.actor}</span>
+                          <span>•</span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            {formatLogTime(log.timestamp)}
+                          </span>
+                          {log.metadata?.device && (
+                            <>
+                              <span className="hidden sm:inline">•</span>
+                              <span className="hidden sm:inline-flex items-center gap-1 text-slate-400">
+                                <Smartphone className="w-3 h-3" />
+                                {log.metadata.device}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug">
-                          {log.title}
-                        </span>
-
-                        <span
-                          className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${badge.bg}`}
-                        >
-                          {badge.label}
-                        </span>
-
-                        {log.actor && (
-                          <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-lg">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            {log.actor}
-                          </span>
-                        )}
+                    {/* Right: Amount + Action Tag */}
+                    <div className="text-right shrink-0">
+                      {log.amount !== undefined && log.amount > 0 && (
+                        <div className={`font-black font-mono text-sm sm:text-base tabular-nums tracking-tight ${badge.labelColor}`}>
+                          {log.action === 'ADD_TRANSACTION' ? '+' : ''}
+                          {formatVND(log.amount)} VNĐ
+                        </div>
+                      )}
+                      <div className={`text-[11px] font-bold ${badge.labelColor}`}>
+                        {badge.label}
                       </div>
+                    </div>
+                  </div>
 
-                      <p className="text-xs sm:text-sm text-slate-700 font-medium leading-relaxed break-words">
-                        {log.description}
-                      </p>
+                  {/* Description */}
+                  <p className="text-xs text-slate-700 leading-relaxed break-words pl-10.5">
+                    {log.description}
+                  </p>
 
-                      {/* Extra tags (Debtor, Amount, Metadata) */}
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        {log.debtorName && (
-                          <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            {log.debtorName}
-                          </span>
-                        )}
-
-                        {log.amount !== undefined && log.amount > 0 && (
-                          <span
-                            className={`text-xs font-black font-mono px-2 py-0.5 rounded-md border ${
-                              log.action === 'ADD_TRANSACTION'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : log.action === 'UPDATE_TRANSACTION' || log.action === 'SETTLE_DEBT'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-slate-50 text-slate-700 border-slate-200'
-                            }`}
-                          >
-                            {log.action === 'ADD_TRANSACTION' ? '+' : ''}
-                            {formatVND(log.amount)} VNĐ
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Before & After Info Box - THÔNG TIN TRƯỚC VÀ SAU THAY ĐỔI */}
-                      {(Boolean(log.changes && log.changes.length > 0) || Boolean(log.beforeState || log.afterState)) && (
-                        <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                            <History className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Thông tin trước &amp; sau thay đổi:</span>
-                          </div>
-
-                          {/* Specific Field Changes Table/List */}
-                          {log.changes && log.changes.length > 0 ? (
-                            <div className="rounded-xl overflow-hidden border border-slate-200/80 bg-slate-50/60 divide-y divide-slate-100 text-xs">
-                              {log.changes.map((c, cIdx) => (
-                                <div
-                                  key={cIdx}
-                                  className="p-2 sm:px-3 sm:py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5"
-                                >
-                                  <span className="font-semibold text-slate-600 sm:w-1/3 shrink-0">
-                                    {c.fieldLabel}:
-                                  </span>
-                                  <div className="flex items-center gap-2 flex-1 min-w-0 font-mono text-[11px] sm:text-xs">
-                                    <span
-                                      className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200/80 truncate max-w-[45%]"
-                                      title={String(c.before ?? '')}
-                                    >
-                                      {c.before !== undefined && c.before !== null && c.before !== ''
-                                        ? String(c.before)
-                                        : '(Trống)'}
-                                    </span>
-                                    <ArrowRight className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <span
-                                      className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/80 font-bold truncate max-w-[45%]"
-                                      title={String(c.after ?? '')}
-                                    >
-                                      {c.after !== undefined && c.after !== null && c.after !== ''
-                                        ? String(c.after)
-                                        : '(Trống)'}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                  {/* Before & After Field Diffs */}
+                  {(Boolean(log.changes && log.changes.length > 0) || Boolean(log.beforeState || log.afterState)) && (
+                    <div className="pl-0 sm:pl-10.5 space-y-2 pt-0.5">
+                      {log.changes && log.changes.length > 0 && (
+                        <div className="rounded-xl overflow-hidden border border-slate-200/80 bg-white/90 divide-y divide-slate-100 text-xs">
+                          {log.changes.map((c, cIdx) => (
+                            <div
+                              key={cIdx}
+                              className="px-3 py-2 flex flex-col sm:flex-row sm:items-start justify-between gap-1.5"
+                            >
+                              <span className="font-semibold text-slate-600 sm:w-1/3 shrink-0 pt-0.5">
+                                {c.fieldLabel}:
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0 font-mono text-[11px] sm:text-xs">
+                                <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200/80 break-words whitespace-pre-wrap max-w-full">
+                                  {c.before !== undefined && c.before !== null && c.before !== ''
+                                    ? String(c.before)
+                                    : '(Trống)'}
+                                </span>
+                                <ArrowRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/80 font-bold break-words whitespace-pre-wrap max-w-full">
+                                  {c.after !== undefined && c.after !== null && c.after !== ''
+                                    ? String(c.after)
+                                    : '(Trống)'}
+                                </span>
+                              </div>
                             </div>
-                          ) : (
-                            /* State Summary Comparison */
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                              {log.beforeState && (
-                                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                    Trước thay đổi:
-                                  </span>
-                                  <p className="font-mono text-[11px] text-slate-600 break-words leading-relaxed">
-                                    {typeof log.beforeState === 'object'
-                                      ? JSON.stringify(log.beforeState)
-                                      : log.beforeState}
-                                  </p>
-                                </div>
-                              )}
-                              {log.afterState && (
-                                <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-200/70 space-y-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                                    Sau thay đổi:
-                                  </span>
-                                  <p className="font-mono text-[11px] font-semibold text-emerald-900 break-words leading-relaxed">
-                                    {typeof log.afterState === 'object'
-                                      ? JSON.stringify(log.afterState)
-                                      : log.afterState}
-                                  </p>
-                                </div>
-                              )}
+                          ))}
+                        </div>
+                      )}
+
+                      {(Boolean(log.beforeState || log.afterState) && (!log.changes || log.changes.length === 0 || isMetaExpanded)) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          {log.beforeState && (
+                            <div className="p-2.5 rounded-xl bg-white/90 border border-slate-200/80 space-y-0.5">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                Trước thay đổi
+                              </span>
+                              <p className="font-mono text-[11px] text-slate-600 break-words leading-relaxed">
+                                {typeof log.beforeState === 'object'
+                                  ? JSON.stringify(log.beforeState)
+                                  : log.beforeState}
+                              </p>
+                            </div>
+                          )}
+                          {log.afterState && (
+                            <div className="p-2.5 rounded-xl bg-white/90 border border-emerald-200/80 space-y-0.5">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                                Sau thay đổi
+                              </span>
+                              <p className="font-mono text-[11px] font-semibold text-emerald-900 break-words leading-relaxed">
+                                {typeof log.afterState === 'object'
+                                  ? JSON.stringify(log.afterState)
+                                  : log.afterState}
+                              </p>
                             </div>
                           )}
                         </div>
                       )}
                     </div>
-                  </div>
+                  )}
 
-                  {/* Right: Timestamp & ID */}
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 text-slate-400">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      {formatLogTime(log.timestamp)}
-                    </span>
+                  {/* Minimal Footer Row: Metadata Toggle & Log ID */}
+                  <div className="pl-0 sm:pl-10.5 pt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                    <div>
+                      {metaEntries.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleMetadata(log.id)}
+                          className="inline-flex items-center gap-1 font-semibold text-slate-500 hover:text-emerald-700 transition-colors cursor-pointer"
+                        >
+                          {isMetaExpanded ? (
+                            <>
+                              <ChevronUp className="w-3.5 h-3.5" />
+                              <span>Ẩn chi tiết ngữ cảnh ({metaEntries.length})</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="w-3.5 h-3.5" />
+                              <span>Xem ngữ cảnh &amp; thiết bị ({metaEntries.length})</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
 
                     <button
                       type="button"
                       onClick={(e) => handleCopyLogId(e, log.id)}
-                      className="text-[10px] font-mono text-slate-400 hover:text-slate-700 flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="text-[10px] font-mono text-slate-400 hover:text-slate-700 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-white/80 transition-colors cursor-pointer"
                       title="Sao chép mã kiểm vết"
                     >
                       {copiedId === log.id ? (
                         <>
                           <Check className="w-2.5 h-2.5 text-emerald-600" />
-                          <span className="text-emerald-700 font-bold">Đã chép ID</span>
+                          <span className="text-emerald-700 font-bold">Đã chép</span>
                         </>
                       ) : (
                         <>
                           <Copy className="w-2.5 h-2.5" />
-                          <span>{log.id.slice(0, 14)}...</span>
+                          <span>#{log.id.slice(0, 12)}</span>
                         </>
                       )}
                     </button>
                   </div>
+
+                  {/* Expanded Metadata Panel */}
+                  {isMetaExpanded && metaEntries.length > 0 && (
+                    <div className="sm:ml-10.5 p-2.5 rounded-xl bg-white/90 border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                      {metaEntries.map(([mKey, mVal]) => (
+                        <div key={mKey} className="flex items-baseline justify-between gap-2 border-b border-slate-100 last:border-b-0 pb-1">
+                          <span className="text-slate-500 font-semibold shrink-0">
+                            {METADATA_LABELS[mKey] || mKey}:
+                          </span>
+                          <span className="font-mono text-slate-800 font-medium text-right break-all">
+                            {formatMetaValue(mKey, mVal)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </motion.div>
-            );
-          })
+              );
+            })}
+
+            {filteredLogs.length > visibleCount && (
+              <div className="pt-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('light');
+                    setVisibleCount((prev) => prev + 50);
+                  }}
+                  className="px-5 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold shadow-2xs transition-all cursor-pointer active:scale-95"
+                >
+                  Xem thêm nhật ký cũ hơn ({filteredLogs.length - visibleCount} bản ghi còn lại)
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {/* 5. Footer Note & Clear Action */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs text-slate-500">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>
-            Nhật ký thao tác được lưu trữ chung với Google Sheets &amp; Google Drive tại tab <strong>&quot;Nhật Ký Thao Tác (Logs)&quot;</strong>.
-          </span>
-        </div>
-
-        {auditLogs.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowClearConfirm(true)}
-            className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline shrink-0 cursor-pointer"
-          >
-            Làm sạch nhật ký
-          </button>
-        )}
+      {/* 4. FOOTER LƯU TRỮ */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-2xl border border-slate-200/80 text-xs text-slate-500 shadow-2xs">
+        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+        <span>
+          Nhật ký lưu cục bộ (không tốn lượt đọc/ghi Cloud Firestore) và đồng bộ nối tiếp sang Google Sheets tại tab <strong>&quot;Nhật Ký Thao Tác (Logs)&quot;</strong>.
+        </span>
       </div>
 
       {/* Modal xác nhận làm sạch nhật ký */}
@@ -883,6 +1153,30 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Internal Toast Banner when rendered as a standalone page */}
+      <AnimatePresence>
+        {internalToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 z-50 pointer-events-none"
+          >
+            <div
+              className={`px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold flex items-center gap-2.5 ${
+                internalToast.type === 'success'
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/20'
+                  : 'bg-slate-800 text-white border-slate-700 shadow-slate-900/30'
+              }`}
+            >
+              <span>{internalToast.type === 'success' ? '✓' : 'ℹ'}</span>
+              <span>{internalToast.message}</span>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

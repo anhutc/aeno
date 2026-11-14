@@ -130,13 +130,19 @@ export type LogActionType =
   | 'GUEST_LOOKUP'
   | 'GUEST_REPORT'
   | 'SYNC_SHEETS'
+  | 'CLOUD_SYNC'
   | 'RESTORE_DATA'
   | 'CLEAR_DATA'
   | 'LOGIN_SUCCESS'
   | 'LOGIN_FAILED'
   | 'LOGOUT'
+  | 'AUTO_LOCK'
+  | 'BIOMETRIC_AUTH'
   | 'LOOKUP_FAILED'
   | 'EXPORT_DATA'
+  | 'EXPORT_STATEMENT'
+  | 'SHARE_REMINDER'
+  | 'VIEW_RECEIPT'
   | 'OPERATION_FAILED';
 
 export interface AuditChangeDetail {

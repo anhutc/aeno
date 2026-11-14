@@ -23,7 +23,7 @@ import { toPng, toBlob } from 'html-to-image';
 import QRCode from 'qrcode';
 import { Debtor, Transaction, AppSettings } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
-import { getDebtorStatement } from '../utils/storage';
+import { getDebtorStatement, recordAuditLog } from '../utils/storage';
 
 interface ShareDebtorImageModalProps {
   debtor: Debtor | null;
@@ -283,6 +283,41 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
     timeStyle: 'short',
   }).format(new Date());
 
+  const logStatementExport = (method: string) => {
+    try {
+      recordAuditLog({
+        action: 'EXPORT_STATEMENT',
+        actor: 'Chủ Sổ (Admin)',
+        title: `Xuất ảnh bảng kê công nợ: ${debtor.name}`,
+        description: `Đã ${method.toLowerCase()} bảng kê chi tiết công nợ của "${debtor.name}" (Dư nợ: ${formatVND(currentBalance)}, hiển thị ${displayItems.length}/${statement.length} giao dịch${showQr ? ', kèm mã VietQR' : ''}).`,
+        debtorId: debtor.id,
+        debtorName: debtor.name,
+        amount: Math.abs(currentBalance),
+        beforeState: `Bảng kê ${debtor.name} (${statement.length} giao dịch)`,
+        afterState: `Đã ${method} (Mã xác thực #${verificationHash})`,
+        changes: [
+          { fieldLabel: 'Hình thức xuất', before: '-', after: method },
+          { fieldLabel: 'Số giao dịch trên phiếu', before: '-', after: `${displayItems.length} / ${statement.length} GD` },
+          { fieldLabel: 'Số dư trên phiếu', before: '-', after: `${formatVND(currentBalance)}` },
+          { fieldLabel: 'Tùy chọn', before: '-', after: `${showQr ? 'Có QR' : 'Ẩn QR'} · ${showPin ? 'Hiện PIN' : 'Ẩn PIN'} · Sắp xếp ${txSort === 'desc' ? 'Mới nhất' : 'Cũ nhất'}` },
+        ],
+        metadata: {
+          method,
+          verificationHash,
+          balance: currentBalance,
+          displayedTxCount: displayItems.length,
+          totalTxCount: statement.length,
+          txLimit,
+          txSort,
+          showQr,
+          showPin,
+        },
+      });
+    } catch {
+      // ignore
+    }
+  };
+
   // Handle Download Image (Chụp từ captureCardRef kích thước chuẩn 590px đầy đủ)
   const handleDownloadImage = async () => {
     if (!captureCardRef.current) return;
@@ -302,6 +337,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
       link.download = `Bang_Ke_Giao_Dich_${safeName}.png`;
       link.href = dataUrl;
       link.click();
+      logStatementExport('Tải ảnh PNG bảng kê');
       setCopiedStatus('downloaded');
       setTimeout(() => setCopiedStatus(null), 3000);
     } catch (err: any) {
@@ -333,6 +369,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
       if (navigator.clipboard && navigator.clipboard.write) {
         const item = new ClipboardItem({ 'image/png': blob });
         await navigator.clipboard.write([item]);
+        logStatementExport('Sao chép ảnh bảng kê vào Clipboard');
         setCopiedStatus('copied');
         setTimeout(() => setCopiedStatus(null), 3000);
       } else {
@@ -369,6 +406,7 @@ export const ShareDebtorImageModal: React.FC<ShareDebtorImageModalProps> = ({
             title: `Bảng kê giao dịch - ${debtor.name}`,
             text: `Gửi bạn ${debtor.name} bảng kê chi tiết các giao dịch công nợ.`,
           });
+          logStatementExport('Chia sẻ ảnh bảng kê qua ứng dụng');
           return;
         }
       }

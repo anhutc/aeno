@@ -109,8 +109,17 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
       const res = await authenticateWithBiometrics();
       if (res.success) {
         if (res.passcode) {
-          await executeAuthentication(res.passcode);
+          await executeAuthentication(res.passcode, 'FACE_ID');
         } else {
+          recordAuditLog({
+            action: 'BIOMETRIC_AUTH',
+            actor: `Chủ Sổ (${settings.ownerName || 'Admin'})`,
+            title: 'Đăng nhập bằng FaceID / Vân tay',
+            description: 'Chủ sổ đã mở khóa nhanh thành công bằng sinh trắc học (FaceID / Touch ID) trên thiết bị này.',
+            beforeState: 'Màn hình khóa đăng nhập',
+            afterState: 'Đã xác thực phiên quản trị qua Sinh trắc học',
+            changes: [{ fieldLabel: 'Phương thức xác thực', before: 'Khóa', after: 'FaceID / Touch ID' }],
+          });
           onLoginOwnerSuccess();
         }
       } else if (res.message) {
@@ -121,7 +130,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           description: `Xác thực FaceID / Vân tay thất bại: ${res.message}`,
           beforeState: 'Yêu cầu quét FaceID / Vân tay',
           afterState: 'Thất bại',
-          changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: 'Thất bại' }],
+          changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: `Thất bại (${res.message})` }],
+          metadata: { method: 'FACE_ID', reason: res.message },
         });
         setError(res.message);
       }
@@ -134,6 +144,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         beforeState: 'Yêu cầu quét FaceID / Vân tay',
         afterState: 'Lỗi',
         changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: 'Lỗi' }],
+        metadata: { method: 'FACE_ID', error: err?.message },
       });
       setError(err?.message || 'Lỗi quét FaceID / Vân tay');
     } finally {
@@ -142,7 +153,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   };
 
   const executeAuthentication = useCallback(
-    async (codeToVerify: string) => {
+    async (codeToVerify: string, methodHint?: 'PASSWORD' | 'FACE_ID') => {
       const clean = codeToVerify.trim();
       if (!clean) {
         setError('Vui lòng nhập mật khẩu');
@@ -155,7 +166,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
       try {
         // 1. Kiểm tra xem có phải mật khẩu hoặc SĐT Quản lý hay không
-        const ownerRes = await loginOwner(clean);
+        const ownerRes = await loginOwner(clean, methodHint);
         if (ownerRes.success) {
           handleOwnerSuccess();
           return;
@@ -181,10 +192,27 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         const cleanPhone = clean.replace(/[\s.-]+/g, '');
         const localPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
 
+        const isPhoneMatch = Boolean(localPhone && cleanPhone === localPhone);
         if (
           (localOwnerPass && (clean === localOwnerPass || cleanLower === localOwnerPass.toLowerCase())) ||
-          (localPhone && cleanPhone === localPhone)
+          isPhoneMatch
         ) {
+          const authMethod =
+            methodHint === 'FACE_ID'
+              ? 'FaceID / Sinh trắc học'
+              : isPhoneMatch
+              ? 'Số điện thoại chủ sổ'
+              : 'Mật khẩu quản trị';
+          recordAuditLog({
+            action: methodHint === 'FACE_ID' ? 'BIOMETRIC_AUTH' : 'LOGIN_SUCCESS',
+            actor: `Chủ Sổ (${localSettings?.ownerName || 'Admin'})`,
+            title: methodHint === 'FACE_ID' ? 'Đăng nhập FaceID (Offline Cache)' : 'Đăng nhập quản trị (Offline Cache)',
+            description: `Chủ sổ đã đăng nhập thành công qua ${authMethod} từ bộ nhớ cục bộ.`,
+            beforeState: 'Chưa đăng nhập',
+            afterState: `Đã mở khóa phiên quản trị (${authMethod})`,
+            changes: [{ fieldLabel: 'Phương thức', before: 'Khóa', after: authMethod }],
+            metadata: { authChannel: 'Local Cache', loginMethod: authMethod },
+          });
           handleOwnerSuccess();
           return;
         }
@@ -195,13 +223,15 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         );
         if (localFound) {
           const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
-          const balance = localTxs.reduce((acc, t) => acc + (t.type === 'ADD' ? t.amount : -t.amount), 0);
+          const addTotal = localTxs.filter((t) => t.type === 'ADD').reduce((a, t) => a + t.amount, 0);
+          const subTotal = localTxs.filter((t) => t.type === 'SUB').reduce((a, t) => a + t.amount, 0);
+          const balance = addTotal - subTotal;
           const balanceStr = new Intl.NumberFormat('vi-VN').format(balance);
           recordAuditLog({
             action: 'GUEST_LOOKUP',
             actor: `Khách: ${localFound.name}`,
-            title: 'Khách tra cứu sổ nợ',
-            description: `Khách "${localFound.name}" đã nhập mã tra cứu (PIN: ${localFound.pin}) để xem bảng đối soát công nợ. Dư nợ hiện thời: ${balanceStr} VNĐ (${localTxs.length} giao dịch).`,
+            title: `Khách tra cứu sổ nợ: ${localFound.name}`,
+            description: `Khách "${localFound.name}" đã nhập mã tra cứu (PIN: ${localFound.pin}) để xem bảng đối soát công nợ (Offline Cache). Dư nợ hiện thời: ${balanceStr} VNĐ (${localTxs.length} giao dịch).`,
             debtorId: localFound.id,
             debtorName: localFound.name,
             amount: balance,
@@ -209,8 +239,17 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             afterState: `Đã nhập đúng mã PIN: ${localFound.pin}, đối soát số dư ${balanceStr} VNĐ (${localTxs.length} giao dịch)`,
             changes: [
               { fieldLabel: 'Mã PIN tra cứu', before: 'Chưa nhập', after: `Khớp PIN (${localFound.pin})` },
+              { fieldLabel: 'Nguồn dữ liệu', before: '-', after: 'Bộ nhớ cục bộ (Offline)' },
               { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} VNĐ (${localTxs.length} giao dịch)` },
             ],
+            metadata: {
+              pin: localFound.pin,
+              source: 'Offline Cache',
+              balance,
+              totalAdd: addTotal,
+              totalSub: subTotal,
+              txCount: localTxs.length,
+            },
           });
           setPasscode('');
           onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
@@ -223,10 +262,11 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           action: 'LOOKUP_FAILED',
           actor: 'Khách / Người dùng',
           title: 'Đăng nhập / Tra cứu thất bại',
-          description: `Đã nhập mã không hợp lệ "${masked}" (Sai mật khẩu quản trị hoặc mã PIN tra cứu không tồn tại).`,
+          description: `Đã nhập mã không hợp lệ "${masked}" (độ dài ${clean.length} ký tự — sai mật khẩu quản trị hoặc mã PIN tra cứu không tồn tại).`,
           beforeState: 'Chưa xác thực',
           afterState: 'Từ chối đăng nhập (Sai mã)',
-          changes: [{ fieldLabel: 'Kết quả đối chiếu', before: 'Chờ xác thực', after: 'Thất bại (Sai mã)' }],
+          changes: [{ fieldLabel: 'Kết quả đối chiếu', before: 'Chờ xác thực', after: `Thất bại (${masked})` }],
+          metadata: { maskedInput: masked, inputLength: clean.length },
         });
         setError('Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
         setIsShaking(true);

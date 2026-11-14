@@ -43,11 +43,10 @@ import {
   Eye,
   EyeOff,
   FileSpreadsheet,
-  ClipboardList,
 } from 'lucide-react';
-import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
+import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
-import { getDebtorBalance, loadAuditLogs } from '../utils/storage';
+import { getDebtorBalance } from '../utils/storage';
 import { triggerHaptic } from '../utils/haptic';
 import { AnimatedCounter } from './AnimatedCounter';
 import { LookupGuideModal } from './LookupGuideModal';
@@ -58,7 +57,6 @@ import { ConfirmDeleteTxModal } from './ConfirmDeleteTxModal';
 import { TransactionRow } from './TransactionRow';
 import { GroupedPartyRow } from './GroupedPartyRow';
 import { resolveSplitBillDetails } from '../utils/splitBillHelper';
-import { AdminAuditLogsTab } from './AdminAuditLogsTab';
 
 export type DisplayTransactionItem =
   | {
@@ -78,9 +76,6 @@ interface OwnerDashboardProps {
   transactions: Transaction[];
   parties: PartySplit[];
   settings: AppSettings;
-  auditLogs?: AuditLog[];
-  onRefreshLogs?: () => void;
-  onSaveSettings?: (newSettings: AppSettings) => Promise<any> | void;
   onOpenAddDebtor: () => void;
   onOpenAddTx: (defaultDebtorId?: string) => void;
   onOpenSplitParty: () => void;
@@ -100,9 +95,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   transactions,
   parties,
   settings,
-  auditLogs,
-  onRefreshLogs,
-  onSaveSettings,
   onOpenAddDebtor,
   onOpenAddTx,
   onOpenSplitParty,
@@ -116,39 +108,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onDeleteParty,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'DEBTORS' | 'TRANSACTIONS' | 'PARTIES' | 'LOGS'>('DEBTORS');
-  const [internalAuditLogs, setInternalAuditLogs] = useState<AuditLog[]>(() =>
-    auditLogs && auditLogs.length > 0 ? auditLogs : loadAuditLogs()
-  );
-
-  useEffect(() => {
-    if (auditLogs) {
-      setInternalAuditLogs(auditLogs);
-    }
-  }, [auditLogs]);
-
-  useEffect(() => {
-    const handleLogRecorded = (e: any) => {
-      if (e?.detail) {
-        setInternalAuditLogs((prev) => [e.detail, ...prev]);
-      }
-    };
-    const handleLogsCleared = () => {
-      setInternalAuditLogs([]);
-    };
-    window.addEventListener('audit-log-recorded', handleLogRecorded);
-    window.addEventListener('audit-logs-cleared', handleLogsCleared);
-    return () => {
-      window.removeEventListener('audit-log-recorded', handleLogRecorded);
-      window.removeEventListener('audit-logs-cleared', handleLogsCleared);
-    };
-  }, []);
-
-  const handleReloadAuditLogs = () => {
-    const fresh = loadAuditLogs();
-    setInternalAuditLogs(fresh);
-    if (onRefreshLogs) onRefreshLogs();
-  };
+  const [activeTab, setActiveTab] = useState<'DEBTORS' | 'TRANSACTIONS' | 'PARTIES'>('DEBTORS');
   const [viewMode, setViewMode] = useState<'GRID' | 'LIST' | 'TABLE'>('GRID');
   const [sortBy, setSortBy] = useState<'BALANCE_DESC' | 'BALANCE_ASC' | 'NAME' | 'RECENT'>('BALANCE_DESC');
   const [debtorStatusFilter, setDebtorStatusFilter] = useState<'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'SETTLED'>('ALL');
@@ -830,23 +790,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       {/* BỐ CỤC MỚI LẠ 2: THANH ĐIỀU KHIỂN ĐA CHIỀU (SMART MULTI-MODE TOOLBAR) */}
       <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Tabs Chính: Trên mobile chia đều 4 cột vừa vặn, trên desktop flex tự nhiên */}
-          <div className="w-full sm:w-auto grid grid-cols-4 sm:flex items-center gap-1 sm:gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
+          {/* Tabs Chính: Trên mobile chia đều 3 cột vừa vặn, trên desktop flex tự nhiên */}
+          <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center gap-1 sm:gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
             <button
               type="button"
               onClick={() => {
                 triggerHaptic('selection');
                 setActiveTab('DEBTORS');
               }}
-              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'DEBTORS'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
               <Users className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden xs:inline">Người Nợ</span>
-              <span className="xs:hidden">Nợ</span>
+              <span>Người Nợ</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'DEBTORS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {debtors.length}
               </span>
@@ -858,15 +817,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 triggerHaptic('selection');
                 setActiveTab('TRANSACTIONS');
               }}
-              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'TRANSACTIONS'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
               <Calendar className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden xs:inline">Giao Dịch</span>
-              <span className="xs:hidden">G/Dịch</span>
+              <span>Giao Dịch</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'TRANSACTIONS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {transactions.length}
               </span>
@@ -878,36 +836,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 triggerHaptic('selection');
                 setActiveTab('PARTIES');
               }}
-              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === 'PARTIES'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
               <PartyPopper className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden xs:inline">Cuộc Vui</span>
-              <span className="xs:hidden">Chia Bill</span>
+              <span>Cuộc Vui</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'PARTIES' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
                 {parties.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('selection');
-                setActiveTab('LOGS');
-              }}
-              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'LOGS'
-                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-              }`}
-            >
-              <ClipboardList className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-              <span>Nhật Ký</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${activeTab === 'LOGS' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {internalAuditLogs.length}
               </span>
             </button>
           </div>
@@ -2175,28 +2113,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
               );
             })
           )}
-          </motion.div>
-        )}
-
-        {/* TAB 4: NHẬT KÝ THAO TÁC & KIỂM VẾT (AUDIT LOGS) */}
-        {activeTab === 'LOGS' && (
-          <motion.div
-            key="tab-logs"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
-            <AdminAuditLogsTab
-              auditLogs={internalAuditLogs}
-              onRefreshLogs={handleReloadAuditLogs}
-              debtors={debtors}
-              transactions={transactions}
-              parties={parties}
-              settings={settings}
-              onSaveSettings={onSaveSettings || (() => {})}
-              showToast={showToast}
-            />
           </motion.div>
         )}
       </AnimatePresence>

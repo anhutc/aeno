@@ -29,6 +29,7 @@ import {
 import { pingClientFirestore, reconfigureClientFirestore, getClientFirebaseConfig } from '../firebase';
 import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
 import { GoogleSheetsSyncSection } from './GoogleSheetsSyncSection';
+import { recordAuditLog } from '../utils/storage';
 
 export interface FirestoreSettingsTabProps {
   debtors: Debtor[];
@@ -146,8 +147,35 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
       setStatus(serverStatus);
       setClientPing(browserPing);
       setLastSyncTime(new Date());
+      recordAuditLog({
+        action: 'CLOUD_SYNC',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Kiểm tra kết nối (Ping) Cloud Firestore',
+        description: `Kiểm tra trạng thái kết nối Cloud Firestore (${serverStatus.databaseId}): ${serverStatus.connected ? 'Online' : 'Offline'}, độ trễ tổng ${dt} ms (Trực tiếp: ${browserPing.latencyMs} ms).`,
+        beforeState: `Database: ${serverStatus.databaseId}`,
+        afterState: `${serverStatus.connected ? 'Online' : 'Offline'} (${dt} ms)`,
+        changes: [
+          { fieldLabel: 'Database ID', before: '-', after: serverStatus.databaseId },
+          { fieldLabel: 'Độ trễ phản hồi', before: '-', after: `${dt} ms (Client SDK: ${browserPing.latencyMs} ms)` },
+          { fieldLabel: 'Trạng thái', before: '-', after: serverStatus.connected ? 'Hoạt động tốt' : 'Mất kết nối' },
+        ],
+        metadata: {
+          databaseId: serverStatus.databaseId,
+          totalLatencyMs: dt,
+          clientPingMs: browserPing.latencyMs,
+          connected: serverStatus.connected,
+        },
+      });
       showToast(`⚡ Ping thành công! Độ trễ phản hồi: ${dt} ms`, 'success');
     } catch {
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Ping Cloud Firestore thất bại',
+        description: 'Không thể kết nối máy chủ để kiểm tra ping Cloud Firestore.',
+        beforeState: 'Kiểm tra kết nối Cloud',
+        afterState: 'Thất bại',
+      });
       showToast('Không thể kết nối máy chủ để kiểm tra ping.', 'error');
     } finally {
       setIsCheckingStatus(false);
@@ -208,9 +236,29 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
+    const filename = `so-no-cloud-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+    recordAuditLog({
+      action: 'EXPORT_DATA',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Xuất tệp sao lưu JSON từ Cloud',
+      description: `Đã xuất tệp sao lưu "${filename}" (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch, ${(parties || []).length} cuộc vui; Database: ${fullBackup.databaseId}).`,
+      beforeState: `Database: ${fullBackup.databaseId}`,
+      afterState: `Đã xuất tệp ${filename}`,
+      changes: [
+        { fieldLabel: 'Tệp xuất ra', before: '-', after: filename },
+        { fieldLabel: 'Số lượng bản ghi', before: '-', after: `${debtors.length} người nợ · ${cleanTransactions.length} GD · ${(parties || []).length} cuộc vui` },
+      ],
+      metadata: {
+        filename,
+        databaseId: fullBackup.databaseId,
+        debtorsCount: debtors.length,
+        transactionsCount: cleanTransactions.length,
+        partiesCount: (parties || []).length,
+      },
+    });
     showToast(`Đã xuất tệp sao lưu (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch, mật khẩu quản lý được bảo mật riêng)!`, 'success');
   };
 
@@ -239,6 +287,16 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     setTestTargetFeedback(null);
     try {
       const res = await apiTestFirestoreConnection({ databaseId: targetDbId });
+      recordAuditLog({
+        action: res.success ? 'CLOUD_SYNC' : 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: `Kiểm tra Database ID: ${targetDbId}`,
+        description: res.success
+          ? `Kiểm tra kết nối tới Database "${targetDbId}" thành công (Độ trễ: ${res.latencyMs} ms).`
+          : `Kiểm tra kết nối tới Database "${targetDbId}" thất bại: ${res.error || 'Lỗi'}`,
+        beforeState: `Thử kết nối ${targetDbId}`,
+        afterState: res.success ? `Thành công (${res.latencyMs} ms)` : 'Thất bại',
+      });
       setTestTargetFeedback({
         success: res.success,
         latencyMs: res.latencyMs,

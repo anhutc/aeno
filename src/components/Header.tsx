@@ -8,6 +8,7 @@ import {
   User,
   LayoutDashboard,
   ArrowLeft,
+  ClipboardList,
 } from 'lucide-react';
 import { AppSettings, Debtor } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -15,9 +16,9 @@ import { triggerHaptic } from '../utils/haptic';
 import { getAppBaseUrl } from '../utils/textTemplate';
 
 interface HeaderProps {
-  currentView: 'OWNER' | 'GUEST' | 'SETTINGS';
+  currentView: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS';
   isOwnerAuthenticated: boolean;
-  onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS') => void;
+  onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS') => void;
   onOwnerLogout: () => void;
   settings: AppSettings;
   activeGuestDebtor?: Debtor | null;
@@ -74,6 +75,8 @@ export const Header: React.FC<HeaderProps> = ({
                   {isOwnerAuthenticated
                     ? currentView === 'SETTINGS'
                       ? 'Cài đặt & Đồng bộ Cloud'
+                      : currentView === 'LOGS'
+                      ? 'Nhật ký hoạt động & Kiểm vết'
                       : `Quản lý • Chủ sổ: ${settings.ownerName}`
                     : activeGuestDebtor
                     ? `Sao kê tài khoản: ${activeGuestDebtor.name}`
@@ -130,6 +133,25 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <LayoutDashboard className={`w-4 h-4 shrink-0 ${currentView === 'OWNER' ? 'text-emerald-600' : 'text-slate-500'}`} />
                     <span className="hidden sm:inline">Tổng quan</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    id="nav-logs-mode-btn"
+                    onClick={() => {
+                      triggerHaptic('selection');
+                      onViewChange('LOGS');
+                    }}
+                    title="Nhật ký thao tác & Kiểm vết"
+                    aria-label="Nhật ký"
+                    className={`flex items-center justify-center gap-1.5 h-8 sm:h-auto px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      currentView === 'LOGS'
+                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <ClipboardList className={`w-4 h-4 shrink-0 ${currentView === 'LOGS' ? 'text-emerald-600' : 'text-slate-500'}`} />
+                    <span className="hidden sm:inline">Nhật ký</span>
                   </button>
 
                   <button

@@ -50,6 +50,7 @@ import { OwnerDashboard } from './components/OwnerDashboard';
 import { GuestPortal } from './components/GuestPortal';
 import { UnifiedLoginView } from './components/UnifiedLoginView';
 import { SettingsView } from './components/SettingsView';
+import { AdminAuditLogsTab } from './components/AdminAuditLogsTab';
 import { AddDebtorModal } from './components/AddDebtorModal';
 import { AddTransactionModal } from './components/AddTransactionModal';
 import { EditTransactionModal } from './components/EditTransactionModal';
@@ -83,12 +84,13 @@ export default function App() {
     };
   }, []);
 
-  // View & Auth State (OWNER | GUEST | SETTINGS)
+  // View & Auth State (OWNER | GUEST | SETTINGS | LOGS)
   // Khởi tạo view ban đầu theo hash URL
-  const [currentView, setCurrentView] = useState<'OWNER' | 'GUEST' | 'SETTINGS'>(() => {
+  const [currentView, setCurrentView] = useState<'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS'>(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.toLowerCase();
       if (hash.startsWith('#settings')) return 'SETTINGS';
+      if (hash.startsWith('#logs')) return 'LOGS';
       if (hash.startsWith('#owner') || hash.startsWith('#admin')) return 'OWNER';
       if (hash.startsWith('#guest')) return 'GUEST';
     }
@@ -359,17 +361,35 @@ export default function App() {
   }, []);
 
   // Đăng xuất hoàn toàn về màn hình đăng nhập (xóa token, dữ liệu phiên và chuyển view)
-  const handleLogoutOwner = useCallback(() => {
+  const handleLogoutOwner = useCallback((reason: 'MANUAL' | 'AUTO_LOCK' = 'MANUAL', elapsedMs?: number) => {
     try {
-      recordAuditLog({
-        action: 'LOGOUT',
-        actor: 'Chủ Sổ (Admin)',
-        title: 'Chủ sổ đăng xuất',
-        description: 'Chủ sổ đã đăng xuất và khóa phiên làm việc an toàn.',
-        beforeState: 'Phiên quản trị đang hoạt động',
-        afterState: 'Đã đăng xuất, trở về màn hình khóa',
-        changes: [{ fieldLabel: 'Trạng thái phiên', before: 'Đang hoạt động', after: 'Đã khóa an toàn' }],
-      });
+      if (reason === 'AUTO_LOCK') {
+        recordAuditLog({
+          action: 'AUTO_LOCK',
+          actor: 'Hệ thống bảo mật',
+          title: 'Tự động khóa phiên quản trị',
+          description: `Hệ thống đã tự động khóa và đăng xuất Chủ sổ khi rời ứng dụng (Cấu hình: ${settings.autoLockTimeout || 'IMMEDIATE'}${elapsedMs ? `, thời gian ẩn: ${Math.round(elapsedMs / 1000)}s` : ''}).`,
+          beforeState: 'Phiên quản trị đang mở',
+          afterState: 'Đã tự động khóa an toàn',
+          changes: [
+            { fieldLabel: 'Cơ chế khóa', before: 'Đang hoạt động', after: `Tự động khóa (${settings.autoLockTimeout || 'IMMEDIATE'})` },
+          ],
+          metadata: {
+            autoLockTimeout: settings.autoLockTimeout || 'IMMEDIATE',
+            elapsedMs: elapsedMs ?? 0,
+          },
+        });
+      } else {
+        recordAuditLog({
+          action: 'LOGOUT',
+          actor: `Chủ Sổ (${settings.ownerName || 'Admin'})`,
+          title: 'Chủ sổ đăng xuất thủ công',
+          description: 'Chủ sổ đã chủ động nhấn đăng xuất và khóa phiên làm việc an toàn.',
+          beforeState: 'Phiên quản trị đang hoạt động',
+          afterState: 'Đã đăng xuất, trở về màn hình khóa',
+          changes: [{ fieldLabel: 'Trạng thái phiên', before: 'Đang hoạt động', after: 'Đã khóa an toàn' }],
+        });
+      }
     } catch {
       // ignore
     }
@@ -393,7 +413,7 @@ export default function App() {
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', window.location.pathname);
     }
-  }, []);
+  }, [settings.autoLockTimeout, settings.ownerName, deepCleanSessionData]);
 
   // Lắng nghe khi Admin rời khỏi ứng dụng và quay lại để tự động thoát ra màn hình đăng nhập
   useEffect(() => {
@@ -441,13 +461,13 @@ export default function App() {
       if (document.visibilityState === 'hidden') {
         lastLeaveTimeRef.current = Date.now();
         if (threshold === 0) {
-          handleLogoutOwner();
+          handleLogoutOwner('AUTO_LOCK', 0);
         }
       } else if (document.visibilityState === 'visible') {
         if (lastLeaveTimeRef.current) {
           const elapsed = Date.now() - lastLeaveTimeRef.current;
           if (elapsed >= threshold) {
-            handleLogoutOwner();
+            handleLogoutOwner('AUTO_LOCK', elapsed);
           }
         }
         lastLeaveTimeRef.current = null;
@@ -460,7 +480,7 @@ export default function App() {
       }
       lastLeaveTimeRef.current = Date.now();
       if (threshold === 0) {
-        handleLogoutOwner();
+        handleLogoutOwner('AUTO_LOCK', 0);
       }
     };
 
@@ -472,7 +492,7 @@ export default function App() {
       if (lastLeaveTimeRef.current) {
         const elapsed = Date.now() - lastLeaveTimeRef.current;
         if (elapsed >= threshold) {
-          handleLogoutOwner();
+          handleLogoutOwner('AUTO_LOCK', elapsed);
         }
       }
       lastLeaveTimeRef.current = null;
@@ -495,6 +515,8 @@ export default function App() {
       const hash = window.location.hash.toLowerCase();
       if (hash.startsWith('#settings')) {
         setCurrentView('SETTINGS');
+      } else if (hash.startsWith('#logs')) {
+        setCurrentView('LOGS');
       } else if (hash.startsWith('#owner') || hash.startsWith('#admin')) {
         setCurrentView('OWNER');
       } else {
@@ -527,12 +549,14 @@ export default function App() {
   }, [settings?.appTitle, settings?.appSubtitle]);
 
   // View switcher
-  const handleViewChange = (view: 'OWNER' | 'GUEST' | 'SETTINGS') => {
+  const handleViewChange = (view: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS') => {
     setCurrentView(view);
     if (view === 'OWNER') {
       window.location.hash = 'owner';
     } else if (view === 'SETTINGS') {
       window.location.hash = 'settings';
+    } else if (view === 'LOGS') {
+      window.location.hash = 'logs';
     } else {
       if (window.location.hash) {
         window.history.replaceState(null, '', window.location.pathname);
@@ -547,7 +571,9 @@ export default function App() {
     refreshDataFromServer();
   };
 
-  const handleOwnerLogout = handleLogoutOwner;
+  const handleOwnerLogout = useCallback(() => {
+    handleLogoutOwner('MANUAL');
+  }, [handleLogoutOwner]);
 
   // Listen for background Google Sheets auto-sync results to keep settings up to date
   useEffect(() => {
@@ -757,9 +783,45 @@ export default function App() {
   const handleViewImage = (url: string, title?: string) => {
     setViewImageUrl(url);
     if (title) setViewImageTitle(title);
+    try {
+      const actor = isOwnerAuthenticated
+        ? 'Chủ Sổ (Admin)'
+        : guestInitialDebtor
+        ? `Khách: ${guestInitialDebtor.name}`
+        : 'Người dùng';
+      recordAuditLog({
+        action: 'VIEW_RECEIPT',
+        actor,
+        title: 'Xem ảnh hóa đơn / chứng từ',
+        description: `${actor} đã mở xem phóng to ảnh chứng từ${title ? `: "${title}"` : ''}.`,
+        debtorId: guestInitialDebtor?.id || selectedDetailDebtor?.id,
+        debtorName: guestInitialDebtor?.name || selectedDetailDebtor?.name,
+        beforeState: 'Thu gọn trên giao diện',
+        afterState: `Đang xem phóng to (${title || 'Ảnh bill'})`,
+        changes: [{ fieldLabel: 'Chứng từ đã xem', before: '-', after: title || 'Ảnh hóa đơn đính kèm' }],
+      });
+    } catch {
+      // ignore
+    }
   };
 
   const handleDirectGuestView = (debtor: Debtor) => {
+    try {
+      recordAuditLog({
+        action: 'GUEST_LOOKUP',
+        actor: 'Chủ Sổ (Xem trước khách)',
+        title: `Xem trước giao diện khách: ${debtor.name}`,
+        description: `Chủ sổ mở xem trực tiếp giao diện tra cứu công nợ của "${debtor.name}" (PIN: ${debtor.pin}).`,
+        debtorId: debtor.id,
+        debtorName: debtor.name,
+        amount: getDebtorBalance(debtor.id, transactions),
+        beforeState: 'Giao diện quản trị',
+        afterState: `Đang xem chế độ khách của ${debtor.name}`,
+        changes: [{ fieldLabel: 'Chế độ xem', before: 'Quản trị', after: `Xem trước giao diện khách (${debtor.name})` }],
+      });
+    } catch {
+      // ignore
+    }
     setSelectedDetailDebtor(null);
     setGuestInitialDebtor(debtor);
     setCurrentView('GUEST');
@@ -779,6 +841,22 @@ export default function App() {
         settings={settings}
         activeGuestDebtor={guestInitialDebtor}
         onGuestLogout={() => {
+          if (guestInitialDebtor) {
+            try {
+              recordAuditLog({
+                action: 'LOGOUT',
+                actor: `Khách: ${guestInitialDebtor.name}`,
+                title: `Khách thoát trang tra cứu: ${guestInitialDebtor.name}`,
+                description: `Khách "${guestInitialDebtor.name}" đã thoát khỏi trang đối soát công nợ.`,
+                debtorId: guestInitialDebtor.id,
+                debtorName: guestInitialDebtor.name,
+                beforeState: 'Đang xem đối soát nợ',
+                afterState: 'Đã quay về màn hình đăng nhập',
+              });
+            } catch {
+              // ignore
+            }
+          }
           setGuestInitialDebtor(null);
           setTransactions([]);
           window.location.hash = '';
@@ -843,6 +921,25 @@ export default function App() {
                   onGoBack={() => handleViewChange('OWNER')}
                 />
               </motion.div>
+            ) : currentView === 'LOGS' ? (
+              <motion.div
+                key="view-logs"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <AdminAuditLogsTab
+                  auditLogs={auditLogs}
+                  onRefreshLogs={() => setAuditLogs(loadAuditLogs())}
+                  debtors={debtors}
+                  transactions={transactions}
+                  parties={parties}
+                  settings={settings}
+                  onSaveSettings={handleSaveSettings}
+                  onGoBack={() => handleViewChange('OWNER')}
+                />
+              </motion.div>
             ) : currentView === 'GUEST' && guestInitialDebtor ? (
               <motion.div
                 key="view-guest-authed"
@@ -875,9 +972,6 @@ export default function App() {
                   transactions={transactions}
                   parties={parties}
                   settings={settings}
-                  auditLogs={auditLogs}
-                  onRefreshLogs={() => setAuditLogs(loadAuditLogs())}
-                  onSaveSettings={handleSaveSettings}
                   onOpenAddDebtor={() => {
                     setEditingDebtor(null);
                     setIsAddDebtorOpen(true);

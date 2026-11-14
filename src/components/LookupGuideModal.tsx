@@ -16,6 +16,8 @@ import {
   renderMessageTemplate,
   DEFAULT_LOOKUP_GUIDE,
 } from '../utils/textTemplate';
+import { recordAuditLog } from '../utils/storage';
+import { formatVND } from '../utils/vietqr';
 
 interface LookupGuideModalProps {
   isOpen: boolean;
@@ -59,10 +61,35 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
 
   const directLink = vars?.url || '';
 
+  const logGuideAction = (method: string) => {
+    if (!debtor) return;
+    try {
+      recordAuditLog({
+        action: 'SHARE_REMINDER',
+        actor: 'Chủ Sổ (Admin)',
+        title: `Gửi / Chép hướng dẫn tra cứu: ${debtor.name}`,
+        description: `Đã ${method.toLowerCase()} tin nhắn hướng dẫn tra cứu kèm PIN (${debtor.pin}) cho "${debtor.name}" (Dư nợ: ${formatVND(balance)}).`,
+        debtorId: debtor.id,
+        debtorName: debtor.name,
+        amount: Math.abs(balance),
+        beforeState: 'Hộp thoại hướng dẫn tra cứu',
+        afterState: `Đã ${method}`,
+        changes: [
+          { fieldLabel: 'Hình thức', before: '-', after: method },
+          { fieldLabel: 'Dư nợ nhắc kèm', before: '-', after: `${formatVND(balance)}` },
+        ],
+        metadata: { method, pin: debtor.pin, balance },
+      });
+    } catch {
+      // ignore
+    }
+  };
+
   const handleCopyAll = () => {
     navigator.clipboard.writeText(guideText);
     setCopiedAll(true);
     setTimeout(() => setCopiedAll(false), 2500);
+    logGuideAction('Sao chép toàn bộ nội dung hướng dẫn');
   };
 
   const handleShareDirect = () => {
@@ -72,6 +99,7 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
           title: `Hướng dẫn tra cứu - ${debtor?.name || ''}`,
           text: guideText,
         })
+        .then(() => logGuideAction('Chia sẻ qua Zalo / SMS / Hệ thống'))
         .catch(() => {});
     } else {
       handleCopyAll();
@@ -82,12 +110,15 @@ export const LookupGuideModal: React.FC<LookupGuideModalProps> = ({
     navigator.clipboard.writeText(directLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+    logGuideAction('Sao chép đường link tra cứu');
   };
 
   const handleCopyPass = () => {
+    if (!debtor) return;
     navigator.clipboard.writeText(debtor.pin);
     setCopiedPass(true);
     setTimeout(() => setCopiedPass(false), 2000);
+    logGuideAction('Sao chép mã PIN tra cứu');
   };
 
   // QR Code to open the link directly

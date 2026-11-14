@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND } from '../utils/vietqr';
-import { getDebtorBalance, getDebtorStatement } from '../utils/storage';
+import { getDebtorBalance, getDebtorStatement, recordAuditLog } from '../utils/storage';
 import { triggerHaptic } from '../utils/haptic';
 import { AnimatedCounter } from './AnimatedCounter';
 import { LookupGuideModal } from './LookupGuideModal';
@@ -97,6 +97,8 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
   const [copiedPin, setCopiedPin] = useState(false);
   const [showPin, setShowPin] = useState(false);
 
+  const currentBalance = debtor ? getDebtorBalance(debtor.id, transactions) : 0;
+
   const handleCopyPin = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!debtor) return;
@@ -104,9 +106,23 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
     navigator.clipboard.writeText(debtor.pin);
     setCopiedPin(true);
     setTimeout(() => setCopiedPin(false), 2000);
+    try {
+      recordAuditLog({
+        action: 'SHARE_REMINDER',
+        actor: 'Chủ Sổ (Admin)',
+        title: `Sao chép mã PIN tra cứu: ${debtor.name}`,
+        description: `Chủ sổ đã sao chép mã PIN tra cứu (${debtor.pin}) của "${debtor.name}" (Dư nợ hiện tại: ${formatVND(currentBalance)}).`,
+        debtorId: debtor.id,
+        debtorName: debtor.name,
+        amount: Math.abs(currentBalance),
+        beforeState: 'Chi tiết người nợ',
+        afterState: `Đã sao chép PIN (${debtor.pin})`,
+        changes: [{ fieldLabel: 'Thao tác', before: '-', after: `Sao chép mã PIN (${debtor.pin})` }],
+      });
+    } catch {
+      // ignore
+    }
   };
-
-  const currentBalance = debtor ? getDebtorBalance(debtor.id, transactions) : 0;
   const statement = useMemo(() => {
     return debtor ? getDebtorStatement(debtor.id, transactions) : [];
   }, [debtor, transactions]);

@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
-import { getDebtorBalance, getDebtorStatement, loadSettings } from '../utils/storage';
+import { getDebtorBalance, getDebtorStatement, loadSettings, recordAuditLog } from '../utils/storage';
 import { subscribeToDebtorTransactions } from '../utils/api';
 import { subscribeToFirestoreData } from '../services/firestoreClient';
 import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
@@ -152,6 +152,19 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       navigator.clipboard.writeText(acc);
       setCopiedAcc(true);
       setTimeout(() => setCopiedAcc(false), 2000);
+      if (debtor) {
+        recordAuditLog({
+          action: 'SHARE_REMINDER',
+          actor: `Khách: ${debtor.name}`,
+          title: `Khách sao chép STK thanh toán: ${debtor.name}`,
+          description: `Khách "${debtor.name}" đã sao chép số tài khoản nhận tiền (${activeSettings.bankName || activeSettings.bankId}: ${acc}).`,
+          debtorId: debtor.id,
+          debtorName: debtor.name,
+          beforeState: 'Xem thông tin chuyển khoản',
+          afterState: `Đã sao chép STK ${acc}`,
+          changes: [{ fieldLabel: 'Thao tác khách', before: '-', after: `Sao chép STK (${acc})` }],
+        });
+      }
     }
   };
 
@@ -161,6 +174,20 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       navigator.clipboard.writeText(String(amt));
       setCopiedAmount(true);
       setTimeout(() => setCopiedAmount(false), 2000);
+      if (debtor) {
+        recordAuditLog({
+          action: 'SHARE_REMINDER',
+          actor: `Khách: ${debtor.name}`,
+          title: `Khách sao chép số tiền cần trả: ${debtor.name}`,
+          description: `Khách "${debtor.name}" đã sao chép số tiền thanh toán (${formatVND(amt)}).`,
+          debtorId: debtor.id,
+          debtorName: debtor.name,
+          amount: amt,
+          beforeState: 'Xem số dư nợ',
+          afterState: `Đã sao chép số tiền ${formatVND(amt)}`,
+          changes: [{ fieldLabel: 'Số tiền đã chép', before: '-', after: `${formatVND(amt)}` }],
+        });
+      }
     }
   };
 
@@ -223,6 +250,18 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     document.body.removeChild(a);
     setDownloadedQr(true);
     setTimeout(() => setDownloadedQr(false), 2500);
+    recordAuditLog({
+      action: 'EXPORT_STATEMENT',
+      actor: `Khách: ${debtor.name}`,
+      title: `Khách tải ảnh mã VietQR: ${debtor.name}`,
+      description: `Khách "${debtor.name}" đã tải mã VietQR thanh toán về thiết bị (Số tiền: ${currentBalance > 0 ? formatVND(currentBalance) : 'Tự nhập'}).`,
+      debtorId: debtor.id,
+      debtorName: debtor.name,
+      amount: currentBalance > 0 ? currentBalance : undefined,
+      beforeState: 'Xem mã QR thanh toán',
+      afterState: 'Đã tải ảnh VietQR về máy',
+      changes: [{ fieldLabel: 'Tệp tải về', before: '-', after: `VietQR_Thanh_Toan_${debtor.name}.png` }],
+    });
   };
 
   // Tự động bắn pháo hoa ăn mừng khi tra cứu nếu đã hết nợ (số dư <= 0)

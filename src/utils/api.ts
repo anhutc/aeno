@@ -99,6 +99,44 @@ export function removeStoredOwnerToken(): void {
   }
 }
 
+function fmtMoney(amount: number): string {
+  return `${new Intl.NumberFormat('vi-VN').format(amount || 0)} VNĐ`;
+}
+
+function getDebtorAuditStats(debtorId: string, txs: Transaction[]) {
+  const list = txs.filter((t) => t.debtorId === debtorId);
+  let addTotal = 0;
+  let subTotal = 0;
+  let splitCount = 0;
+  list.forEach((t) => {
+    if (t.type === 'ADD') addTotal += t.amount;
+    else subTotal += t.amount;
+    if (t.partyId || t.category === 'PARTY_SPLIT') splitCount++;
+  });
+  return {
+    balance: addTotal - subTotal,
+    txCount: list.length,
+    addTotal,
+    subTotal,
+    splitCount,
+  };
+}
+
+function getTxCategoryLabel(tx: Partial<Transaction>): string {
+  if (tx.category === 'PARTY_SPLIT' || tx.partyId) {
+    return tx.partyName ? `Chia bill nhóm (${tx.partyName})` : 'Chia bill nhóm';
+  }
+  if (tx.category === 'PAYMENT_SETTLED') return 'Tất toán sạch nợ';
+  if (tx.category === 'SELF_REPORTED') return 'Khách tự báo CK';
+  return 'Giao dịch lẻ';
+}
+
+function maskSecret(val?: string): string {
+  const clean = (val || '').trim();
+  if (!clean) return '(Trống)';
+  return `****** (${clean.length} ký tự)`;
+}
+
 function getAuthHeaders(): HeadersInit {
   const token = getStoredOwnerToken();
   return {
@@ -107,22 +145,39 @@ function getAuthHeaders(): HeadersInit {
   };
 }
 
-export async function loginOwner(password: string): Promise<{ success: boolean; message?: string }> {
+export async function loginOwner(
+  password: string,
+  methodHint?: 'PASSWORD' | 'FACE_ID'
+): Promise<{ success: boolean; message?: string }> {
   const cleanPass = (password || '').trim();
   if (!cleanPass) {
     return { success: false, message: 'Vui lòng nhập mật khẩu quản lý' };
   }
 
-  const recordOwnerLoginSuccess = () => {
+  const recordOwnerLoginSuccess = (authChannel: string, usedMethod: string) => {
     try {
+      const currentSettings = loadSettings();
+      const dCount = loadDebtors().length;
+      const tCount = loadTransactions().length;
       recordAuditLog({
-        action: 'LOGIN_SUCCESS',
-        actor: 'Chủ Sổ (Admin)',
-        title: 'Đăng nhập quản trị thành công',
-        description: 'Chủ sổ đã xác thực thành công vào hệ thống quản lý công nợ.',
-        beforeState: 'Chưa đăng nhập',
-        afterState: 'Đã mở khóa phiên quản trị',
-        changes: [{ fieldLabel: 'Phiên quản trị', before: 'Khóa', after: 'Đã xác thực' }],
+        action: methodHint === 'FACE_ID' ? 'BIOMETRIC_AUTH' : 'LOGIN_SUCCESS',
+        actor: `Chủ Sổ (${currentSettings.ownerName || 'Admin'})`,
+        title: methodHint === 'FACE_ID' ? 'Đăng nhập quản trị bằng FaceID / Vân tay' : 'Đăng nhập quản trị thành công',
+        description: `Chủ sổ đã xác thực thành công vào hệ thống quản lý công nợ qua ${usedMethod} (Kênh: ${authChannel}). Hiện có ${dCount} người nợ và ${tCount} giao dịch.`,
+        beforeState: 'Chưa đăng nhập (Phiên khóa)',
+        afterState: `Đã mở khóa phiên quản trị qua ${usedMethod}`,
+        changes: [
+          { fieldLabel: 'Phương thức xác thực', before: 'Chưa xác thực', after: usedMethod },
+          { fieldLabel: 'Kênh kiểm tra', before: '-', after: authChannel },
+          { fieldLabel: 'Trạng thái phiên', before: 'Khóa', after: 'Đang hoạt động' },
+        ],
+        metadata: {
+          authChannel,
+          loginMethod: usedMethod,
+          ownerName: currentSettings.ownerName || 'Chủ Sổ',
+          debtorsCount: dCount,
+          transactionsCount: tCount,
+        },
       });
     } catch (err) {
       console.warn('Login success log notice:', err);
@@ -143,7 +198,17 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
         if (data.settings) {
           saveSettings(data.settings);
         }
-        recordOwnerLoginSuccess();
+        const s = data.settings || loadSettings();
+        const isPhoneMatch = Boolean(
+          s.ownerPhone && cleanPass.replace(/[\s.-]+/g, '') === String(s.ownerPhone).replace(/[\s.-]+/g, '')
+        );
+        const methodLabel =
+          methodHint === 'FACE_ID'
+            ? 'FaceID / Sinh trắc học'
+            : isPhoneMatch
+            ? 'Số điện thoại chủ sổ'
+            : 'Mật khẩu quản trị';
+        recordOwnerLoginSuccess('Server API', methodLabel);
         return { success: true };
       }
     }
@@ -159,7 +224,17 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
       if (directRes.settings) {
         saveSettings(directRes.settings);
       }
-      recordOwnerLoginSuccess();
+      const s = directRes.settings || loadSettings();
+      const isPhoneMatch = Boolean(
+        s.ownerPhone && cleanPass.replace(/[\s.-]+/g, '') === String(s.ownerPhone).replace(/[\s.-]+/g, '')
+      );
+      const methodLabel =
+        methodHint === 'FACE_ID'
+          ? 'FaceID / Sinh trắc học'
+          : isPhoneMatch
+          ? 'Số điện thoại chủ sổ'
+          : 'Mật khẩu quản trị';
+      recordOwnerLoginSuccess('Cloud Firestore trực tiếp', methodLabel);
       return { success: true };
     }
   } catch (err) {
@@ -173,13 +248,20 @@ export async function loginOwner(password: string): Promise<{ success: boolean; 
   const cleanPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
   const cleanInputPhone = cleanPass.replace(/[\s.-]+/g, '');
 
+  const isLocalPhone = Boolean(localOwnerPhone && cleanInputPhone === cleanPhone);
   if (
     (localOwnerPass && (cleanPass === localOwnerPass || cleanPass.toLowerCase() === localOwnerPass.toLowerCase())) ||
-    (localOwnerPhone && cleanInputPhone === cleanPhone) ||
+    isLocalPhone ||
     cleanPass === '123456'
   ) {
     setStoredOwnerToken('local-owner-session');
-    recordOwnerLoginSuccess();
+    const methodLabel =
+      methodHint === 'FACE_ID'
+        ? 'FaceID / Sinh trắc học'
+        : isLocalPhone
+        ? 'Số điện thoại chủ sổ'
+        : 'Mật khẩu quản trị';
+    recordOwnerLoginSuccess('Bộ nhớ cục bộ (Offline)', methodLabel);
     return { success: true };
   }
 
@@ -378,13 +460,16 @@ export async function apiSaveDebtor(
   // Thu thập thông tin trước thay đổi để ghi log kiểm vết chi tiết
   const oldDebtor = loadDebtors().find((d) => d.id === targetId);
   const isUpdating = Boolean(debtor.id && oldDebtor);
+  const allCurrentTxs = loadTransactions();
+  const debtorStats = getDebtorAuditStats(targetId, allCurrentTxs);
   const debtorChanges: AuditChangeDetail[] = [];
   if (oldDebtor) {
     if (oldDebtor.name !== debtor.name) {
-      debtorChanges.push({ fieldLabel: 'Họ và tên', before: oldDebtor.name, after: debtor.name });
+      debtorChanges.push({ field: 'name', fieldLabel: 'Họ và tên', before: oldDebtor.name, after: debtor.name });
     }
     if ((oldDebtor.pin || '').trim() !== (debtor.pin || '').trim()) {
       debtorChanges.push({
+        field: 'pin',
         fieldLabel: 'Mã PIN tra cứu',
         before: oldDebtor.pin || '(Chưa cấp)',
         after: debtor.pin || '(Chưa cấp)',
@@ -392,25 +477,56 @@ export async function apiSaveDebtor(
     }
     if ((oldDebtor.note || '').trim() !== (debtor.note || '').trim()) {
       debtorChanges.push({
+        field: 'note',
         fieldLabel: 'Ghi chú',
         before: oldDebtor.note || '(Trống)',
         after: debtor.note || '(Trống)',
       });
     }
+    if (debtorChanges.length === 0) {
+      debtorChanges.push({
+        fieldLabel: 'Thông tin danh bạ',
+        before: oldDebtor.name,
+        after: `${debtor.name} (Xác nhận lưu lại)`,
+      });
+    }
   } else {
     debtorChanges.push(
-      { fieldLabel: 'Họ và tên', before: '(Chưa có trong danh bạ)', after: debtor.name },
-      { fieldLabel: 'Mã PIN tra cứu', before: '(Chưa cấp)', after: debtor.pin || '(Chưa cấp)' }
+      { field: 'name', fieldLabel: 'Họ và tên', before: '(Chưa có trong danh bạ)', after: debtor.name },
+      { field: 'pin', fieldLabel: 'Mã PIN tra cứu', before: '(Chưa cấp)', after: debtor.pin || '(Chưa cấp)' }
     );
     if (debtor.note) {
-      debtorChanges.push({ fieldLabel: 'Ghi chú', before: '(Trống)', after: debtor.note });
+      debtorChanges.push({ field: 'note', fieldLabel: 'Ghi chú', before: '(Trống)', after: debtor.note });
     }
   }
 
   const debtorBeforeState = oldDebtor
-    ? `Tên: ${oldDebtor.name} (PIN: ${oldDebtor.pin || 'Chưa cấp'}${oldDebtor.note ? `, Ghi chú: ${oldDebtor.note}` : ''})`
+    ? `Tên: ${oldDebtor.name} | PIN: ${oldDebtor.pin || 'Chưa cấp'} | Dư nợ hiện tại: ${fmtMoney(debtorStats.balance)} (${debtorStats.txCount} GD)${oldDebtor.note ? ` | Ghi chú: ${oldDebtor.note}` : ''}`
     : 'Chưa có trong danh bạ sổ nợ';
-  const debtorAfterState = `Tên: ${debtor.name} (PIN: ${debtor.pin || 'Chưa cấp'}${debtor.note ? `, Ghi chú: ${debtor.note}` : ''})`;
+  const debtorAfterState = `Tên: ${debtor.name} | PIN: ${debtor.pin || 'Chưa cấp'} | Dư nợ: ${fmtMoney(debtorStats.balance)}${debtor.note ? ` | Ghi chú: ${debtor.note}` : ''}`;
+
+  const buildDebtorSuccessLog = () => ({
+    action: (isUpdating ? 'UPDATE_DEBTOR' : 'ADD_DEBTOR') as 'UPDATE_DEBTOR' | 'ADD_DEBTOR',
+    actor: 'Chủ Sổ (Admin)',
+    title: isUpdating ? `Cập nhật hồ sơ: ${debtor.name}` : `Thêm người nợ mới: ${debtor.name}`,
+    description: isUpdating
+      ? `Đã cập nhật thông tin "${debtor.name}" (PIN: ${debtor.pin || 'Chưa cấp'}). Dư nợ hiện tại: ${fmtMoney(debtorStats.balance)} qua ${debtorStats.txCount} giao dịch.`
+      : `Đã thêm người nợ mới "${debtor.name}" vào danh bạ (Mã PIN tra cứu: ${debtor.pin || 'Chưa cấp'})${debtor.note ? ` · Ghi chú: ${debtor.note}` : ''}.`,
+    debtorId: targetId,
+    debtorName: debtor.name,
+    amount: debtorStats.balance !== 0 ? Math.abs(debtorStats.balance) : undefined,
+    beforeState: debtorBeforeState,
+    afterState: debtorAfterState,
+    changes: debtorChanges,
+    metadata: {
+      debtorId: targetId,
+      pin: debtor.pin || '',
+      mode: isUpdating ? 'UPDATE' : 'CREATE',
+      currentBalance: debtorStats.balance,
+      txCount: debtorStats.txCount,
+      note: debtor.note || '',
+    },
+  });
 
   try {
     const res = await fetch('/api/owner/debtor', {
@@ -427,17 +543,7 @@ export async function apiSaveDebtor(
         if (data.debtor) {
           await saveDebtorDirect(data.debtor).catch((err) => console.warn('Direct saveDebtor sync:', err));
         }
-        recordAuditLog({
-          action: isUpdating ? 'UPDATE_DEBTOR' : 'ADD_DEBTOR',
-          actor: 'Chủ Sổ (Admin)',
-          title: isUpdating ? 'Cập nhật người nợ' : 'Thêm người nợ mới',
-          description: `${isUpdating ? 'Sửa thông tin' : 'Thêm danh bạ'} "${debtor.name}" (Pass: ${debtor.pin})`,
-          debtorId: targetId,
-          debtorName: debtor.name,
-          beforeState: debtorBeforeState,
-          afterState: debtorAfterState,
-          changes: debtorChanges,
-        });
+        recordAuditLog(buildDebtorSuccessLog());
         return { success: true, debtor: data.debtor, debtors: mergedDebtors };
       }
     }
@@ -465,17 +571,7 @@ export async function apiSaveDebtor(
     }
     saveDebtors(allDebtors);
     await saveDebtorDirect(savedDebtor).catch((err) => console.warn('Direct saveDebtor warning:', err));
-    recordAuditLog({
-      action: isUpdating ? 'UPDATE_DEBTOR' : 'ADD_DEBTOR',
-      actor: 'Chủ Sổ (Admin)',
-      title: isUpdating ? 'Cập nhật người nợ' : 'Thêm người nợ mới',
-      description: `${isUpdating ? 'Sửa thông tin' : 'Thêm danh bạ'} "${debtor.name}" (Pass: ${debtor.pin})`,
-      debtorId: targetId,
-      debtorName: debtor.name,
-      beforeState: debtorBeforeState,
-      afterState: debtorAfterState,
-      changes: debtorChanges,
-    });
+    recordAuditLog(buildDebtorSuccessLog());
     return { success: true, debtor: savedDebtor, debtors: allDebtors };
   } catch (err: any) {
     recordAuditLog({
@@ -483,6 +579,7 @@ export async function apiSaveDebtor(
       actor: 'Chủ Sổ (Admin)',
       title: 'Lỗi lưu người nợ',
       description: `Không thể lưu thông tin "${debtor.name}": ${err?.message || 'Lỗi hệ thống'}`,
+      debtorId: targetId,
       debtorName: debtor.name,
       beforeState: debtorBeforeState,
       afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
@@ -501,14 +598,43 @@ export async function apiDeleteDebtor(
   const debtorToDelete = loadDebtors().find((d) => d.id === id);
 
   const debtorTxs = currentTxs.filter((t) => t.debtorId === id);
-  const debtorBalance = debtorTxs.reduce((acc, t) => acc + (t.type === 'ADD' ? t.amount : -t.amount), 0);
-  const debtorDeleteBeforeState = `Người nợ: "${debtorToDelete?.name || id}" (PIN: ${debtorToDelete?.pin || 'Chưa cấp'}, Dư nợ: ${new Intl.NumberFormat('vi-VN').format(debtorBalance)} VNĐ, ${debtorTxs.length} giao dịch)`;
-  const debtorDeleteAfterState = 'Đã xóa hoàn toàn khỏi danh bạ người nợ';
+  const stats = getDebtorAuditStats(id, currentTxs);
+  const recentTxSummary = debtorTxs
+    .slice(0, 5)
+    .map((t) => `${t.date || ''} ${t.type === 'ADD' ? '+' : '-'}${fmtMoney(t.amount)}${t.note ? ` (${t.note})` : ''}`)
+    .join('; ');
+
+  const debtorDeleteBeforeState = `Người nợ: "${debtorToDelete?.name || id}" | PIN: ${debtorToDelete?.pin || 'Chưa cấp'} | Dư nợ: ${fmtMoney(stats.balance)} (Tổng vay: ${fmtMoney(stats.addTotal)}, Đã trả: ${fmtMoney(stats.subTotal)}, ${stats.txCount} giao dịch)`;
+  const debtorDeleteAfterState = 'Đã xóa hoàn toàn hồ sơ người nợ và các giao dịch kèm theo khỏi sổ';
   const debtorDeleteChanges: AuditChangeDetail[] = [
-    { fieldLabel: 'Trạng thái danh bạ', before: `Đang lưu (${debtorToDelete?.name || id})`, after: 'Đã xóa' },
-    { fieldLabel: 'Dư nợ người này', before: `${new Intl.NumberFormat('vi-VN').format(debtorBalance)} VNĐ`, after: '0 VNĐ' },
-    { fieldLabel: 'Số giao dịch kèm theo', before: `${debtorTxs.length} giao dịch`, after: '0 (Đã xóa)' },
+    { fieldLabel: 'Trạng thái danh bạ', before: `Đang lưu (${debtorToDelete?.name || id})`, after: 'Đã xóa hoàn toàn' },
+    { fieldLabel: 'Dư nợ thời điểm xóa', before: fmtMoney(stats.balance), after: '0 VNĐ' },
+    { fieldLabel: 'Tổng nợ / Tổng đã trả', before: `Nợ ${fmtMoney(stats.addTotal)} · Trả ${fmtMoney(stats.subTotal)}`, after: 'Đã xóa' },
+    { fieldLabel: 'Số giao dịch bị xóa theo', before: `${stats.txCount} giao dịch`, after: '0 (Đã xóa)' },
+    ...(debtorToDelete?.pin ? [{ fieldLabel: 'Mã PIN cũ', before: debtorToDelete.pin, after: 'Đã thu hồi' }] : []),
   ];
+
+  const buildDeleteDebtorLog = () => ({
+    action: 'DELETE_DEBTOR' as const,
+    actor: 'Chủ Sổ (Admin)',
+    title: `Xóa người nợ: ${debtorToDelete?.name || id}`,
+    description: `Đã xóa vĩnh viễn "${debtorToDelete?.name || id}" (PIN: ${debtorToDelete?.pin || '-'}) cùng ${stats.txCount} giao dịch liên quan. Dư nợ trước khi xóa: ${fmtMoney(stats.balance)}.${recentTxSummary ? ` Giao dịch gần nhất: ${recentTxSummary}.` : ''}`,
+    debtorId: id,
+    debtorName: debtorToDelete?.name,
+    amount: Math.abs(stats.balance),
+    beforeState: debtorDeleteBeforeState,
+    afterState: debtorDeleteAfterState,
+    changes: debtorDeleteChanges,
+    metadata: {
+      debtorId: id,
+      pin: debtorToDelete?.pin || '',
+      deletedBalance: stats.balance,
+      deletedAddTotal: stats.addTotal,
+      deletedSubTotal: stats.subTotal,
+      deletedTxCount: stats.txCount,
+      recentTxSummary: recentTxSummary || undefined,
+    },
+  });
 
   try {
     const res = await fetch(`/api/owner/debtor/${id}`, {
@@ -524,17 +650,7 @@ export async function apiDeleteDebtor(
         saveDebtors(filteredDebtors);
         saveTransactions(filteredTxs);
         await deleteDebtorDirect(id).catch((err) => console.warn('Direct deleteDebtor sync:', err));
-        recordAuditLog({
-          action: 'DELETE_DEBTOR',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Xóa người nợ',
-          description: `Đã xóa người nợ "${debtorToDelete?.name || id}" cùng các giao dịch liên quan`,
-          debtorId: id,
-          debtorName: debtorToDelete?.name,
-          beforeState: debtorDeleteBeforeState,
-          afterState: debtorDeleteAfterState,
-          changes: debtorDeleteChanges,
-        });
+        recordAuditLog(buildDeleteDebtorLog());
         return { success: true, debtors: filteredDebtors, transactions: filteredTxs };
       }
     }
@@ -548,17 +664,7 @@ export async function apiDeleteDebtor(
   saveDebtors(allDebtors);
   saveTransactions(allTxs);
   await deleteDebtorDirect(id).catch((err) => console.warn('Direct deleteDebtor warning:', err));
-  recordAuditLog({
-    action: 'DELETE_DEBTOR',
-    actor: 'Chủ Sổ (Admin)',
-    title: 'Xóa người nợ',
-    description: `Đã xóa người nợ "${debtorToDelete?.name || id}" cùng các giao dịch liên quan`,
-    debtorId: id,
-    debtorName: debtorToDelete?.name,
-    beforeState: debtorDeleteBeforeState,
-    afterState: debtorDeleteAfterState,
-    changes: debtorDeleteChanges,
-  });
+  recordAuditLog(buildDeleteDebtorLog());
   return { success: true, debtors: allDebtors, transactions: allTxs };
 }
 
@@ -592,28 +698,76 @@ export async function apiSaveTransaction(
 
   // Tính toán số dư trước và sau giao dịch để ghi log chi tiết
   const prevTxs = loadTransactions().filter((t) => t.id !== newId);
-  const debtorPrevTxs = prevTxs.filter((t) => t.debtorId === tx.debtorId);
-  const prevBalance = debtorPrevTxs.reduce((acc, t) => acc + (t.type === 'ADD' ? t.amount : -t.amount), 0);
+  const prevStats = getDebtorAuditStats(tx.debtorId, prevTxs);
+  const prevBalance = prevStats.balance;
   const newBalance = prevBalance + (tx.type === 'ADD' ? tx.amount : -tx.amount);
   const isAdd = tx.type === 'ADD';
   const debtorObj = loadDebtors().find((d) => d.id === tx.debtorId);
   const debtorName = debtorObj?.name || 'Người nợ';
+  const catLabel = getTxCategoryLabel(tx);
 
-  const txBeforeState = `Dư nợ trước GD: ${new Intl.NumberFormat('vi-VN').format(prevBalance)} VNĐ (${debtorPrevTxs.length} giao dịch)`;
-  const txAfterState = `Dư nợ sau GD: ${new Intl.NumberFormat('vi-VN').format(newBalance)} VNĐ (${debtorPrevTxs.length + 1} giao dịch)`;
+  const txBeforeState = `Dư nợ trước GD: ${fmtMoney(prevBalance)} (${prevStats.txCount} giao dịch)`;
+  const txAfterState = `Dư nợ sau GD: ${fmtMoney(newBalance)} (${prevStats.txCount + 1} giao dịch)`;
   const txChanges: AuditChangeDetail[] = [
     {
       fieldLabel: isAdd ? 'Khoản nợ mới (+)' : 'Khoản thu nợ (-)',
       before: '0 VNĐ',
-      after: `${isAdd ? '+' : '-'}${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ`,
+      after: `${isAdd ? '+' : '-'}${fmtMoney(tx.amount)}`,
     },
     {
       fieldLabel: 'Dư nợ tổng cộng',
-      before: `${new Intl.NumberFormat('vi-VN').format(prevBalance)} VNĐ`,
-      after: `${new Intl.NumberFormat('vi-VN').format(newBalance)} VNĐ`,
+      before: fmtMoney(prevBalance),
+      after: fmtMoney(newBalance),
+    },
+    {
+      fieldLabel: 'Ngày giao dịch',
+      before: '-',
+      after: tx.date || new Date().toISOString().slice(0, 10),
+    },
+    {
+      fieldLabel: 'Phân loại',
+      before: '-',
+      after: catLabel,
     },
     ...(tx.note ? [{ fieldLabel: 'Lý do / Ghi chú', before: '(Trống)', after: tx.note }] : []),
+    ...(tx.billImage ? [{ fieldLabel: 'Ảnh hóa đơn đính kèm', before: 'Không có', after: 'Đã đính kèm ảnh chứng từ' }] : []),
   ];
+
+  const buildSaveTxLog = () => {
+    const isSettled = !isAdd && newBalance === 0 && prevBalance > 0;
+    const txAction = isAdd ? 'ADD_TRANSACTION' : isSettled ? 'SETTLE_DEBT' : 'UPDATE_TRANSACTION';
+    const txTitle = isAdd
+      ? `Ghi nợ (+): ${debtorName}`
+      : isSettled
+      ? `Tất toán sạch nợ (0đ): ${debtorName}`
+      : `Thu nợ (-): ${debtorName}`;
+    return {
+      action: txAction as 'ADD_TRANSACTION' | 'SETTLE_DEBT' | 'UPDATE_TRANSACTION',
+      actor: 'Chủ Sổ (Admin)',
+      title: txTitle,
+      description: isSettled
+        ? `${debtorName} đã hoàn tất thanh toán sạch nợ ${fmtMoney(tx.amount)} (Dư nợ: ${fmtMoney(prevBalance)} → 0 VNĐ, ngày ${tx.date})${tx.note ? ` · Ghi chú: ${tx.note}` : ''}${tx.billImage ? ' · Có ảnh hóa đơn' : ''}`
+        : `${isAdd ? 'Ghi nhận nợ mới' : 'Thu hồi nợ'} ${fmtMoney(tx.amount)} cho ${debtorName} ngày ${tx.date}. Dư nợ biến động: ${fmtMoney(prevBalance)} → ${fmtMoney(newBalance)}${tx.note ? ` · Nội dung: ${tx.note}` : ''}${tx.billImage ? ' · Đính kèm ảnh bill' : ''}`,
+      debtorId: tx.debtorId,
+      debtorName,
+      amount: tx.amount,
+      beforeState: txBeforeState,
+      afterState: txAfterState,
+      changes: txChanges,
+      metadata: {
+        transactionId: newId,
+        type: tx.type,
+        date: tx.date,
+        category: tx.category || 'DIRECT',
+        prevBalance,
+        newBalance,
+        prevTxCount: prevStats.txCount,
+        newTxCount: prevStats.txCount + 1,
+        hasBillImage: Boolean(tx.billImage),
+        isSettled,
+      },
+    };
+  };
 
   // Immediate optimistic local update to guarantee responsiveness
   const currentLocal = loadTransactions();
@@ -645,23 +799,7 @@ export async function apiSaveTransaction(
         } else {
           await saveTransactionDirect(localNewTx).catch((err) => console.warn('Direct saveTx sync:', err));
         }
-        const isSettled = !isAdd && newBalance === 0 && prevBalance > 0;
-        const txAction = isAdd ? 'ADD_TRANSACTION' : isSettled ? 'SETTLE_DEBT' : 'UPDATE_TRANSACTION';
-        const txTitle = isAdd ? 'Ghi nợ chi hộ (+)' : isSettled ? 'Tất toán nợ (Về 0đ)' : 'Thu nợ / Giảm nợ (-)';
-        recordAuditLog({
-          action: txAction,
-          actor: 'Chủ Sổ (Admin)',
-          title: txTitle,
-          description: isSettled
-            ? `${debtorName} đã hoàn tất thanh toán sạch nợ ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`
-            : `${tx.type === 'ADD' ? 'Ghi nhận nợ' : 'Thu hồi nợ'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ cho ${debtorName}${tx.note ? ` (${tx.note})` : ''}`,
-          debtorId: tx.debtorId,
-          debtorName,
-          amount: tx.amount,
-          beforeState: txBeforeState,
-          afterState: txAfterState,
-          changes: txChanges,
-        });
+        recordAuditLog(buildSaveTxLog());
         return { success: true, transaction: data.transaction || localNewTx, transactions: merged };
       }
     }
@@ -672,23 +810,7 @@ export async function apiSaveTransaction(
   // Direct Firestore fallback
   try {
     await saveTransactionDirect(localNewTx).catch((err) => console.warn('Direct saveTransaction warning:', err));
-    const isSettled = !isAdd && newBalance === 0 && prevBalance > 0;
-    const txAction = isAdd ? 'ADD_TRANSACTION' : isSettled ? 'SETTLE_DEBT' : 'UPDATE_TRANSACTION';
-    const txTitle = isAdd ? 'Ghi nợ chi hộ (+)' : isSettled ? 'Tất toán nợ (Về 0đ)' : 'Thu nợ / Giảm nợ (-)';
-    recordAuditLog({
-      action: txAction,
-      actor: 'Chủ Sổ (Admin)',
-      title: txTitle,
-      description: isSettled
-        ? `${debtorName} đã hoàn tất thanh toán sạch nợ ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`
-        : `${tx.type === 'ADD' ? 'Ghi nhận nợ' : 'Thu hồi nợ'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ cho ${debtorName}${tx.note ? ` (${tx.note})` : ''}`,
-      debtorId: tx.debtorId,
-      debtorName,
-      amount: tx.amount,
-      beforeState: txBeforeState,
-      afterState: txAfterState,
-      changes: txChanges,
-    });
+    recordAuditLog(buildSaveTxLog());
     return { success: true, transaction: localNewTx, transactions: currentLocal };
   } catch (err: any) {
     recordAuditLog({
@@ -712,35 +834,123 @@ export async function apiUpdateTransaction(
 ): Promise<{ success: boolean; transaction?: Transaction; transactions?: Transaction[]; message?: string }> {
   unmarkTxDeleted(tx.id);
 
-  const oldTx = loadTransactions().find((t) => t.id === tx.id);
+  const prevAllTxs = loadTransactions();
+  const prevAllDebtors = loadDebtors();
+  const oldTx = prevAllTxs.find((t) => t.id === tx.id);
+  const oldDebtorObj = oldTx ? prevAllDebtors.find((d) => d.id === oldTx.debtorId) : undefined;
+  const newDebtorObj = prevAllDebtors.find((d) => d.id === tx.debtorId);
+
+  const prevBalance = getDebtorAuditStats(tx.debtorId, prevAllTxs).balance;
+  const nextTxsPreview = prevAllTxs.some((t) => t.id === tx.id)
+    ? prevAllTxs.map((t) => (t.id === tx.id ? tx : t))
+    : [tx, ...prevAllTxs];
+  const newBalance = getDebtorAuditStats(tx.debtorId, nextTxsPreview).balance;
+
   const txChanges: AuditChangeDetail[] = [];
   if (oldTx) {
+    if (oldTx.debtorId !== tx.debtorId) {
+      txChanges.push({
+        field: 'debtorId',
+        fieldLabel: 'Chuyển người nợ',
+        before: oldDebtorObj?.name || oldTx.debtorId,
+        after: newDebtorObj?.name || tx.debtorId,
+      });
+    }
     if (oldTx.amount !== tx.amount) {
       txChanges.push({
+        field: 'amount',
         fieldLabel: 'Số tiền',
-        before: `${new Intl.NumberFormat('vi-VN').format(oldTx.amount)} VNĐ`,
-        after: `${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ`,
+        before: fmtMoney(oldTx.amount),
+        after: fmtMoney(tx.amount),
       });
     }
     if (oldTx.type !== tx.type) {
       txChanges.push({
-        fieldLabel: 'Loại GD',
+        field: 'type',
+        fieldLabel: 'Loại giao dịch',
         before: oldTx.type === 'ADD' ? 'Ghi nợ (+)' : 'Thu nợ (-)',
         after: tx.type === 'ADD' ? 'Ghi nợ (+)' : 'Thu nợ (-)',
       });
     }
+    if ((oldTx.date || '') !== (tx.date || '')) {
+      txChanges.push({
+        field: 'date',
+        fieldLabel: 'Ngày giao dịch',
+        before: oldTx.date || '(Trống)',
+        after: tx.date || '(Trống)',
+      });
+    }
     if ((oldTx.note || '') !== (tx.note || '')) {
       txChanges.push({
+        field: 'note',
         fieldLabel: 'Nội dung / Ghi chú',
         before: oldTx.note || '(Trống)',
         after: tx.note || '(Trống)',
       });
     }
+    if ((oldTx.customNote || '') !== (tx.customNote || '')) {
+      txChanges.push({
+        field: 'customNote',
+        fieldLabel: 'Ghi chú phụ',
+        before: oldTx.customNote || '(Trống)',
+        after: tx.customNote || '(Trống)',
+      });
+    }
+    if ((oldTx.billImage || '') !== (tx.billImage || '')) {
+      txChanges.push({
+        field: 'billImage',
+        fieldLabel: 'Ảnh hóa đơn',
+        before: oldTx.billImage ? 'Đã có ảnh cũ' : 'Chưa có ảnh',
+        after: tx.billImage ? (oldTx.billImage ? 'Đã thay ảnh mới' : 'Đã thêm ảnh hóa đơn') : 'Đã gỡ ảnh hóa đơn',
+      });
+    }
+    if (prevBalance !== newBalance) {
+      txChanges.push({
+        fieldLabel: `Số dư nợ (${newDebtorObj?.name || 'Người nợ'})`,
+        before: fmtMoney(prevBalance),
+        after: fmtMoney(newBalance),
+      });
+    }
   }
+  if (txChanges.length === 0) {
+    txChanges.push({
+      fieldLabel: 'Thông tin giao dịch',
+      before: `${tx.type === 'ADD' ? '+' : '-'}${fmtMoney(tx.amount)}`,
+      after: `${tx.type === 'ADD' ? '+' : '-'}${fmtMoney(tx.amount)} (Lưu lại)`,
+    });
+  }
+
   const txBeforeState = oldTx
-    ? `${oldTx.type === 'ADD' ? 'Nợ (+)' : 'Thu (-)'} ${new Intl.NumberFormat('vi-VN').format(oldTx.amount)} VNĐ${oldTx.note ? ` (${oldTx.note})` : ''}`
-    : 'Không rõ';
-  const txAfterState = `${tx.type === 'ADD' ? 'Nợ (+)' : 'Thu (-)'} ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`;
+    ? `${oldTx.type === 'ADD' ? 'Nợ (+)' : 'Thu (-)'} ${fmtMoney(oldTx.amount)} · Ngày ${oldTx.date || '-'} · Số dư ${fmtMoney(prevBalance)}${oldTx.note ? ` · ${oldTx.note}` : ''}`
+    : 'Không rõ dữ liệu cũ';
+  const txAfterState = `${tx.type === 'ADD' ? 'Nợ (+)' : 'Thu (-)'} ${fmtMoney(tx.amount)} · Ngày ${tx.date || '-'} · Số dư ${fmtMoney(newBalance)}${tx.note ? ` · ${tx.note}` : ''}`;
+
+  const buildUpdateTxLog = () => {
+    const debtorName = newDebtorObj?.name || 'Người nợ';
+    const diffSummary = txChanges.map((c) => c.fieldLabel).join(', ');
+    return {
+      action: 'UPDATE_TRANSACTION' as const,
+      actor: 'Chủ Sổ (Admin)',
+      title: `Sửa giao dịch: ${debtorName}`,
+      description: `Cập nhật giao dịch của ${debtorName} (${diffSummary}). Hiện tại: ${tx.type === 'ADD' ? '+' : '-'}${fmtMoney(tx.amount)} ngày ${tx.date}${tx.note ? ` · "${tx.note}"` : ''}. Số dư: ${fmtMoney(prevBalance)} → ${fmtMoney(newBalance)}.`,
+      debtorId: tx.debtorId,
+      debtorName,
+      amount: tx.amount,
+      beforeState: txBeforeState,
+      afterState: txAfterState,
+      changes: txChanges,
+      metadata: {
+        transactionId: tx.id,
+        date: tx.date,
+        type: tx.type,
+        category: tx.category || 'DIRECT',
+        prevBalance,
+        newBalance,
+        hasBillImage: Boolean(tx.billImage),
+        fieldsChangedCount: txChanges.length,
+      },
+    };
+  };
 
   // Optimistic local update
   const allTxs = loadTransactions();
@@ -769,19 +979,7 @@ export async function apiUpdateTransaction(
         } else {
           await saveTransactionDirect(tx).catch((err) => console.warn('Direct updateTx sync:', err));
         }
-        const debtorObj = loadDebtors().find((d) => d.id === tx.debtorId);
-        recordAuditLog({
-          action: 'UPDATE_TRANSACTION',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Sửa giao dịch',
-          description: `Chỉnh sửa giao dịch của ${debtorObj?.name || 'người nợ'}: ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`,
-          debtorId: tx.debtorId,
-          debtorName: debtorObj?.name,
-          amount: tx.amount,
-          beforeState: txBeforeState,
-          afterState: txAfterState,
-          changes: txChanges,
-        });
+        recordAuditLog(buildUpdateTxLog());
         return { success: true, transaction: data.transaction || tx, transactions: merged };
       }
     }
@@ -792,19 +990,7 @@ export async function apiUpdateTransaction(
   // Direct fallback
   try {
     await saveTransactionDirect(tx).catch((err) => console.warn('Direct updateTx warning:', err));
-    const debtorObj = loadDebtors().find((d) => d.id === tx.debtorId);
-    recordAuditLog({
-      action: 'UPDATE_TRANSACTION',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Sửa giao dịch',
-      description: `Chỉnh sửa giao dịch của ${debtorObj?.name || 'người nợ'}: ${new Intl.NumberFormat('vi-VN').format(tx.amount)} VNĐ${tx.note ? ` (${tx.note})` : ''}`,
-      debtorId: tx.debtorId,
-      debtorName: debtorObj?.name,
-      amount: tx.amount,
-      beforeState: txBeforeState,
-      afterState: txAfterState,
-      changes: txChanges,
-    });
+    recordAuditLog(buildUpdateTxLog());
     return { success: true, transaction: tx, transactions: allTxs };
   } catch (err: any) {
     recordAuditLog({
@@ -813,6 +999,7 @@ export async function apiUpdateTransaction(
       title: 'Lỗi cập nhật giao dịch',
       description: `Không thể cập nhật giao dịch: ${err?.message || 'Lỗi hệ thống'}`,
       debtorId: tx.debtorId,
+      debtorName: newDebtorObj?.name,
       amount: tx.amount,
       beforeState: txBeforeState,
       afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
@@ -826,22 +1013,74 @@ export async function apiDeleteTransaction(
   id: string
 ): Promise<{ success: boolean; transactions?: Transaction[] }> {
   markTxDeleted(id);
-  const oldTx = loadTransactions().find((t) => t.id === id);
-  const allTxs = loadTransactions().filter((t) => t.id !== id);
+  const prevAllTxs = loadTransactions();
+  const oldTx = prevAllTxs.find((t) => t.id === id);
+  const allTxs = prevAllTxs.filter((t) => t.id !== id);
   saveTransactions(allTxs);
 
   const debtorObj = oldTx ? loadDebtors().find((d) => d.id === oldTx.debtorId) : undefined;
+  const prevStats = oldTx ? getDebtorAuditStats(oldTx.debtorId, prevAllTxs) : { balance: 0, txCount: 0 };
+  const afterStats = oldTx ? getDebtorAuditStats(oldTx.debtorId, allTxs) : { balance: 0, txCount: 0 };
+
   const deleteBeforeState = oldTx
-    ? `${oldTx.type === 'ADD' ? 'Nợ (+)' : 'Thu (-)'} ${new Intl.NumberFormat('vi-VN').format(oldTx.amount)} VNĐ${oldTx.note ? ` (${oldTx.note})` : ''} của ${debtorObj?.name || 'người nợ'}`
+    ? `${oldTx.type === 'ADD' ? 'Nợ (+)' : 'Thu (-)'} ${fmtMoney(oldTx.amount)} · Ngày ${oldTx.date || '-'} · Số dư ${fmtMoney(prevStats.balance)}${oldTx.note ? ` · ${oldTx.note}` : ''}`
     : 'Giao dịch tồn tại';
-  const deleteAfterState = 'Đã xóa hoàn toàn khỏi sổ nợ';
+  const deleteAfterState = oldTx
+    ? `Đã xóa hoàn toàn · Số dư sau xóa: ${fmtMoney(afterStats.balance)} (Còn ${afterStats.txCount} GD)`
+    : 'Đã xóa hoàn toàn khỏi sổ nợ';
   const deleteChanges: AuditChangeDetail[] = [
     {
       fieldLabel: 'Trạng thái giao dịch',
-      before: `Tồn tại (${oldTx ? `${new Intl.NumberFormat('vi-VN').format(oldTx.amount)} VNĐ` : 'GD'})`,
+      before: `Tồn tại (${oldTx ? `${oldTx.type === 'ADD' ? '+' : '-'}${fmtMoney(oldTx.amount)}` : id})`,
       after: 'Đã xóa hoàn toàn',
     },
+    ...(oldTx
+      ? [
+          {
+            fieldLabel: 'Loại & Ngày GD',
+            before: `${oldTx.type === 'ADD' ? 'Ghi nợ (+)' : 'Thu nợ (-)'} · ${oldTx.date || '-'}`,
+            after: 'Đã hủy',
+          },
+          {
+            fieldLabel: 'Dư nợ người này',
+            before: fmtMoney(prevStats.balance),
+            after: fmtMoney(afterStats.balance),
+          },
+          {
+            fieldLabel: 'Số giao dịch còn lại',
+            before: `${prevStats.txCount} GD`,
+            after: `${afterStats.txCount} GD`,
+          },
+        ]
+      : []),
+    ...(oldTx?.note ? [{ fieldLabel: 'Ghi chú đã xóa', before: oldTx.note, after: '(Đã xóa)' }] : []),
+    ...(oldTx?.billImage ? [{ fieldLabel: 'Ảnh hóa đơn', before: 'Có đính kèm ảnh bill', after: '(Đã xóa)' }] : []),
   ];
+
+  const buildDeleteTxLog = () => ({
+    action: 'DELETE_TRANSACTION' as const,
+    actor: 'Chủ Sổ (Admin)',
+    title: `Xóa giao dịch${debtorObj?.name ? `: ${debtorObj.name}` : ''}`,
+    description: oldTx
+      ? `Đã xóa giao dịch ${oldTx.type === 'ADD' ? 'ghi nợ (+)' : 'thu nợ (-)'} ${fmtMoney(oldTx.amount)} ngày ${oldTx.date || '-'} của ${debtorObj?.name || 'người nợ'}${oldTx.note ? ` (${oldTx.note})` : ''}. Dư nợ thay đổi: ${fmtMoney(prevStats.balance)} → ${fmtMoney(afterStats.balance)}.`
+      : `Đã xóa giao dịch mã ${id}.`,
+    debtorId: oldTx?.debtorId,
+    debtorName: debtorObj?.name,
+    amount: oldTx?.amount,
+    beforeState: deleteBeforeState,
+    afterState: deleteAfterState,
+    changes: deleteChanges,
+    metadata: {
+      transactionId: id,
+      date: oldTx?.date,
+      type: oldTx?.type,
+      category: oldTx?.category || 'DIRECT',
+      prevBalance: prevStats.balance,
+      afterBalance: afterStats.balance,
+      remainingTxCount: afterStats.txCount,
+      hadBillImage: Boolean(oldTx?.billImage),
+    },
+  });
 
   try {
     const res = await fetch(`/api/owner/transaction/${id}`, {
@@ -855,18 +1094,7 @@ export async function apiDeleteTransaction(
         const filtered = (data.transactions || []).filter((t: Transaction) => t.id !== id);
         saveTransactions(filtered);
         await deleteTransactionDirect(id).catch((err) => console.warn('Direct deleteTx sync:', err));
-        recordAuditLog({
-          action: 'DELETE_TRANSACTION',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Xóa giao dịch',
-          description: `Đã xóa giao dịch ${oldTx ? `${new Intl.NumberFormat('vi-VN').format(oldTx.amount)} VNĐ của ${debtorObj?.name || 'người nợ'}` : id}`,
-          debtorId: oldTx?.debtorId,
-          debtorName: debtorObj?.name,
-          amount: oldTx?.amount,
-          beforeState: deleteBeforeState,
-          afterState: deleteAfterState,
-          changes: deleteChanges,
-        });
+        recordAuditLog(buildDeleteTxLog());
         return { success: true, transactions: filtered };
       }
     }
@@ -875,18 +1103,7 @@ export async function apiDeleteTransaction(
   }
 
   await deleteTransactionDirect(id).catch((err) => console.warn('Direct deleteTransaction warning:', err));
-  recordAuditLog({
-    action: 'DELETE_TRANSACTION',
-    actor: 'Chủ Sổ (Admin)',
-    title: 'Xóa giao dịch',
-    description: `Đã xóa giao dịch ${oldTx ? `${new Intl.NumberFormat('vi-VN').format(oldTx.amount)} VNĐ của ${debtorObj?.name || 'người nợ'}` : id}`,
-    debtorId: oldTx?.debtorId,
-    debtorName: debtorObj?.name,
-    amount: oldTx?.amount,
-    beforeState: deleteBeforeState,
-    afterState: deleteAfterState,
-    changes: deleteChanges,
-  });
+  recordAuditLog(buildDeleteTxLog());
   return { success: true, transactions: allTxs };
 }
 
@@ -943,13 +1160,50 @@ export async function apiSavePartySplit(
   saveParties(allParties);
   saveTransactions(updatedTxs);
 
+  const debtorMap = new Map(loadDebtors().map((d) => [d.id, d.name]));
+  const participantNames = (newParty.participantDebtorIds || []).map((did) => debtorMap.get(did) || did);
+  const payerName =
+    newParty.payerType === 'DEBTOR' || newParty.payerType === 'DEBTOR_ASSIGNED'
+      ? `${debtorMap.get(newParty.payerDebtorId || '') || 'Thành viên nhóm'}${newParty.payerType === 'DEBTOR_ASSIGNED' ? ' (Ghi nợ lại cho người này)' : ''}`
+      : 'Tôi (Chủ sổ trả trước)';
+  const totalHeadcount = newParty.totalPeopleCount || createdTxs.length + (newParty.includeMe ? 1 : 0);
+
   const partyBeforeState = 'Chưa có cuộc chia tiền này';
-  const partyAfterState = `Cuộc vui: "${newParty.name}" (Tổng ${new Intl.NumberFormat('vi-VN').format(newParty.totalAmount)} VNĐ cho ${createdTxs.length + (newParty.includeMe ? 1 : 0)} người)`;
+  const partyAfterState = `Cuộc vui: "${newParty.name}" · Ngày ${newParty.date || '-'} · Tổng ${fmtMoney(newParty.totalAmount)} / ${totalHeadcount} người (${fmtMoney(newParty.splitAmountPerPerson || 0)}/người) · Tham gia: ${participantNames.join(', ') || '-'}`;
   const partyChanges: AuditChangeDetail[] = [
-    { fieldLabel: 'Tổng tiền cuộc vui', before: '0 VNĐ', after: `${new Intl.NumberFormat('vi-VN').format(newParty.totalAmount)} VNĐ` },
-    { fieldLabel: 'Số người tham gia', before: '0', after: `${createdTxs.length + (newParty.includeMe ? 1 : 0)} người` },
-    { fieldLabel: 'Mỗi người trả', before: '0 VNĐ', after: `${new Intl.NumberFormat('vi-VN').format(newParty.splitAmountPerPerson || 0)} VNĐ` },
+    { fieldLabel: 'Tên & Ngày cuộc vui', before: '-', after: `${newParty.name} (${newParty.date || '-'})` },
+    { fieldLabel: 'Tổng tiền cuộc vui', before: '0 VNĐ', after: fmtMoney(newParty.totalAmount) },
+    { fieldLabel: 'Số người chia bill', before: '0', after: `${totalHeadcount} người (${newParty.includeMe ? 'Có tính chủ sổ' : 'Không tính chủ sổ'})` },
+    { fieldLabel: 'Đơn giá mỗi người', before: '0 VNĐ', after: fmtMoney(newParty.splitAmountPerPerson || 0) },
+    { fieldLabel: 'Người thanh toán trước', before: '-', after: payerName },
+    { fieldLabel: 'Thành viên tham gia', before: '-', after: participantNames.join(', ') || '(Không có)' },
+    ...(newParty.note ? [{ fieldLabel: 'Ghi chú cuộc vui', before: '(Trống)', after: newParty.note }] : []),
+    ...(newParty.billImage ? [{ fieldLabel: 'Ảnh hóa đơn nhóm', before: 'Không có', after: 'Đã đính kèm ảnh bill' }] : []),
   ];
+
+  const buildSavePartyLog = () => ({
+    action: 'ADD_PARTY' as const,
+    actor: 'Chủ Sổ (Admin)',
+    title: `Chia bill nhóm mới: ${newParty.name}`,
+    description: `Tạo cuộc chia bill "${newParty.name}" ngày ${newParty.date || '-'}: Tổng ${fmtMoney(newParty.totalAmount)} chia ${totalHeadcount} người (${fmtMoney(newParty.splitAmountPerPerson || 0)}/người). Thanh toán trước: ${payerName}. Tham gia: ${participantNames.join(', ')}. Đã sinh ${createdTxs.length} giao dịch con.`,
+    amount: newParty.totalAmount,
+    beforeState: partyBeforeState,
+    afterState: partyAfterState,
+    changes: partyChanges,
+    metadata: {
+      partyId,
+      date: newParty.date,
+      totalAmount: newParty.totalAmount,
+      splitAmountPerPerson: newParty.splitAmountPerPerson,
+      totalPeopleCount: totalHeadcount,
+      includeMe: Boolean(newParty.includeMe),
+      payerType: newParty.payerType || 'ME',
+      payerName,
+      participants: participantNames,
+      generatedTxCount: createdTxs.length,
+      hasBillImage: Boolean(newParty.billImage),
+    },
+  });
 
   try {
     const res = await fetch('/api/owner/party-split', {
@@ -966,16 +1220,7 @@ export async function apiSavePartySplit(
         saveParties(mergedParties);
         saveTransactions(mergedTxs);
         await savePartyDirect(newParty, createdTxs).catch((err) => console.warn('Direct saveParty sync:', err));
-        recordAuditLog({
-          action: 'ADD_PARTY',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Ăn chia nhóm mới',
-          description: `Tạo cuộc chia bill "${newParty.name}" (tổng ${new Intl.NumberFormat('vi-VN').format(newParty.totalAmount)} VNĐ cho ${createdTxs.length + (newParty.includeMe ? 1 : 0)} người)`,
-          amount: newParty.totalAmount,
-          beforeState: partyBeforeState,
-          afterState: partyAfterState,
-          changes: partyChanges,
-        });
+        recordAuditLog(buildSavePartyLog());
         return { success: true, parties: mergedParties, transactions: mergedTxs };
       }
     }
@@ -986,16 +1231,7 @@ export async function apiSavePartySplit(
   // Direct fallback
   try {
     await savePartyDirect(newParty, createdTxs).catch((err) => console.warn('Direct saveParty warning:', err));
-    recordAuditLog({
-      action: 'ADD_PARTY',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Ăn chia nhóm mới',
-      description: `Tạo cuộc chia bill "${newParty.name}" (tổng ${new Intl.NumberFormat('vi-VN').format(newParty.totalAmount)} VNĐ cho ${createdTxs.length + (newParty.includeMe ? 1 : 0)} người)`,
-      amount: newParty.totalAmount,
-      beforeState: partyBeforeState,
-      afterState: partyAfterState,
-      changes: partyChanges,
-    });
+    recordAuditLog(buildSavePartyLog());
     return { success: true, parties: allParties, transactions: updatedTxs };
   } catch (err: any) {
     recordAuditLog({
@@ -1020,12 +1256,38 @@ export async function apiDeletePartySplit(
   currentTxs.filter((t) => t.partyId === partyId).forEach((t) => markTxDeleted(t.id));
 
   const oldParty = loadParties().find((p) => p.id === partyId);
-  const partyDeleteBeforeState = `Cuộc vui: "${oldParty?.name || partyId}" (Tổng ${new Intl.NumberFormat('vi-VN').format(oldParty?.totalAmount || 0)} VNĐ)`;
-  const partyDeleteAfterState = 'Đã hủy và thu hồi các khoản phân bổ nợ';
+  const removedTxs = currentTxs.filter((t) => t.partyId === partyId);
+  const debtorMap = new Map(loadDebtors().map((d) => [d.id, d.name]));
+  const deletedParticipants = (oldParty?.participantDebtorIds || []).map((did) => debtorMap.get(did) || did);
+
+  const partyDeleteBeforeState = `Cuộc vui: "${oldParty?.name || partyId}" · Ngày ${oldParty?.date || '-'} · Tổng ${fmtMoney(oldParty?.totalAmount || 0)} · ${removedTxs.length} giao dịch con (${deletedParticipants.join(', ') || '-'})`;
+  const partyDeleteAfterState = 'Đã hủy cuộc vui và thu hồi toàn bộ khoản phân bổ nợ liên quan';
   const partyDeleteChanges: AuditChangeDetail[] = [
     { fieldLabel: 'Trạng thái cuộc vui', before: `Tồn tại (${oldParty?.name || partyId})`, after: 'Đã xóa hoàn toàn' },
-    { fieldLabel: 'Tổng tiền', before: `${new Intl.NumberFormat('vi-VN').format(oldParty?.totalAmount || 0)} VNĐ`, after: '0 VNĐ' },
+    { fieldLabel: 'Tổng tiền chia bill', before: fmtMoney(oldParty?.totalAmount || 0), after: '0 VNĐ' },
+    { fieldLabel: 'Giao dịch phân bổ bị thu hồi', before: `${removedTxs.length} giao dịch`, after: '0 (Đã xóa)' },
+    ...(deletedParticipants.length > 0
+      ? [{ fieldLabel: 'Thành viên liên quan', before: deletedParticipants.join(', '), after: 'Đã hoàn tác dư nợ' }]
+      : []),
   ];
+
+  const buildDeletePartyLog = () => ({
+    action: 'DELETE_PARTY' as const,
+    actor: 'Chủ Sổ (Admin)',
+    title: `Xóa cuộc chia tiền: ${oldParty?.name || partyId}`,
+    description: `Đã xóa cuộc chia bill "${oldParty?.name || partyId}" (ngày ${oldParty?.date || '-'}, tổng ${fmtMoney(oldParty?.totalAmount || 0)}) và thu hồi ${removedTxs.length} giao dịch phân bổ của ${deletedParticipants.join(', ') || 'các thành viên'}.`,
+    amount: oldParty?.totalAmount,
+    beforeState: partyDeleteBeforeState,
+    afterState: partyDeleteAfterState,
+    changes: partyDeleteChanges,
+    metadata: {
+      partyId,
+      date: oldParty?.date,
+      deletedTxCount: removedTxs.length,
+      participants: deletedParticipants,
+      totalAmount: oldParty?.totalAmount || 0,
+    },
+  });
 
   // 1. Optimistic update local storage
   const currentParties = loadParties().filter((p) => p.id !== partyId);
@@ -1048,16 +1310,7 @@ export async function apiDeletePartySplit(
         saveParties(finalParties);
         saveTransactions(finalTxs);
         await deletePartyDirect(partyId).catch((err) => console.warn('Direct deleteParty sync:', err));
-        recordAuditLog({
-          action: 'DELETE_PARTY',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Xóa cuộc chia tiền',
-          description: `Đã xóa cuộc chia bill "${oldParty?.name || partyId}" và các giao dịch liên quan`,
-          amount: oldParty?.totalAmount,
-          beforeState: partyDeleteBeforeState,
-          afterState: partyDeleteAfterState,
-          changes: partyDeleteChanges,
-        });
+        recordAuditLog(buildDeletePartyLog());
         return { success: true, parties: finalParties, transactions: finalTxs };
       }
     }
@@ -1067,16 +1320,7 @@ export async function apiDeletePartySplit(
 
   // 3. Fallback direct Firestore sync
   await deletePartyDirect(partyId).catch((err) => console.warn('Direct deleteParty warning:', err));
-  recordAuditLog({
-    action: 'DELETE_PARTY',
-    actor: 'Chủ Sổ (Admin)',
-    title: 'Xóa cuộc chia tiền',
-    description: `Đã xóa cuộc chia bill "${oldParty?.name || partyId}" và các giao dịch liên quan`,
-    amount: oldParty?.totalAmount,
-    beforeState: partyDeleteBeforeState,
-    afterState: partyDeleteAfterState,
-    changes: partyDeleteChanges,
-  });
+  recordAuditLog(buildDeletePartyLog());
   return { success: true, parties: currentParties, transactions: filteredTxs };
 }
 
@@ -1122,27 +1366,112 @@ export async function apiUpdatePartySplit(
   saveParties(allParties);
   saveTransactions(updatedTxs);
 
+  const debtorMap = new Map(loadDebtors().map((d) => [d.id, d.name]));
+  const oldParticipantIds = oldParty?.participantDebtorIds || [];
+  const newParticipantIds = updatedParty.participantDebtorIds || [];
+  const oldNames = oldParticipantIds.map((did) => debtorMap.get(did) || did);
+  const newNames = newParticipantIds.map((did) => debtorMap.get(did) || did);
+  const addedParticipants = newParticipantIds.filter((did) => !oldParticipantIds.includes(did)).map((did) => debtorMap.get(did) || did);
+  const removedParticipants = oldParticipantIds.filter((did) => !newParticipantIds.includes(did)).map((did) => debtorMap.get(did) || did);
+
+  const resolvePayer = (p?: Partial<PartySplit>) =>
+    p?.payerType === 'DEBTOR' || p?.payerType === 'DEBTOR_ASSIGNED'
+      ? debtorMap.get(p.payerDebtorId || '') || 'Thành viên nhóm'
+      : 'Tôi (Chủ sổ)';
+
   const partyUpdateChanges: AuditChangeDetail[] = [];
   if (oldParty) {
+    if (oldParty.name !== updatedParty.name) {
+      partyUpdateChanges.push({ fieldLabel: 'Tên cuộc vui', before: oldParty.name, after: updatedParty.name });
+    }
+    if ((oldParty.date || '') !== (updatedParty.date || '')) {
+      partyUpdateChanges.push({ fieldLabel: 'Ngày tổ chức', before: oldParty.date || '-', after: updatedParty.date || '-' });
+    }
     if (oldParty.totalAmount !== updatedParty.totalAmount) {
       partyUpdateChanges.push({
         fieldLabel: 'Tổng tiền',
-        before: `${new Intl.NumberFormat('vi-VN').format(oldParty.totalAmount)} VNĐ`,
-        after: `${new Intl.NumberFormat('vi-VN').format(updatedParty.totalAmount)} VNĐ`,
+        before: fmtMoney(oldParty.totalAmount),
+        after: fmtMoney(updatedParty.totalAmount),
       });
     }
-    if (oldParty.name !== updatedParty.name) {
+    if ((oldParty.splitAmountPerPerson || 0) !== (updatedParty.splitAmountPerPerson || 0)) {
       partyUpdateChanges.push({
-        fieldLabel: 'Tên cuộc vui',
-        before: oldParty.name,
-        after: updatedParty.name,
+        fieldLabel: 'Tiền mỗi người',
+        before: fmtMoney(oldParty.splitAmountPerPerson || 0),
+        after: fmtMoney(updatedParty.splitAmountPerPerson || 0),
+      });
+    }
+    if ((oldParty.totalPeopleCount || 0) !== (updatedParty.totalPeopleCount || 0)) {
+      partyUpdateChanges.push({
+        fieldLabel: 'Số người chia',
+        before: `${oldParty.totalPeopleCount} người`,
+        after: `${updatedParty.totalPeopleCount} người`,
+      });
+    }
+    if ((oldParty.payerType || 'ME') !== (updatedParty.payerType || 'ME') || (oldParty.payerDebtorId || '') !== (updatedParty.payerDebtorId || '')) {
+      partyUpdateChanges.push({
+        fieldLabel: 'Người thanh toán trước',
+        before: resolvePayer(oldParty),
+        after: resolvePayer(updatedParty),
+      });
+    }
+    if (addedParticipants.length > 0 || removedParticipants.length > 0) {
+      partyUpdateChanges.push({
+        fieldLabel: 'Thành viên tham gia',
+        before: oldNames.join(', ') || '(Trống)',
+        after: newNames.join(', ') || '(Trống)',
+      });
+    }
+    if ((oldParty.note || '') !== (updatedParty.note || '')) {
+      partyUpdateChanges.push({
+        fieldLabel: 'Ghi chú',
+        before: oldParty.note || '(Trống)',
+        after: updatedParty.note || '(Trống)',
+      });
+    }
+    if ((oldParty.billImage || '') !== (updatedParty.billImage || '')) {
+      partyUpdateChanges.push({
+        fieldLabel: 'Ảnh hóa đơn nhóm',
+        before: oldParty.billImage ? 'Có ảnh cũ' : 'Không có',
+        after: updatedParty.billImage ? 'Đã cập nhật ảnh mới' : 'Đã gỡ ảnh',
       });
     }
   }
+  if (partyUpdateChanges.length === 0) {
+    partyUpdateChanges.push({
+      fieldLabel: 'Thông tin cuộc vui',
+      before: updatedParty.name,
+      after: `${updatedParty.name} (Đã cập nhật chia tiền)`,
+    });
+  }
+
   const partyUpdateBeforeState = oldParty
-    ? `Cuộc vui: "${oldParty.name}" (Tổng ${new Intl.NumberFormat('vi-VN').format(oldParty.totalAmount)} VNĐ)`
+    ? `Cuộc vui: "${oldParty.name}" · Ngày ${oldParty.date || '-'} · Tổng ${fmtMoney(oldParty.totalAmount)} · ${oldParty.totalPeopleCount} người (${oldNames.join(', ') || '-'})`
     : 'Chưa có thông tin cũ';
-  const partyUpdateAfterState = `Cuộc vui: "${updatedParty.name}" (Tổng ${new Intl.NumberFormat('vi-VN').format(updatedParty.totalAmount)} VNĐ)`;
+  const partyUpdateAfterState = `Cuộc vui: "${updatedParty.name}" · Ngày ${updatedParty.date || '-'} · Tổng ${fmtMoney(updatedParty.totalAmount)} · ${updatedParty.totalPeopleCount} người (${newNames.join(', ') || '-'})`;
+
+  const buildUpdatePartyLog = () => ({
+    action: 'UPDATE_PARTY' as const,
+    actor: 'Chủ Sổ (Admin)',
+    title: `Sửa cuộc chia bill: ${updatedParty.name}`,
+    description: `Cập nhật cuộc chia bill "${updatedParty.name}" ngày ${updatedParty.date || '-'} (Tổng ${fmtMoney(updatedParty.totalAmount)} / ${updatedParty.totalPeopleCount} người, ${fmtMoney(updatedParty.splitAmountPerPerson || 0)}/người).${addedParticipants.length ? ` Thêm: ${addedParticipants.join(', ')}.` : ''}${removedParticipants.length ? ` Gỡ: ${removedParticipants.join(', ')}.` : ''}`,
+    amount: updatedParty.totalAmount,
+    beforeState: partyUpdateBeforeState,
+    afterState: partyUpdateAfterState,
+    changes: partyUpdateChanges,
+    metadata: {
+      partyId,
+      date: updatedParty.date,
+      totalAmount: updatedParty.totalAmount,
+      splitAmountPerPerson: updatedParty.splitAmountPerPerson,
+      totalPeopleCount: updatedParty.totalPeopleCount,
+      participants: newNames,
+      addedParticipants,
+      removedParticipants,
+      payerName: resolvePayer(updatedParty),
+      hasBillImage: Boolean(updatedParty.billImage),
+    },
+  });
 
   // 1. Try server API
   try {
@@ -1160,16 +1489,7 @@ export async function apiUpdatePartySplit(
         saveParties(mergedParties);
         saveTransactions(mergedTxs);
         await updatePartyDirect(updatedParty, createdTxs).catch((err) => console.warn('Direct updateParty sync:', err));
-        recordAuditLog({
-          action: 'UPDATE_PARTY',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Sửa cuộc chia bill',
-          description: `Cập nhật cuộc chia bill "${updatedParty.name}" (tổng ${new Intl.NumberFormat('vi-VN').format(updatedParty.totalAmount)} VNĐ cho ${createdTxs.length + (updatedParty.includeMe ? 1 : 0)} người)`,
-          amount: updatedParty.totalAmount,
-          beforeState: partyUpdateBeforeState,
-          afterState: partyUpdateAfterState,
-          changes: partyUpdateChanges,
-        });
+        recordAuditLog(buildUpdatePartyLog());
         return { success: true, parties: mergedParties, transactions: mergedTxs };
       }
     }
@@ -1180,16 +1500,7 @@ export async function apiUpdatePartySplit(
   // 2. Direct fallback
   try {
     await updatePartyDirect(updatedParty, createdTxs).catch((err) => console.warn('Direct updateParty warning:', err));
-    recordAuditLog({
-      action: 'UPDATE_PARTY',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Sửa cuộc chia bill',
-      description: `Cập nhật cuộc chia bill "${updatedParty.name}" (tổng ${new Intl.NumberFormat('vi-VN').format(updatedParty.totalAmount)} VNĐ cho ${createdTxs.length + (updatedParty.includeMe ? 1 : 0)} người)`,
-      amount: updatedParty.totalAmount,
-      beforeState: partyUpdateBeforeState,
-      afterState: partyUpdateAfterState,
-      changes: partyUpdateChanges,
-    });
+    recordAuditLog(buildUpdatePartyLog());
     return { success: true, parties: allParties, transactions: updatedTxs };
   } catch (err: any) {
     recordAuditLog({
@@ -1209,46 +1520,90 @@ export async function apiUpdatePartySplit(
 export async function apiSaveSettings(
   settings: AppSettings
 ): Promise<{ success: boolean; settings?: AppSettings; message?: string }> {
-  // Lấy cài đặt cũ để so sánh trước và sau khi lưu
+  // Lấy cài đặt cũ để so sánh trước và sau khi lưu toàn diện mọi trường
   const oldSettings = loadSettings();
   const settingsChanges: AuditChangeDetail[] = [];
-  if ((oldSettings.accountNumber || '').trim() !== (settings.accountNumber || '').trim()) {
+
+  const diffStr = (key: keyof AppSettings, label: string, emptyVal = '(Trống)') => {
+    const prev = String(oldSettings[key] ?? '').trim();
+    const next = String(settings[key] ?? '').trim();
+    if (prev !== next) {
+      settingsChanges.push({
+        field: String(key),
+        fieldLabel: label,
+        before: prev || emptyVal,
+        after: next || emptyVal,
+      });
+    }
+  };
+
+  diffStr('ownerName', 'Tên chủ sổ');
+  diffStr('ownerPhone', 'SĐT chủ sổ');
+  diffStr('bankId', 'Mã ngân hàng');
+  diffStr('bankName', 'Tên ngân hàng');
+  diffStr('accountNumber', 'Số tài khoản');
+  diffStr('accountName', 'Tên chủ tài khoản');
+  if ((oldSettings.ownerPassword || '') !== (settings.ownerPassword || '')) {
     settingsChanges.push({
-      fieldLabel: 'Số tài khoản',
-      before: oldSettings.accountNumber || '(Trống)',
-      after: settings.accountNumber || '(Trống)',
-    });
-  }
-  if ((oldSettings.bankName || oldSettings.bankId || '').trim() !== (settings.bankName || settings.bankId || '').trim()) {
-    settingsChanges.push({
-      fieldLabel: 'Ngân hàng nhận',
-      before: oldSettings.bankName || oldSettings.bankId || '(Trống)',
-      after: settings.bankName || settings.bankId || '(Trống)',
-    });
-  }
-  if ((oldSettings.ownerName || '').trim() !== (settings.ownerName || '').trim()) {
-    settingsChanges.push({
-      fieldLabel: 'Tên chủ sổ',
-      before: oldSettings.ownerName || '(Trống)',
-      after: settings.ownerName || '(Trống)',
-    });
-  }
-  if (oldSettings.ownerPassword !== settings.ownerPassword) {
-    settingsChanges.push({
+      field: 'ownerPassword',
       fieldLabel: 'Mật khẩu quản trị',
-      before: '******',
-      after: 'Đã đổi mật khẩu mới',
+      before: maskSecret(oldSettings.ownerPassword),
+      after: `Đã đổi mới (${(settings.ownerPassword || '').trim().length} ký tự)`,
     });
   }
-  if ((oldSettings.appTitle || '').trim() !== (settings.appTitle || '').trim()) {
+  diffStr('defaultQrMode', 'Chế độ mã VietQR');
+  diffStr('vietQrTemplate', 'Mẫu khung VietQR');
+  diffStr('appTitle', 'Tiêu đề sổ', '(Mặc định)');
+  diffStr('appSubtitle', 'Mô tả phụ', '(Mặc định)');
+  diffStr('guestAnnouncement', 'Thông báo ghim cho khách');
+  diffStr('settledThankYouNote', 'Lời cảm ơn tất toán');
+  diffStr('lookupInstructionText', 'Hướng dẫn tra cứu');
+  diffStr('lookupGuideTemplate', 'Mẫu tin nhắn chia sẻ');
+  diffStr('autoLockTimeout', 'Tự động khóa khi rời app');
+  diffStr('themeColor', 'Màu chủ đạo');
+  diffStr('debtorCardLayout', 'Kiểu hiển thị thẻ');
+  if ((oldSettings.showSummaryStats ?? true) !== (settings.showSummaryStats ?? true)) {
     settingsChanges.push({
-      fieldLabel: 'Tiêu đề sổ',
-      before: oldSettings.appTitle || '(Mặc định)',
-      after: settings.appTitle || '(Mặc định)',
+      field: 'showSummaryStats',
+      fieldLabel: 'Hiện thống kê tổng quan',
+      before: (oldSettings.showSummaryStats ?? true) ? 'Bật' : 'Tắt',
+      after: (settings.showSummaryStats ?? true) ? 'Bật' : 'Tắt',
     });
   }
-  const settingsBeforeState = `Ngân hàng: ${oldSettings.bankName || oldSettings.bankId || '-'} (STK: ${oldSettings.accountNumber || '-'}) - Chủ sổ: ${oldSettings.ownerName || '-'}`;
-  const settingsAfterState = `Ngân hàng: ${settings.bankName || settings.bankId || '-'} (STK: ${settings.accountNumber || '-'}) - Chủ sổ: ${settings.ownerName || '-'}`;
+  diffStr('googleAppsScriptUrl', 'URL Apps Script Webhook');
+  diffStr('googleSheetUrl', 'Link Google Sheets');
+  if ((oldSettings.autoSyncGoogleSheets ?? false) !== (settings.autoSyncGoogleSheets ?? false)) {
+    settingsChanges.push({
+      field: 'autoSyncGoogleSheets',
+      fieldLabel: 'Tự động đồng bộ Google Sheets',
+      before: oldSettings.autoSyncGoogleSheets ? 'Bật' : 'Tắt',
+      after: settings.autoSyncGoogleSheets ? 'Bật' : 'Tắt',
+    });
+  }
+
+  const settingsBeforeState = `Ngân hàng: ${oldSettings.bankName || oldSettings.bankId || '-'} (STK: ${oldSettings.accountNumber || '-'}) · Chủ sổ: ${oldSettings.ownerName || '-'} · Tự khóa: ${oldSettings.autoLockTimeout || 'IMMEDIATE'}`;
+  const settingsAfterState = `Ngân hàng: ${settings.bankName || settings.bankId || '-'} (STK: ${settings.accountNumber || '-'}) · Chủ sổ: ${settings.ownerName || '-'} · Tự khóa: ${settings.autoLockTimeout || 'IMMEDIATE'}`;
+
+  const recordSettingsLogIfChanged = (saved: AppSettings) => {
+    // Tránh ghi log thừa khi chỉ cập nhật timestamp đồng bộ nền (lastGoogleSheetSyncAt)
+    if (settingsChanges.length === 0) return;
+    const changedLabels = settingsChanges.map((c) => c.fieldLabel).join(', ');
+    recordAuditLog({
+      action: 'UPDATE_SETTINGS',
+      actor: 'Chủ Sổ (Admin)',
+      title: `Cập nhật cài đặt (${settingsChanges.length} mục)`,
+      description: `Đã thay đổi: ${changedLabels}. Tài khoản nhận hiện tại: ${saved.bankName || saved.bankId} (${saved.accountNumber || 'Chưa có STK'}).`,
+      beforeState: settingsBeforeState,
+      afterState: settingsAfterState,
+      changes: settingsChanges,
+      metadata: {
+        changedFields: settingsChanges.map((c) => c.field || c.fieldLabel),
+        changedCount: settingsChanges.length,
+        bankId: saved.bankId,
+        autoLockTimeout: saved.autoLockTimeout || 'IMMEDIATE',
+      },
+    });
+  };
 
   // 1. Immediately save to local client storage for instant UI reactivity
   saveSettings(settings);
@@ -1271,15 +1626,7 @@ export async function apiSaveSettings(
         await saveSettingsDirect(data.settings).catch((err) =>
           console.warn('Direct saveSettings sync:', err)
         );
-        recordAuditLog({
-          action: 'UPDATE_SETTINGS',
-          actor: 'Chủ Sổ (Admin)',
-          title: 'Cập nhật cài đặt',
-          description: `Lưu cấu hình hệ thống và tài khoản ngân hàng ${data.settings.bankName || data.settings.bankId} (${data.settings.accountNumber})`,
-          beforeState: settingsBeforeState,
-          afterState: settingsAfterState,
-          changes: settingsChanges,
-        });
+        recordSettingsLogIfChanged(data.settings);
         return { success: true, settings: data.settings };
       }
     }
@@ -1290,15 +1637,7 @@ export async function apiSaveSettings(
   // 3. Fallback direct Firestore sync
   try {
     await saveSettingsDirect(settings);
-    recordAuditLog({
-      action: 'UPDATE_SETTINGS',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Cập nhật cài đặt',
-      description: `Lưu cấu hình hệ thống và tài khoản ngân hàng ${settings.bankName || settings.bankId} (${settings.accountNumber})`,
-      beforeState: settingsBeforeState,
-      afterState: settingsAfterState,
-      changes: settingsChanges,
-    });
+    recordSettingsLogIfChanged(settings);
   } catch (err) {
     console.warn('Direct saveSettings warning:', err);
   }
@@ -1317,33 +1656,39 @@ export async function apiGuestLookup(pin: string): Promise<{
   const cleanPin = pin.trim();
   const cleanPinLower = cleanPin.toLowerCase();
 
-  const recordLookupAudit = (debtor: Debtor, txs: Transaction[] = []) => {
+  const recordLookupAudit = (debtor: Debtor, txs: Transaction[] = [], source: string) => {
     try {
-      const balance = txs.reduce((acc, t) => acc + (t.type === 'ADD' ? t.amount : -t.amount), 0);
-      const balanceStr = new Intl.NumberFormat('vi-VN').format(balance);
+      const stats = getDebtorAuditStats(debtor.id, txs);
+      const balanceStr = fmtMoney(stats.balance);
       const safePin = (debtor.pin || cleanPin).trim();
       const lookupBeforeState = 'Trạng thái khách: Chưa đăng nhập tra cứu';
-      const lookupAfterState = `Đã nhập đúng mã PIN: ${safePin}, đối soát số dư ${balanceStr} VNĐ (${txs.length} giao dịch)`;
+      const lookupAfterState = `Đã xác thực mã PIN: ${safePin} (${source}), đối soát số dư ${balanceStr} (${stats.txCount} giao dịch)`;
       const lookupChanges: AuditChangeDetail[] = [
         { fieldLabel: 'Mã PIN tra cứu', before: 'Chưa nhập', after: `Khớp PIN (${safePin})` },
-        { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} VNĐ (${txs.length} giao dịch)` },
+        { fieldLabel: 'Nguồn dữ liệu', before: '-', after: source },
+        { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} (${stats.txCount} GD · Gồm ${stats.splitCount} bill nhóm)` },
+        { fieldLabel: 'Tổng nợ / Đã trả', before: '-', after: `Nợ ${fmtMoney(stats.addTotal)} · Đã trả ${fmtMoney(stats.subTotal)}` },
       ];
 
       recordAuditLog({
         action: 'GUEST_LOOKUP',
         actor: `Khách: ${debtor.name}`,
-        title: 'Khách tra cứu sổ nợ',
-        description: `Khách "${debtor.name}" đã nhập mã tra cứu (PIN: ${safePin}) để xem bảng đối soát công nợ. Dư nợ hiện thời: ${balanceStr} VNĐ (${txs.length} giao dịch).`,
+        title: `Khách tra cứu sổ nợ: ${debtor.name}`,
+        description: `Khách "${debtor.name}" đã tra cứu bảng đối soát (PIN: ${safePin}, Nguồn: ${source}). Dư nợ hiện tại: ${balanceStr} qua ${stats.txCount} giao dịch (Tổng vay ${fmtMoney(stats.addTotal)}, đã trả ${fmtMoney(stats.subTotal)}).`,
         debtorId: debtor.id,
         debtorName: debtor.name,
-        amount: balance,
+        amount: stats.balance,
         beforeState: lookupBeforeState,
         afterState: lookupAfterState,
         changes: lookupChanges,
         metadata: {
           pin: safePin,
-          balance,
-          txCount: txs.length,
+          source,
+          balance: stats.balance,
+          totalAdd: stats.addTotal,
+          totalSub: stats.subTotal,
+          txCount: stats.txCount,
+          splitCount: stats.splitCount,
           lookupTime: new Date().toISOString(),
         },
       });
@@ -1362,7 +1707,7 @@ export async function apiGuestLookup(pin: string): Promise<{
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success && data.debtor) {
-        recordLookupAudit(data.debtor, data.transactions || []);
+        recordLookupAudit(data.debtor, data.transactions || [], 'Server API');
         return {
           success: true,
           debtor: data.debtor,
@@ -1383,7 +1728,7 @@ export async function apiGuestLookup(pin: string): Promise<{
   try {
     const directRes = await guestLookupDirect(cleanPin);
     if (directRes.success && directRes.debtor) {
-      recordLookupAudit(directRes.debtor, directRes.transactions || []);
+      recordLookupAudit(directRes.debtor, directRes.transactions || [], 'Cloud Firestore trực tiếp');
       return directRes;
     }
   } catch (e) {
@@ -1399,7 +1744,7 @@ export async function apiGuestLookup(pin: string): Promise<{
     const allTxs = loadTransactions();
     const debtorTxs = allTxs.filter((tx) => tx.debtorId === found.id);
     const settings = loadSettings();
-    recordLookupAudit(found, debtorTxs);
+    recordLookupAudit(found, debtorTxs, 'Bộ nhớ cục bộ (Offline)');
     return {
       success: true,
       debtor: found,
@@ -1415,7 +1760,8 @@ export async function apiGuestLookup(pin: string): Promise<{
     description: `Khách đã nhập mã tra cứu không hợp lệ hoặc không tồn tại (${maskedPin}).`,
     beforeState: 'Chưa tra cứu',
     afterState: 'Từ chối xem thông tin (Sai mã PIN)',
-    changes: [{ fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: 'Không tìm thấy người nợ' }],
+    changes: [{ fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: `Không tìm thấy (${maskedPin})` }],
+    metadata: { maskedInput: maskedPin, inputLength: cleanPin.length },
   });
   return {
     success: false,
@@ -1436,23 +1782,26 @@ export async function apiGuestReportPayment(
   const cleanPin = pin.trim();
   const cleanPinLower = cleanPin.toLowerCase();
   const debtorObj = loadDebtors().find((d) => d.pin.trim().toLowerCase() === cleanPinLower);
+  const currentStats = debtorObj ? getDebtorAuditStats(debtorObj.id, loadTransactions()) : { balance: 0, txCount: 0 };
+  const projectedBalance = currentStats.balance - amount;
 
   const recordReportAudit = (debtorName?: string, debtorId?: string) => {
     try {
-      const amountStr = new Intl.NumberFormat('vi-VN').format(amount);
-      const reportBeforeState = `Khách chưa gửi báo chuyển khoản ${amountStr} VNĐ`;
-      const reportAfterState = `Đã gửi báo chuyển khoản ${amountStr} VNĐ chờ chủ sổ xác nhận`;
+      const amountStr = fmtMoney(amount);
+      const reportBeforeState = `Dư nợ trước báo CK: ${fmtMoney(currentStats.balance)} (${currentStats.txCount} GD)`;
+      const reportAfterState = `Đã báo CK ${amountStr} · Dư nợ dự kiến: ${fmtMoney(projectedBalance)}`;
       const reportChanges: AuditChangeDetail[] = [
-        { fieldLabel: 'Số tiền báo CK', before: '0 VNĐ', after: `${amountStr} VNĐ` },
+        { fieldLabel: 'Số tiền báo CK', before: '0 VNĐ', after: amountStr },
+        { fieldLabel: 'Dư nợ dự kiến', before: fmtMoney(currentStats.balance), after: fmtMoney(projectedBalance) },
         { fieldLabel: 'Ghi chú giao dịch', before: '(Trống)', after: note || 'Chuyển khoản thanh toán' },
-        { fieldLabel: 'Ảnh biên lai', before: 'Chưa có', after: billImage ? 'Có đính kèm ảnh bill' : 'Không có ảnh' },
+        { fieldLabel: 'Ảnh biên lai', before: 'Chưa có', after: billImage ? 'Có đính kèm ảnh biên lai CK' : 'Không có ảnh' },
       ];
 
       recordAuditLog({
         action: 'GUEST_REPORT',
         actor: `Khách: ${debtorName || 'Khách nợ'}`,
-        title: 'Khách báo chuyển khoản',
-        description: `Khách "${debtorName || 'Người nợ'}" vừa gửi báo chuyển khoản thanh toán ${amountStr} VNĐ${note ? ` (${note})` : ''}`,
+        title: `Khách báo chuyển khoản: ${debtorName || 'Khách'}`,
+        description: `Khách "${debtorName || 'Người nợ'}" vừa báo đã chuyển khoản ${amountStr} (PIN: ${cleanPin})${note ? ` · Nội dung: "${note}"` : ''}${billImage ? ' · Có đính kèm ảnh biên lai' : ''}. Dư nợ: ${fmtMoney(currentStats.balance)} → ${fmtMoney(projectedBalance)}.`,
         debtorId,
         debtorName,
         amount,
@@ -1462,7 +1811,9 @@ export async function apiGuestReportPayment(
         metadata: {
           pin: cleanPin,
           amount,
-          note,
+          note: note || '',
+          prevBalance: currentStats.balance,
+          projectedBalance,
           hasBillImage: Boolean(billImage),
         },
       });
@@ -1501,7 +1852,7 @@ export async function apiGuestReportPayment(
       debtorId: debtorObj?.id,
       debtorName: debtorObj?.name,
       amount,
-      beforeState: `Định gửi báo chuyển khoản ${new Intl.NumberFormat('vi-VN').format(amount)} VNĐ`,
+      beforeState: `Định gửi báo chuyển khoản ${fmtMoney(amount)}`,
       afterState: `Thất bại: ${directRes.message || 'Lỗi'}`,
       changes: [{ fieldLabel: 'Kết quả gửi báo', before: 'Đang gửi', after: 'Thất bại' }],
     });
@@ -1624,6 +1975,29 @@ export async function apiChangeFirestoreDatabase(options: {
   parties?: PartySplit[];
   settings?: AppSettings;
 }> {
+  const prevDbId = getClientFirebaseConfig().firestoreDatabaseId;
+  const logDbSwitch = (channel: string) => {
+    recordAuditLog({
+      action: 'CLOUD_SYNC',
+      actor: 'Chủ Sổ (Admin)',
+      title: `Chuyển Database Cloud Firestore: ${options.databaseId}`,
+      description: `Đã chuyển kết nối Cloud Firestore từ "${prevDbId}" sang "${options.databaseId}" qua ${channel}${options.migrateExistingData ? ' (có di chuyển dữ liệu hiện có)' : ''}.`,
+      beforeState: `Database: ${prevDbId}`,
+      afterState: `Database: ${options.databaseId}`,
+      changes: [
+        { fieldLabel: 'Database ID', before: prevDbId, after: options.databaseId },
+        { fieldLabel: 'Di chuyển dữ liệu', before: '-', after: options.migrateExistingData ? 'Có di chuyển' : 'Không' },
+        { fieldLabel: 'Kênh kết nối', before: '-', after: channel },
+      ],
+      metadata: {
+        previousDatabaseId: prevDbId,
+        targetDatabaseId: options.databaseId,
+        migrateExistingData: Boolean(options.migrateExistingData),
+        channel,
+      },
+    });
+  };
+
   try {
     const res = await fetch('/api/firestore/change-database', {
       method: 'POST',
@@ -1639,6 +2013,7 @@ export async function apiChangeFirestoreDatabase(options: {
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
         setClientCustomDatabaseId(options.databaseId);
+        logDbSwitch('Server API');
         return {
           success: true,
           message: data.message,
@@ -1664,6 +2039,7 @@ export async function apiChangeFirestoreDatabase(options: {
       saveTransactions(fresh.transactions);
       saveParties(fresh.parties);
       saveSettings(fresh.settings);
+      logDbSwitch('Cloud Firestore trực tiếp');
       return {
         success: true,
         message: `Đã kết nối trực tiếp tới cơ sở dữ liệu Cloud Firestore: "${options.databaseId}"`,
@@ -1675,6 +2051,15 @@ export async function apiChangeFirestoreDatabase(options: {
       };
     }
   }
+  recordAuditLog({
+    action: 'OPERATION_FAILED',
+    actor: 'Chủ Sổ (Admin)',
+    title: 'Lỗi chuyển Database Cloud Firestore',
+    description: `Không thể chuyển kết nối sang "${options.databaseId}": ${test.error || 'Lỗi kết nối'}`,
+    beforeState: `Database: ${prevDbId}`,
+    afterState: `Thất bại khi nối "${options.databaseId}"`,
+    changes: [{ fieldLabel: 'Database đích', before: prevDbId, after: `Lỗi: ${options.databaseId}` }],
+  });
   return {
     success: false,
     message: test.error || 'Không thể kết nối đến cơ sở dữ liệu mới trên Cloud Firestore',
@@ -1690,6 +2075,22 @@ export async function apiResetDefaultFirestoreDatabase(): Promise<{
   parties?: PartySplit[];
   settings?: AppSettings;
 }> {
+  const prevDbId = getClientFirebaseConfig().firestoreDatabaseId;
+  const defaultDbId = getClientFirebaseConfig().defaultDatabaseId;
+
+  const logResetDb = (targetDb: string) => {
+    recordAuditLog({
+      action: 'CLOUD_SYNC',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Khôi phục Database Cloud Firestore mặc định',
+      description: `Đã khôi phục kết nối Cloud Firestore từ "${prevDbId}" về database mặc định "${targetDb}".`,
+      beforeState: `Database tùy chỉnh: ${prevDbId}`,
+      afterState: `Database mặc định: ${targetDb}`,
+      changes: [{ fieldLabel: 'Database ID', before: prevDbId, after: targetDb }],
+      metadata: { previousDatabaseId: prevDbId, targetDatabaseId: targetDb },
+    });
+  };
+
   try {
     const res = await fetch('/api/firestore/reset-default-database', {
       method: 'POST',
@@ -1704,6 +2105,7 @@ export async function apiResetDefaultFirestoreDatabase(): Promise<{
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
         setClientCustomDatabaseId(null);
+        logResetDb(data.databaseId || defaultDbId);
         return {
           success: true,
           message: data.message,
@@ -1726,10 +2128,11 @@ export async function apiResetDefaultFirestoreDatabase(): Promise<{
     saveTransactions(fresh.transactions);
     saveParties(fresh.parties);
     saveSettings(fresh.settings);
+    logResetDb(defaultDbId);
     return {
       success: true,
       message: 'Đã khôi phục cơ sở dữ liệu Cloud Firestore mặc định.',
-      databaseId: getClientFirebaseConfig().defaultDatabaseId,
+      databaseId: defaultDbId,
       debtors: fresh.debtors,
       transactions: fresh.transactions,
       parties: fresh.parties,
@@ -1773,6 +2176,24 @@ export async function apiCreateFirestoreBackup(label?: string): Promise<{ succes
     });
     if (res.ok) {
       const data = await res.json();
+      recordAuditLog({
+        action: 'CLOUD_SYNC',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Tạo bản sao lưu Snapshot',
+        description: `Đã tạo bản sao lưu Snapshot "${data.filename || label || 'Mới'}" (${loadDebtors().length} người nợ, ${loadTransactions().length} giao dịch).`,
+        beforeState: 'Dữ liệu sổ nợ hiện tại',
+        afterState: `Đã lưu Snapshot: ${data.filename || label || 'Thành công'}`,
+        changes: [
+          { fieldLabel: 'Tên Snapshot', before: '-', after: data.filename || label || 'Snapshot' },
+          { fieldLabel: 'Quy mô dữ liệu', before: '-', after: `${loadDebtors().length} người nợ · ${loadTransactions().length} GD` },
+        ],
+        metadata: {
+          filename: data.filename,
+          label,
+          debtorsCount: loadDebtors().length,
+          transactionsCount: loadTransactions().length,
+        },
+      });
       return { success: true, message: data.message, filename: data.filename };
     }
   } catch {
@@ -1789,6 +2210,8 @@ export async function apiRestoreFirestoreBackup(filename: string): Promise<{
   parties?: PartySplit[];
   settings?: AppSettings;
 }> {
+  const prevDebtors = loadDebtors().length;
+  const prevTxs = loadTransactions().length;
   try {
     const res = await fetch('/api/firestore/restore-backup', {
       method: 'POST',
@@ -1802,6 +2225,22 @@ export async function apiRestoreFirestoreBackup(filename: string): Promise<{
         if (data.data.transactions) saveTransactions(data.data.transactions);
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
+        const nextDebtors = (data.data.debtors || []).length;
+        const nextTxs = (data.data.transactions || []).length;
+        recordAuditLog({
+          action: 'RESTORE_DATA',
+          actor: 'Chủ Sổ (Admin)',
+          title: `Khôi phục Snapshot: ${filename}`,
+          description: `Đã khôi phục dữ liệu từ bản sao lưu "${filename}" (${nextDebtors} người nợ, ${nextTxs} giao dịch).`,
+          beforeState: `Trước khôi phục: ${prevDebtors} người nợ · ${prevTxs} GD`,
+          afterState: `Sau khôi phục: ${nextDebtors} người nợ · ${nextTxs} GD`,
+          changes: [
+            { fieldLabel: 'Tệp Snapshot', before: '-', after: filename },
+            { fieldLabel: 'Người nợ', before: `${prevDebtors} người`, after: `${nextDebtors} người` },
+            { fieldLabel: 'Giao dịch', before: `${prevTxs} GD`, after: `${nextTxs} GD` },
+          ],
+          metadata: { filename, prevDebtors, prevTxs, nextDebtors, nextTxs },
+        });
         return {
           success: true,
           message: data.message,
@@ -1826,6 +2265,33 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
   parties?: PartySplit[];
   settings?: AppSettings;
 }> {
+  const prevDebtorsCount = loadDebtors().length;
+  const prevTxsCount = loadTransactions().length;
+  const prevPartiesCount = loadParties().length;
+
+  const logRestoreSuccess = (
+    nextD: number,
+    nextT: number,
+    nextP: number,
+    channel: string
+  ) => {
+    recordAuditLog({
+      action: 'RESTORE_DATA',
+      actor: 'Chủ Sổ (Admin)',
+      title: `Khôi phục dữ liệu từ JSON (${mode === 'merge' ? 'Gộp' : 'Ghi đè'})`,
+      description: `Đã nạp thành công ${nextD} người nợ, ${nextT} giao dịch, ${nextP} cuộc vui từ tệp JSON qua ${channel}.`,
+      beforeState: `Trước khi nhập: ${prevDebtorsCount} người nợ · ${prevTxsCount} GD · ${prevPartiesCount} cuộc vui`,
+      afterState: `Sau khi nhập: ${nextD} người nợ · ${nextT} GD · ${nextP} cuộc vui`,
+      changes: [
+        { fieldLabel: 'Chế độ khôi phục', before: '-', after: mode === 'merge' ? 'Gộp dữ liệu' : 'Ghi đè hoàn toàn' },
+        { fieldLabel: 'Người nợ', before: `${prevDebtorsCount} người`, after: `${nextD} người` },
+        { fieldLabel: 'Giao dịch', before: `${prevTxsCount} GD`, after: `${nextT} GD` },
+        { fieldLabel: 'Cuộc chia bill', before: `${prevPartiesCount} cuộc`, after: `${nextP} cuộc` },
+      ],
+      metadata: { mode, channel, prevDebtorsCount, prevTxsCount, nextDebtorsCount: nextD, nextTxsCount: nextT, nextPartiesCount: nextP },
+    });
+  };
+
   try {
     const res = await fetch('/api/firestore/upload-json', {
       method: 'POST',
@@ -1840,6 +2306,12 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
         if (data.data.transactions) saveTransactions(data.data.transactions);
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
+        logRestoreSuccess(
+          (data.data.debtors || []).length,
+          (data.data.transactions || []).length,
+          (data.data.parties || []).length,
+          'Server API'
+        );
         return {
           success: true,
           message: data.message,
@@ -1908,19 +2380,12 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
     saveTransactions(formatted.transactions);
     saveParties(formatted.parties);
     saveSettings(formatted.settings);
-    recordAuditLog({
-      action: 'RESTORE_DATA',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Khôi phục dữ liệu từ tệp sao lưu JSON',
-      description: `Đã nạp thành công ${formatted.debtors.length} người nợ, ${formatted.transactions.length} giao dịch, ${formatted.parties.length} cuộc vui từ tệp JSON.`,
-      beforeState: 'Dữ liệu trước khi nhập tệp',
-      afterState: `Dữ liệu sau khi nạp: ${formatted.debtors.length} người nợ, ${formatted.transactions.length} GD, ${formatted.parties.length} cuộc vui`,
-      changes: [
-        { fieldLabel: 'Chế độ khôi phục', before: '-', after: mode === 'merge' ? 'Gộp dữ liệu' : 'Ghi đè hoàn toàn' },
-        { fieldLabel: 'Người nợ đã nạp', before: '-', after: `${formatted.debtors.length} người` },
-        { fieldLabel: 'Giao dịch đã nạp', before: '-', after: `${formatted.transactions.length} GD` },
-      ],
-    });
+    logRestoreSuccess(
+      formatted.debtors.length,
+      formatted.transactions.length,
+      formatted.parties.length,
+      'Cloud Firestore trực tiếp'
+    );
     return {
       success: true,
       message: `Đã khôi phục thành công ${formatted.debtors.length} người nợ, ${formatted.transactions.length} giao dịch lên Cloud Firestore!`,
@@ -1954,15 +2419,22 @@ export async function apiCleanOrphanTransactions(): Promise<{
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.success && data.removedCount > 0) {
+      if (data.success) {
         recordAuditLog({
-          action: 'UPDATE_SETTINGS',
+          action: data.removedCount > 0 ? 'CLEAR_DATA' : 'CLOUD_SYNC',
           actor: 'Chủ Sổ (Admin)',
-          title: 'Dọn dẹp giao dịch mồ côi',
-          description: `Đã tự động loại bỏ ${data.removedCount} giao dịch không còn liên kết với người nợ nào.`,
-          beforeState: `Phát hiện giao dịch mồ côi (${data.removedCount} bản ghi)`,
-          afterState: 'Đã dọn dẹp sạch sẽ',
-          changes: [{ fieldLabel: 'Giao dịch mồ côi đã xóa', before: `${data.removedCount} GD`, after: '0 GD' }],
+          title: data.removedCount > 0 ? `Dọn dẹp ${data.removedCount} giao dịch mồ côi` : 'Quét kiểm tra giao dịch mồ côi',
+          description:
+            data.removedCount > 0
+              ? `Đã tự động loại bỏ ${data.removedCount} giao dịch không còn liên kết với người nợ nào. Còn lại ${data.transactionsCount ?? '-'} giao dịch hợp lệ.`
+              : `Đã quét kiểm tra toàn bộ dữ liệu: không phát hiện giao dịch rác hay mồ côi nào (${data.transactionsCount ?? loadTransactions().length} giao dịch đều hợp lệ).`,
+          beforeState: data.removedCount > 0 ? `Phát hiện ${data.removedCount} giao dịch mồ côi` : 'Kiểm tra toàn vẹn dữ liệu',
+          afterState: data.removedCount > 0 ? 'Đã dọn dẹp sạch sẽ' : 'Dữ liệu sạch 100% (0 giao dịch rác)',
+          changes: [
+            { fieldLabel: 'Giao dịch mồ côi', before: `${data.removedCount} GD`, after: '0 GD' },
+            { fieldLabel: 'Trạng thái dữ liệu', before: 'Đang quét', after: 'Hợp lệ & sạch sẽ' },
+          ],
+          metadata: { removedCount: data.removedCount, debtorsCount: data.debtorsCount, transactionsCount: data.transactionsCount },
         });
       }
       return data;
@@ -1981,6 +2453,24 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
   parties?: PartySplit[];
   settings?: AppSettings;
 }> {
+  const dbId = getClientFirebaseConfig().firestoreDatabaseId;
+  const logSync = (dCount: number, tCount: number, pCount: number, channel: string) => {
+    recordAuditLog({
+      action: 'CLOUD_SYNC',
+      actor: 'Chủ Sổ (Admin)',
+      title: direction === 'PUSH' ? 'Đẩy dữ liệu lên Cloud Firestore' : 'Tải dữ liệu từ Cloud Firestore về máy',
+      description: `Đã đồng bộ (${direction === 'PUSH' ? 'Đẩy lên Cloud' : 'Tải về máy'}) qua ${channel}: ${dCount} người nợ, ${tCount} giao dịch, ${pCount} cuộc chia tiền (Database: ${dbId}).`,
+      beforeState: `Database: ${dbId}`,
+      afterState: `Đồng bộ ${direction} thành công (${dCount} người nợ, ${tCount} GD)`,
+      changes: [
+        { fieldLabel: 'Hướng đồng bộ', before: '-', after: direction === 'PUSH' ? 'Máy -> Cloud Firestore' : 'Cloud Firestore -> Máy' },
+        { fieldLabel: 'Database ID', before: '-', after: dbId },
+        { fieldLabel: 'Khối lượng dữ liệu', before: '-', after: `${dCount} người nợ · ${tCount} GD · ${pCount} cuộc vui` },
+      ],
+      metadata: { direction, databaseId: dbId, channel, debtorsCount: dCount, transactionsCount: tCount, partiesCount: pCount },
+    });
+  };
+
   try {
     const res = await fetch('/api/firestore/force-sync', {
       method: 'POST',
@@ -1995,6 +2485,12 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
         if (data.data.transactions) saveTransactions(data.data.transactions);
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
+        logSync(
+          (data.data.debtors || []).length,
+          (data.data.transactions || []).length,
+          (data.data.parties || []).length,
+          'Server API'
+        );
         return {
           success: true,
           message: data.message,
@@ -2017,6 +2513,7 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
         saveTransactions(fresh.transactions);
         saveParties(fresh.parties);
         saveSettings(fresh.settings);
+        logSync(fresh.debtors.length, fresh.transactions.length, fresh.parties.length, 'Cloud Firestore trực tiếp');
         return {
           success: true,
           message: 'Đã tải dữ liệu mới nhất trực tiếp từ Cloud Firestore về máy!',
@@ -2027,9 +2524,27 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
         };
       }
     } else {
-      return await apiSyncAllNow();
+      const pushRes = await apiSyncAllNow();
+      if (pushRes.success) {
+        logSync(
+          pushRes.debtors?.length ?? loadDebtors().length,
+          pushRes.transactions?.length ?? loadTransactions().length,
+          pushRes.parties?.length ?? loadParties().length,
+          'Cloud Firestore trực tiếp'
+        );
+      }
+      return pushRes;
     }
   } catch (err: any) {
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: `Lỗi đồng bộ Cloud Firestore (${direction})`,
+      description: err?.message || 'Đồng bộ trực tiếp Cloud Firestore thất bại',
+      beforeState: `Yêu cầu đồng bộ ${direction}`,
+      afterState: 'Thất bại',
+      changes: [{ fieldLabel: 'Kết quả đồng bộ', before: direction, after: `Lỗi: ${err?.message || 'Thất bại'}` }],
+    });
     return { success: false, message: err?.message || 'Đồng bộ trực tiếp Cloud Firestore thất bại' };
   }
 
