@@ -25,6 +25,7 @@ import {
   apiUpdatePartySplit,
   apiDeletePartySplit,
   apiSaveSettings,
+  apiFetchRemoteAuditLogs,
   getStoredOwnerToken,
   removeStoredOwnerToken,
 } from './utils/api';
@@ -66,6 +67,13 @@ export default function App() {
   const [parties, setParties] = useState<PartySplit[]>([]);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => loadAuditLogs());
+  const [remoteLogsStatus, setRemoteLogsStatus] = useState<{
+    isSyncing?: boolean;
+    needsAppsScriptUpgrade?: boolean;
+    hiddenByClearCount?: number;
+    source?: string;
+    sheetsError?: string;
+  }>({});
 
   useEffect(() => {
     const handleLogRecorded = (e: any) => {
@@ -564,12 +572,38 @@ export default function App() {
     }
   };
 
+  const syncRemoteAuditLogs = useCallback(async (includeCleared = false) => {
+    setRemoteLogsStatus((prev) => ({ ...prev, isSyncing: true }));
+    try {
+      const res = await apiFetchRemoteAuditLogs(500, includeCleared);
+      setAuditLogs(res.logs);
+      setRemoteLogsStatus({
+        isSyncing: false,
+        needsAppsScriptUpgrade: res.needsAppsScriptUpgrade,
+        hiddenByClearCount: res.hiddenByClearCount,
+        source: res.source,
+        sheetsError: res.sheetsError,
+      });
+      return res;
+    } catch {
+      setRemoteLogsStatus((prev) => ({ ...prev, isSyncing: false }));
+      return null;
+    }
+  }, []);
+
   const handleOwnerLoginSuccess = () => {
     setIsOwnerAuthenticated(true);
     setCurrentView('OWNER');
     window.location.hash = 'owner';
     refreshDataFromServer();
+    syncRemoteAuditLogs(false);
   };
+
+  useEffect(() => {
+    if (isOwnerAuthenticated && currentView === 'LOGS') {
+      syncRemoteAuditLogs(false);
+    }
+  }, [isOwnerAuthenticated, currentView, syncRemoteAuditLogs]);
 
   const handleOwnerLogout = useCallback(() => {
     handleLogoutOwner('MANUAL');
@@ -596,12 +630,26 @@ export default function App() {
     return () => window.removeEventListener('googlesheets-autosynced', handleAutoSynced);
   }, []);
 
-  // Auto-sync Tab 4 to Google Sheets when new audit logs arrive (e.g. guest lookups, guest payments)
+  // Auto-sync full 4 tabs to Google Sheets ONLY on data mutations (pure log events already sync via /api/audit-logs/push -> Tab 4 APPEND_LOGS)
   useEffect(() => {
+    const DATA_MUTATION_ACTIONS = new Set([
+      'ADD_TRANSACTION',
+      'UPDATE_TRANSACTION',
+      'DELETE_TRANSACTION',
+      'SETTLE_DEBT',
+      'GUEST_REPORT',
+      'ADD_DEBTOR',
+      'UPDATE_DEBTOR',
+      'DELETE_DEBTOR',
+      'ADD_PARTY',
+      'UPDATE_PARTY',
+      'DELETE_PARTY',
+      'UPDATE_SETTINGS',
+      'RESTORE_DATA',
+    ]);
     const handleLogRecorded = (e: any) => {
       const log = e?.detail as AuditLog | undefined;
-      // Skip sync-induced logs to prevent loops
-      if (log && (log.action === 'SYNC_SHEETS' || log.action === 'OPERATION_FAILED')) {
+      if (!log || !DATA_MUTATION_ACTIONS.has(log.action)) {
         return;
       }
       maybeTriggerGoogleSheetsAutoSync();
@@ -931,7 +979,9 @@ export default function App() {
               >
                 <AdminAuditLogsTab
                   auditLogs={auditLogs}
-                  onRefreshLogs={() => setAuditLogs(loadAuditLogs())}
+                  onRefreshLogs={() => syncRemoteAuditLogs(false)}
+                  onRestoreClearedLogs={() => syncRemoteAuditLogs(true)}
+                  remoteSyncStatus={remoteLogsStatus}
                   debtors={debtors}
                   transactions={transactions}
                   parties={parties}

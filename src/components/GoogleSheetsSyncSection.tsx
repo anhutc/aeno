@@ -704,10 +704,10 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
             <div>
               <span className="text-xs sm:text-sm font-extrabold text-emerald-950 flex items-center gap-1.5">
                 <Code className="w-4 h-4 text-emerald-700" />
-                Hướng Dẫn Cài Đặt Trên Google Sheet (Chỉ Mất 1 Phút)
+                Hướng Dẫn Cài Đặt Apps Script v2 (Đồng Bộ 4 Bảng &amp; Nhật Ký Đa Thiết Bị)
               </span>
               <p className="text-[11px] text-emerald-800 mt-0.5">
-                Sao chép đoạn mã có sẵn bên dưới và dán vào Apps Script của trang tính Google Sheet của bạn.
+                Sao chép mã v2 bên dưới dán vào Apps Script để tự động đồng bộ 2 chiều toàn bộ nhật ký từ mọi thiết bị qua Tab 4 (0 lượt đọc/ghi Firestore).
               </p>
             </div>
 

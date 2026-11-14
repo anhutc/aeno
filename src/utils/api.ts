@@ -33,6 +33,7 @@ import {
   loadAuditLogs,
   saveAuditLogs,
   clearAuditLogs,
+  mergeRemoteAuditLogs,
 } from './storage';
 import {
   getClientFirebaseConfig,
@@ -2881,4 +2882,76 @@ export async function apiSyncExternal(
     return { success: false, message: err?.message || 'Không thể kết nối đến máy chủ bên ngoài.' };
   }
 }
+
+export interface RemoteAuditLogsFetchResult {
+  success: boolean;
+  logs: AuditLog[];
+  newCount: number;
+  hiddenByClearCount: number;
+  source?: string;
+  hasAppsScriptUrl?: boolean;
+  needsAppsScriptUpgrade?: boolean;
+  sheetsError?: string;
+}
+
+export async function apiFetchRemoteAuditLogs(
+  limit = 500,
+  includeCleared = false
+): Promise<RemoteAuditLogsFetchResult> {
+  const token = getStoredOwnerToken();
+  if (!token) {
+    return {
+      success: false,
+      logs: loadAuditLogs(),
+      newCount: 0,
+      hiddenByClearCount: 0,
+    };
+  }
+
+  try {
+    const localSettings = loadSettings();
+    const headers = new Headers(getAuthHeaders());
+    if (localSettings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+      headers.set('x-apps-script-url', localSettings.googleAppsScriptUrl.trim());
+    }
+
+    const res = await fetch(`/api/owner/audit-logs?limit=${limit}`, {
+      method: 'GET',
+      headers,
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      return {
+        success: false,
+        logs: loadAuditLogs(),
+        newCount: 0,
+        hiddenByClearCount: 0,
+      };
+    }
+
+    const data = await res.json();
+    const remoteLogs: AuditLog[] = Array.isArray(data.logs) ? data.logs : [];
+    const merged = mergeRemoteAuditLogs(remoteLogs, { includeCleared });
+
+    return {
+      success: true,
+      logs: merged.logs,
+      newCount: merged.newCount,
+      hiddenByClearCount: merged.hiddenByClearCount,
+      source: data.source,
+      hasAppsScriptUrl: data.hasAppsScriptUrl,
+      needsAppsScriptUpgrade: Boolean(data.needsAppsScriptUpgrade),
+      sheetsError: data.sheetsError,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      logs: loadAuditLogs(),
+      newCount: 0,
+      hiddenByClearCount: 0,
+      sheetsError: err?.message || 'Lỗi kết nối máy chủ',
+    };
+  }
+}
+
 

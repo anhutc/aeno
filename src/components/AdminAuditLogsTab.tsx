@@ -43,12 +43,21 @@ import { triggerHaptic } from '../utils/haptic';
 import {
   syncViaAppsScript,
   exportGoogleSheetsCsvFile,
+  GOOGLE_APPS_SCRIPT_TEMPLATE,
 } from '../services/googleSheetsService';
-import { clearAuditLogs, loadAuditLogs, recordAuditLog } from '../utils/storage';
+import { clearAuditLogs, recordAuditLog } from '../utils/storage';
 
 interface AdminAuditLogsTabProps {
   auditLogs: AuditLog[];
-  onRefreshLogs?: () => void;
+  onRefreshLogs?: () => Promise<any> | void;
+  onRestoreClearedLogs?: () => Promise<any> | void;
+  remoteSyncStatus?: {
+    isSyncing?: boolean;
+    needsAppsScriptUpgrade?: boolean;
+    hiddenByClearCount?: number;
+    source?: string;
+    sheetsError?: string;
+  };
   debtors: Debtor[];
   transactions: Transaction[];
   parties: PartySplit[];
@@ -61,6 +70,8 @@ interface AdminAuditLogsTabProps {
 export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
   auditLogs,
   onRefreshLogs,
+  onRestoreClearedLogs,
+  remoteSyncStatus,
   debtors,
   transactions,
   parties,
@@ -647,16 +658,21 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           {onRefreshLogs && (
             <button
               type="button"
-              onClick={() => {
+              disabled={Boolean(remoteSyncStatus?.isSyncing)}
+              onClick={async () => {
                 triggerHaptic('light');
-                onRefreshLogs();
-                showToast('Đã làm mới danh sách nhật ký!', 'info');
+                const res: any = await onRefreshLogs();
+                if (res && typeof res.newCount === 'number' && res.newCount > 0) {
+                  showToast(`Đã tải thêm ${res.newCount} nhật ký mới từ các thiết bị khác!`, 'success');
+                } else {
+                  showToast('Đã đồng bộ nhật ký mới nhất từ máy chủ & Google Sheets!', 'info');
+                }
               }}
-              className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5"
-              title="Tải lại danh sách nhật ký mới nhất"
+              className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-2xs active:scale-95 transition-all cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-60"
+              title="Kéo nhật ký mới từ máy chủ & Google Sheets Tab 4"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
-              <span>Làm mới</span>
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${remoteSyncStatus?.isSyncing ? 'animate-spin' : ''}`} />
+              <span>{remoteSyncStatus?.isSyncing ? 'Đang tải...' : 'Làm mới'}</span>
             </button>
           )}
 
@@ -712,6 +728,53 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Upgrade notice if user still uses old Apps Script v1 (without GET_LOGS / APPEND_LOGS) */}
+      {remoteSyncStatus?.needsAppsScriptUpgrade && (
+        <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5 text-xs text-amber-900">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Cần cập nhật mã Google Apps Script v2 để đồng bộ nhật ký 2 chiều vĩnh viễn</p>
+              <p className="text-amber-800/90 mt-0.5 leading-relaxed">
+                Apps Script hiện tại của bạn đang là bản cũ (chỉ hỗ trợ ghi lên, chưa có hàm <code>GET_LOGS</code> đọc lại từ Tab 4). Hãy dán lại mã mới trong phần <strong>Cài Đặt &rarr; Đồng Bộ Google Sheets</strong> và triển khai phiên bản mới.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('success');
+              navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+              showToast('Đã sao chép mã Google Apps Script v2 vào bộ nhớ tạm!', 'success');
+            }}
+            className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs shrink-0 cursor-pointer inline-flex items-center gap-1.5 self-start sm:self-center"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Sao chép mã v2</span>
+          </button>
+        </div>
+      )}
+
+      {/* Restore older logs cleared locally if present in Google Sheets */}
+      {remoteSyncStatus?.hiddenByClearCount && remoteSyncStatus.hiddenByClearCount > 0 && onRestoreClearedLogs && (
+        <div className="bg-slate-50 border border-slate-200/90 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+          <span>
+            Đang ẩn <strong>{remoteSyncStatus.hiddenByClearCount}</strong> nhật ký cũ hơn mốc bạn đã làm sạch trên máy này (vẫn còn trên Google Sheets).
+          </span>
+          <button
+            type="button"
+            onClick={async () => {
+              triggerHaptic('light');
+              await onRestoreClearedLogs();
+              showToast('Đã khôi phục toàn bộ lịch sử nhật ký từ Google Sheets!', 'success');
+            }}
+            className="font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+          >
+            Hiện lại từ Google Sheets →
+          </button>
+        </div>
+      )}
 
       {/* 2. TOOLBAR TÌM KIẾM & BỘ LỌC (Đồng nhất với thanh điều khiển Tổng quan) */}
       <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs space-y-3">

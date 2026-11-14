@@ -26,6 +26,7 @@ const STORAGE_KEYS = {
   DELETED_PARTY_IDS: 'debt_app_deleted_party_ids_v1',
   AUDIT_LOGS: 'debt_app_audit_logs_v1',
   AUDIT_LOGS_CLEARED: 'debt_app_audit_logs_cleared_v1',
+  AUDIT_LOGS_CLEARED_AT: 'debt_app_audit_logs_cleared_at_v1',
 };
 
 /**
@@ -693,8 +694,73 @@ function getAuditEnvironmentContext(): Record<string, any> {
   }
 }
 
+let pendingRemoteAuditLogs: AuditLog[] = [];
+let remoteAuditPushTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function flushPendingAuditLogs(useKeepAlive = false): void {
+  if (typeof window === 'undefined' || pendingRemoteAuditLogs.length === 0) return;
+  const batch = pendingRemoteAuditLogs.splice(0, 50);
+  if (remoteAuditPushTimer) {
+    clearTimeout(remoteAuditPushTimer);
+    remoteAuditPushTimer = null;
+  }
+
+  try {
+    const bodyStr = JSON.stringify({ logs: batch });
+    const allowKeepAlive = useKeepAlive && bodyStr.length < 48000;
+    fetch('/api/audit-logs/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyStr,
+      keepalive: allowKeepAlive,
+    }).catch(() => {
+      // ignore offline or transient errors
+    });
+  } catch {
+    // ignore
+  }
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  window.addEventListener('pagehide', () => flushPendingAuditLogs(true));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flushPendingAuditLogs(true);
+    }
+  });
+}
+
+function queueRemoteAuditLogPush(log: AuditLog): void {
+  if (typeof window === 'undefined') return;
+  if (!log.id || log.id.startsWith('log-init-')) return;
+
+  pendingRemoteAuditLogs.push(log);
+  const isUrgent =
+    log.action === 'AUTO_LOCK' ||
+    log.action === 'LOGOUT' ||
+    log.action === 'GUEST_LOOKUP' ||
+    log.action === 'LOOKUP_FAILED' ||
+    log.action === 'GUEST_REPORT' ||
+    log.action === 'LOGIN_SUCCESS' ||
+    log.action === 'LOGIN_FAILED' ||
+    log.action === 'BIOMETRIC_AUTH';
+
+  if (isUrgent) {
+    flushPendingAuditLogs(true);
+    return;
+  }
+
+  if (!remoteAuditPushTimer) {
+    remoteAuditPushTimer = setTimeout(() => {
+      remoteAuditPushTimer = null;
+      flushPendingAuditLogs(false);
+    }, 650);
+  }
+}
+
 export function recordAuditLog(
-  log: Omit<AuditLog, 'id' | 'timestamp'> & { timestamp?: string }
+  log: Omit<AuditLog, 'id' | 'timestamp'> & { timestamp?: string },
+  options?: { skipRemoteSync?: boolean }
 ): AuditLog {
   const ts = log.timestamp || new Date().toISOString();
   const envContext = getAuditEnvironmentContext();
@@ -727,6 +793,10 @@ export function recordAuditLog(
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('audit-log-recorded', { detail: newLog }));
     }
+
+    if (!options?.skipRemoteSync) {
+      queueRemoteAuditLogPush(newLog);
+    }
   } catch (err) {
     console.warn('Could not record audit log:', err);
   }
@@ -734,10 +804,61 @@ export function recordAuditLog(
   return newLog;
 }
 
+export function mergeRemoteAuditLogs(
+  remoteLogs: AuditLog[],
+  options?: { includeCleared?: boolean }
+): { logs: AuditLog[]; newCount: number; hiddenByClearCount: number } {
+  const includeCleared = Boolean(options?.includeCleared);
+  let clearedAt = '';
+  try {
+    if (includeCleared) {
+      localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT);
+    } else {
+      clearedAt = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT) || '';
+    }
+  } catch {
+    clearedAt = '';
+  }
+
+  const currentLocal = loadAuditLogs().filter((l) => l.id && !l.id.startsWith('log-init-'));
+  const existingIds = new Set(currentLocal.map((l) => l.id));
+  const mergedMap = new Map<string, AuditLog>();
+
+  for (const l of currentLocal) {
+    mergedMap.set(l.id, l);
+  }
+
+  let newCount = 0;
+  let hiddenByClearCount = 0;
+  for (const r of remoteLogs) {
+    if (!r || !r.id || r.id.startsWith('log-init-')) continue;
+    if (!includeCleared && clearedAt && r.timestamp && r.timestamp <= clearedAt) {
+      hiddenByClearCount++;
+      continue;
+    }
+    if (!existingIds.has(r.id)) {
+      newCount++;
+    }
+    mergedMap.set(r.id, r);
+  }
+
+  const merged = Array.from(mergedMap.values())
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+    .slice(0, 500);
+
+  if (merged.length > 0 || localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED) === 'true') {
+    saveAuditLogs(merged);
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED, 'true');
+  }
+
+  return { logs: merged, newCount, hiddenByClearCount };
+}
+
 export function clearAuditLogs(): void {
   try {
     safeSetItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify([]));
     safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED, 'true');
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT, new Date().toISOString());
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('audit-logs-cleared'));

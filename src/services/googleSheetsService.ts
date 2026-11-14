@@ -1314,24 +1314,92 @@ const autoSyncState = {
 
 export const getAutoSyncStatus = () => ({ ...autoSyncState });
 
-export const GOOGLE_APPS_SCRIPT_TEMPLATE = `// === GOOGLE APPS SCRIPT ĐỒNG BỘ SỔ GHI NỢ (AENO) ===
+export const GOOGLE_APPS_SCRIPT_TEMPLATE = `// === GOOGLE APPS SCRIPT ĐỒNG BỘ SỔ GHI NỢ (AENO v2 - ĐỒNG BỘ NHẬT KÝ 2 CHIỀU) ===
 // Hướng dẫn triển khai (Chỉ mất 1 phút):
 // 1. Mở trang Google Sheet của bạn > Tiện ích mở rộng (Extensions) > Apps Script
 // 2. Xóa hết code cũ trong file Code.gs, dán toàn bộ đoạn mã này vào > Bấm Lưu (Ctrl+S)
-// 3. Bấm "Triển khai" (Deploy) > "Triển khai mới" (New deployment)
-// 4. Chọn loại: "Ứng dụng web" (Web app)
-//    - Mô tả: AENO Sync
+// 3. Bấm "Triển khai" (Deploy) > "Quản lý các bản triển khai" (hoặc Triển khai mới) > Chỉnh sửa (Edit) > Phiên bản mới > "Triển khai"
 //    - Người thực thi: Tôi (tài khoản của bạn)
 //    - Người có quyền truy cập: "Bất kỳ ai" (Anyone)
-// 5. Bấm "Triển khai" > Cấp quyền truy cập tài khoản > Sao chép "URL ứng dụng web"
-// 6. Dán URL đó vào ứng dụng Sổ Nợ AENO!
+// 4. Dán URL ứng dụng web vào ứng dụng Sổ Nợ AENO!
 
 function doGet(e) {
-  return ContentService.createTextOutput(JSON.stringify({
-    status: "ok",
-    message: "Google Apps Script Web App AENO đang hoạt động sẵn sàng nhận dữ liệu đồng bộ!",
-    timestamp: new Date().toISOString()
-  })).setMimeType(ContentService.MimeType.JSON);
+  try {
+    var action = (e && e.parameter && e.parameter.action) ? String(e.parameter.action) : "";
+    if (action === "GET_LOGS") {
+      var limit = Number((e && e.parameter && e.parameter.limit) || 500);
+      if (!limit || limit < 1) limit = 500;
+      if (limit > 1000) limit = 1000;
+
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet4 = ss.getSheetByName("Nhật Ký Thao Tác (Logs)");
+      if (!sheet4 || sheet4.getLastRow() <= 1) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: true,
+          logs: [],
+          totalRows: 0
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var lastRow = sheet4.getLastRow();
+      var lastCol = Math.max(9, sheet4.getLastColumn());
+      var startRow = Math.max(2, lastRow - limit + 1);
+      var numRows = lastRow - startRow + 1;
+      var values = sheet4.getRange(startRow, 1, numRows, lastCol).getValues();
+      var logs = [];
+
+      for (var i = values.length - 1; i >= 0; i--) {
+        var row = values[i];
+        var jsonCol = row.length >= 10 ? String(row[9] || "").trim() : "";
+        if (jsonCol && jsonCol.charAt(0) === "{") {
+          try {
+            var parsed = JSON.parse(jsonCol);
+            if (parsed && parsed.id) {
+              logs.push(parsed);
+              continue;
+            }
+          } catch (parseErr) {}
+        }
+
+        var legacyId = String(row[8] || "").trim();
+        if (!legacyId || legacyId.indexOf("log-init-") === 0) continue;
+        var tsVal = row[1];
+        var tsIso = (tsVal instanceof Date)
+          ? tsVal.toISOString()
+          : (tsVal ? String(tsVal) : new Date().toISOString());
+
+        logs.push({
+          id: legacyId,
+          timestamp: tsIso,
+          actor: String(row[2] || "Hệ thống"),
+          action: String(row[3] || "UPDATE_SETTINGS"),
+          title: String(row[4] || ""),
+          debtorName: row[5] && row[5] !== "-" ? String(row[5]) : undefined,
+          amount: Number(row[6]) || 0,
+          description: String(row[7] || "")
+        });
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        logs: logs,
+        totalRows: lastRow - 1
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "ok",
+      version: 2,
+      supportsLogSync: true,
+      message: "Google Apps Script Web App AENO v2 đang hoạt động (Hỗ trợ đồng bộ 2 chiều Nhật Ký đa thiết bị)!",
+      timestamp: new Date().toISOString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function doPost(e) {
@@ -1339,6 +1407,16 @@ function doPost(e) {
     var raw = e.postData.contents;
     var data = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Fast path: Chỉ nối thêm nhật ký vào Tab 4 (Không chạm tới Tab 1, 2, 3)
+    if (data.action === "APPEND_LOGS") {
+      var appended = appendAuditLogsToSheet(ss, data.auditLogs || []);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        appended: appended,
+        message: "Đã ghi thêm " + appended + " nhật ký vào Tab 4."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
     // 1. Tab 1: Tổng Hợp Công Nợ (Cập nhật số dư hiện tại)
     var sheet1 = getOrCreateSheet(ss, "Tổng Hợp Công Nợ");
@@ -1391,43 +1469,8 @@ function doPost(e) {
     }
     formatHeader(sheet3, "#9333ea");
 
-    // 4. Tab 4: Nhật Ký Thao Tác (Logs - LƯU VĨNH VIỄN, CHỈ GHI THÊM, KỂ CẢ XÓA TRÊN APP)
-    var sheet4 = getOrCreateSheet(ss, "Nhật Ký Thao Tác (Logs)");
-    var logs = data.auditLogs || [];
-    if (sheet4.getLastRow() === 0) {
-      sheet4.appendRow(["STT", "Thời Gian Ghi Nhận", "Người Thực Hiện", "Loại Thao Tác", "Tiêu Đề Nhật Ký", "Người Nợ Liên Quan", "Số Tiền (VNĐ)", "Chi Tiết Biến Động", "Mã Log ID"]);
-      formatHeader(sheet4, "#d97706");
-    }
-    var existingIds = {};
-    var lastRow = sheet4.getLastRow();
-    if (lastRow > 1) {
-      var idValues = sheet4.getRange(2, 9, lastRow - 1, 1).getValues();
-      for (var r = 0; r < idValues.length; r++) { 
-        var val = String(idValues[r][0]).trim();
-        if (val) existingIds[val] = true;
-      }
-    }
-    for (var l = 0; l < logs.length; l++) {
-      var log = logs[l];
-      if (log.id && !existingIds[log.id]) {
-        var actionLabel = log.action || "";
-        if (actionLabel.indexOf("DELETE") !== -1 || actionLabel.indexOf("CLEAR") !== -1) {
-          actionLabel = "🗑️ " + actionLabel + " (Đã xóa trên app)";
-        }
-        sheet4.appendRow([
-          sheet4.getLastRow(), 
-          log.timestamp ? new Date(log.timestamp).toLocaleString("vi-VN") : new Date().toLocaleString("vi-VN"), 
-          log.actor || "Chủ Sổ", 
-          actionLabel, 
-          log.title || "", 
-          log.debtorName || "-", 
-          Number(log.amount) || 0, 
-          log.description || "", 
-          log.id
-        ]);
-        existingIds[log.id] = true;
-      }
-    }
+    // 4. Tab 4: Nhật Ký Thao Tác (Logs - LƯU VĨNH VIỄN, CHỈ GHI THÊM)
+    appendAuditLogsToSheet(ss, data.auditLogs || []);
 
     return ContentService.createTextOutput(JSON.stringify({ 
       success: true, 
@@ -1437,6 +1480,81 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function appendAuditLogsToSheet(ss, logs) {
+  var sheet4 = getOrCreateSheet(ss, "Nhật Ký Thao Tác (Logs)");
+  if (sheet4.getLastRow() === 0) {
+    sheet4.appendRow(["STT", "Thời Gian Ghi Nhận", "Người Thực Hiện", "Loại Thao Tác", "Tiêu Đề Nhật Ký", "Người Nợ Liên Quan", "Số Tiền (VNĐ)", "Chi Tiết Biến Động", "Mã Log ID", "Dữ Liệu Chi Tiết (JSON)"]);
+    formatHeader(sheet4, "#d97706");
+  } else if (sheet4.getLastColumn() < 10) {
+    sheet4.getRange(1, 10).setValue("Dữ Liệu Chi Tiết (JSON)");
+    formatHeader(sheet4, "#d97706");
+  }
+
+  var existingIds = {};
+  var lastRow = sheet4.getLastRow();
+  if (lastRow > 1) {
+    var idValues = sheet4.getRange(2, 9, lastRow - 1, 1).getValues();
+    for (var r = 0; r < idValues.length; r++) {
+      var val = String(idValues[r][0]).trim();
+      if (val) existingIds[val] = true;
+    }
+  }
+
+  var ordered = (logs || []).slice().sort(function(a, b) {
+    return String(a.timestamp || "").localeCompare(String(b.timestamp || ""));
+  });
+
+  var newRows = [];
+  var nextStt = lastRow;
+  for (var l = 0; l < ordered.length; l++) {
+    var log = ordered[l];
+    if (!log || !log.id || String(log.id).indexOf("log-init-") === 0 || existingIds[log.id]) continue;
+    existingIds[log.id] = true;
+
+    var actionLabel = log.action || "";
+    if (actionLabel.indexOf("DELETE") !== -1 || actionLabel.indexOf("CLEAR") !== -1) {
+      actionLabel = "🗑️ " + actionLabel + " (Đã xóa trên app)";
+    }
+
+    var jsonStr = "";
+    try {
+      jsonStr = JSON.stringify(log);
+      if (jsonStr.length > 45000) {
+        jsonStr = JSON.stringify({
+          id: log.id,
+          timestamp: log.timestamp,
+          action: log.action,
+          actor: log.actor,
+          title: log.title,
+          description: log.description,
+          debtorId: log.debtorId,
+          debtorName: log.debtorName,
+          amount: log.amount,
+          metadata: log.metadata
+        });
+      }
+    } catch (jsonErr) {}
+
+    newRows.push([
+      nextStt++,
+      log.timestamp ? new Date(log.timestamp).toLocaleString("vi-VN") : new Date().toLocaleString("vi-VN"),
+      log.actor || "Chủ Sổ",
+      actionLabel,
+      log.title || "",
+      log.debtorName || "-",
+      Number(log.amount) || 0,
+      log.description || "",
+      log.id,
+      jsonStr
+    ]);
+  }
+
+  if (newRows.length > 0) {
+    sheet4.getRange(lastRow + 1, 1, newRows.length, 10).setValues(newRows);
+  }
+  return newRows.length;
 }
 
 function getOrCreateSheet(ss, name) {

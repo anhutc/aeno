@@ -572,7 +572,12 @@ app.use(async (req, _res, next) => {
       }
     }
     const db = getDatabase();
-    const { ownerPassword, reminderMessageTemplate, ...publicSettings } = (db.settings || {}) as any;
+    const {
+      ownerPassword,
+      reminderMessageTemplate,
+      googleAppsScriptUrl,
+      ...publicSettings
+    } = (db.settings || {}) as any;
     res.json({
       success: true,
       settings: publicSettings,
@@ -1710,6 +1715,251 @@ app.use(async (req, _res, next) => {
       return res.status(500).json({
         success: false,
         message: `Lỗi đồng bộ: ${err?.message}`,
+      });
+    }
+  });
+
+  // --- CROSS-DEVICE AUDIT LOG BRIDGE (0 FIRESTORE QUOTA -> GOOGLE SHEETS TAB 4) ---
+  let serverAuditLogs: AuditLog[] = [];
+  let pendingAppsScriptLogs: AuditLog[] = [];
+  let appsScriptFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function sanitizeAuditLogInput(raw: any): AuditLog | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = typeof raw.id === 'string' ? raw.id.trim().slice(0, 120) : '';
+    if (!id || id.startsWith('log-init-')) return null;
+    const action = typeof raw.action === 'string' ? raw.action.trim().slice(0, 64) : '';
+    const title = typeof raw.title === 'string' ? raw.title.slice(0, 300) : '';
+    if (!action || !title) return null;
+
+    const timestamp =
+      typeof raw.timestamp === 'string' && raw.timestamp.trim()
+        ? raw.timestamp.trim().slice(0, 64)
+        : new Date().toISOString();
+
+    return {
+      id,
+      timestamp,
+      action: action as AuditLog['action'],
+      actor: typeof raw.actor === 'string' ? raw.actor.slice(0, 160) : 'Người dùng',
+      title,
+      description: typeof raw.description === 'string' ? raw.description.slice(0, 2000) : '',
+      ...(typeof raw.debtorId === 'string' ? { debtorId: raw.debtorId.slice(0, 120) } : {}),
+      ...(typeof raw.debtorName === 'string' ? { debtorName: raw.debtorName.slice(0, 160) } : {}),
+      ...(raw.amount !== undefined && !Number.isNaN(Number(raw.amount)) ? { amount: Number(raw.amount) } : {}),
+      ...(raw.beforeState !== undefined ? { beforeState: raw.beforeState } : {}),
+      ...(raw.afterState !== undefined ? { afterState: raw.afterState } : {}),
+      ...(Array.isArray(raw.changes) ? { changes: raw.changes.slice(0, 30) } : {}),
+      ...(raw.metadata && typeof raw.metadata === 'object' ? { metadata: raw.metadata } : {}),
+    };
+  }
+
+  function mergeIntoServerAuditLogs(incoming: AuditLog[]): AuditLog[] {
+    const map = new Map<string, AuditLog>();
+    for (const item of serverAuditLogs) {
+      if (item?.id) map.set(item.id, item);
+    }
+    const newlyAdded: AuditLog[] = [];
+    for (const item of incoming) {
+      if (item?.id && !map.has(item.id)) {
+        newlyAdded.push(item);
+      }
+      if (item?.id) {
+        map.set(item.id, item);
+      }
+    }
+    serverAuditLogs = Array.from(map.values())
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .slice(0, 500);
+    return newlyAdded;
+  }
+
+  async function flushPendingLogsToAppsScript() {
+    if (pendingAppsScriptLogs.length === 0) return;
+    const db = getDatabase();
+    const scriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
+    if (!scriptUrl || !scriptUrl.startsWith('https://script.google.com/')) {
+      pendingAppsScriptLogs = [];
+      return;
+    }
+
+    const batch = pendingAppsScriptLogs.splice(0, 100);
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      await fetch(scriptUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({
+          action: 'APPEND_LOGS',
+          ownerName: db.settings?.ownerName || 'Chủ Sổ',
+          timestamp: new Date().toISOString(),
+          auditLogs: batch,
+        }),
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+    } catch (err: any) {
+      console.warn('Apps Script APPEND_LOGS bridge notice:', err?.message || err);
+    }
+
+    if (pendingAppsScriptLogs.length > 0) {
+      appsScriptFlushTimer = setTimeout(() => {
+        appsScriptFlushTimer = null;
+        flushPendingLogsToAppsScript();
+      }, 1000);
+    }
+  }
+
+  function queueLogsForAppsScript(logs: AuditLog[]) {
+    if (logs.length === 0) return;
+    const db = getDatabase();
+    const scriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
+    if (!scriptUrl || !scriptUrl.startsWith('https://script.google.com/')) {
+      return;
+    }
+    const existingIds = new Set(pendingAppsScriptLogs.map((l) => l.id));
+    for (const log of logs) {
+      if (!existingIds.has(log.id)) {
+        pendingAppsScriptLogs.push(log);
+        existingIds.add(log.id);
+      }
+    }
+    if (pendingAppsScriptLogs.length > 500) {
+      pendingAppsScriptLogs = pendingAppsScriptLogs.slice(-500);
+    }
+    if (!appsScriptFlushTimer) {
+      appsScriptFlushTimer = setTimeout(() => {
+        appsScriptFlushTimer = null;
+        flushPendingLogsToAppsScript();
+      }, 900);
+    }
+  }
+
+  // Receive audit logs from ANY device (Guest or Admin) and forward to Google Sheets Tab 4 (0 Firestore quota)
+  app.post('/api/audit-logs/push', (req, res) => {
+    try {
+      const rawList = Array.isArray(req.body?.logs)
+        ? req.body.logs
+        : req.body?.log
+        ? [req.body.log]
+        : [];
+
+      const validLogs: AuditLog[] = [];
+      for (const raw of rawList.slice(0, 50)) {
+        const clean = sanitizeAuditLogInput(raw);
+        if (clean) validLogs.push(clean);
+      }
+
+      if (validLogs.length === 0) {
+        return res.json({ success: true, accepted: 0, forwardedToSheets: false });
+      }
+
+      const newlyAdded = mergeIntoServerAuditLogs(validLogs);
+      queueLogsForAppsScript(newlyAdded.length > 0 ? newlyAdded : validLogs);
+
+      const db = getDatabase();
+      const hasUrl = Boolean(
+        db.settings?.googleAppsScriptUrl &&
+        db.settings.googleAppsScriptUrl.trim().startsWith('https://script.google.com/')
+      );
+
+      return res.json({
+        success: true,
+        accepted: validLogs.length,
+        forwardedToSheets: hasUrl,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        message: err?.message || 'Lỗi ghi nhận nhật ký',
+      });
+    }
+  });
+
+  // Owner: Fetch combined audit logs from Google Sheets Tab 4 + Server memory buffer
+  app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
+    const db = getDatabase();
+
+    // Fallback header from authenticated Admin in case settings were saved directly to Firestore
+    const headerScriptUrl =
+      typeof req.headers['x-apps-script-url'] === 'string'
+        ? req.headers['x-apps-script-url'].trim()
+        : '';
+    if (!db.settings?.googleAppsScriptUrl && headerScriptUrl.startsWith('https://script.google.com/')) {
+      db.settings = { ...db.settings, googleAppsScriptUrl: headerScriptUrl };
+    }
+
+    const scriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
+    if (!scriptUrl || !scriptUrl.startsWith('https://script.google.com/')) {
+      return res.json({
+        success: true,
+        logs: serverAuditLogs.slice(0, limit),
+        source: 'server_memory',
+        hasAppsScriptUrl: false,
+        needsAppsScriptUpgrade: false,
+      });
+    }
+
+    try {
+      const separator = scriptUrl.includes('?') ? '&' : '?';
+      const fetchUrl = `${scriptUrl}${separator}action=GET_LOGS&limit=${limit}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch(fetchUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      const text = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+
+      if (data && data.success === true && Array.isArray(data.logs)) {
+        const sanitizedRemote: AuditLog[] = [];
+        for (const item of data.logs) {
+          const clean = sanitizeAuditLogInput(item);
+          if (clean) sanitizedRemote.push(clean);
+        }
+        mergeIntoServerAuditLogs(sanitizedRemote);
+        return res.json({
+          success: true,
+          logs: serverAuditLogs.slice(0, limit),
+          source: 'google_sheets',
+          hasAppsScriptUrl: true,
+          needsAppsScriptUpgrade: false,
+          totalSheetRows: data.totalRows ?? sanitizedRemote.length,
+        });
+      }
+
+      // Old Apps Script template returns { status: "ok", message: ... } without logs array
+      const isOldScript = Boolean(data && data.status === 'ok' && !Array.isArray(data.logs));
+      return res.json({
+        success: true,
+        logs: serverAuditLogs.slice(0, limit),
+        source: 'server_memory',
+        hasAppsScriptUrl: true,
+        needsAppsScriptUpgrade: isOldScript,
+      });
+    } catch (err: any) {
+      return res.json({
+        success: true,
+        logs: serverAuditLogs.slice(0, limit),
+        source: 'server_memory',
+        hasAppsScriptUrl: true,
+        needsAppsScriptUpgrade: false,
+        sheetsError: err?.message || 'Không thể kết nối Google Apps Script',
       });
     }
   });
