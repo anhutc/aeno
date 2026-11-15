@@ -205,6 +205,12 @@ async function callAppsScriptGet(
           'Google Apps Script đang yêu cầu đăng nhập. Vui lòng chọn quyền truy cập "Bất kỳ ai (Anyone)" khi Triển khai (Deploy).'
         );
       }
+      if (res.status === 404) {
+        throw new SheetsDbError(
+          'SHEETS_UNAVAILABLE',
+          'URL Google Apps Script không tồn tại hoặc đã bị xóa (HTTP 404). Vui lòng kiểm tra lại link Triển khai Web App (/exec).'
+        );
+      }
       throw new SheetsDbError(
         'SHEETS_UNAVAILABLE',
         `Google Apps Script trả về dữ liệu không hợp lệ (HTTP ${res.status}). Hãy kiểm tra lại URL Web App.`
@@ -265,6 +271,12 @@ async function callAppsScriptPost(
           'Google Apps Script từ chối quyền ghi. Vui lòng đặt "Ai có quyền truy cập" là "Bất kỳ ai (Anyone)".'
         );
       }
+      if (res.status === 404) {
+        throw new SheetsDbError(
+          'SHEETS_UNAVAILABLE',
+          'URL Google Apps Script không tồn tại hoặc đã bị xóa (HTTP 404). Vui lòng kiểm tra lại link Triển khai Web App (/exec).'
+        );
+      }
       throw new SheetsDbError(
         'SHEETS_UNAVAILABLE',
         `Google Apps Script trả về lỗi định dạng khi lưu dữ liệu (HTTP ${res.status}).`
@@ -295,7 +307,7 @@ function mergeWithDefaultSettings(rawSettings: any, cfg: SheetsConnectionConfig)
     ...DEFAULT_SETTINGS,
     ...(rawSettings && typeof rawSettings === 'object' ? rawSettings : {}),
   };
-  if (cfg.appsScriptUrl && !cleaned.googleAppsScriptUrl) {
+  if (cfg.appsScriptUrl) {
     cleaned.googleAppsScriptUrl = cfg.appsScriptUrl;
   }
   if (cfg.googleSheetUrl && !cleaned.googleSheetUrl) {

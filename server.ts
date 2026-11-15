@@ -97,6 +97,10 @@ function saveDatabase(db: SheetsDatabaseSchema) {
 
 function resolveRequestScriptUrl(req?: express.Request): string | undefined {
   if (!req) return undefined;
+  const current = getActiveSheetsConfig();
+  if (current.source === 'env') {
+    return current.appsScriptUrl;
+  }
   const headerUrl =
     typeof req.headers['x-apps-script-url'] === 'string'
       ? req.headers['x-apps-script-url'].trim()
@@ -107,21 +111,14 @@ function resolveRequestScriptUrl(req?: express.Request): string | undefined {
       : typeof req.body?.settings?.googleAppsScriptUrl === 'string'
       ? req.body.settings.googleAppsScriptUrl.trim()
       : '';
+  if (current.source === 'file' && current.appsScriptUrl) {
+    return current.appsScriptUrl;
+  }
   const memUrl = (inMemoryDb?.settings?.googleAppsScriptUrl || '').trim();
   const candidate = [headerUrl, bodyUrl, memUrl].find((u) =>
     u.startsWith('https://script.google.com/')
   );
-  if (candidate) {
-    // Remember client-provided script URL in config/memory when server env is unset
-    const current = getActiveSheetsConfig();
-    if (!current.appsScriptUrl || current.source === 'file') {
-      saveSheetsConfig(candidate);
-      const db = getDatabase();
-      db.settings = { ...db.settings, googleAppsScriptUrl: candidate };
-    }
-    return candidate;
-  }
-  return undefined;
+  return candidate || undefined;
 }
 
 function recordSheetsError(err: any) {
@@ -167,11 +164,14 @@ async function ensureSheetsSettingsSync(forceRefresh = false, overrideUrl?: stri
         db.settings = {
           ...db.settings,
           ...settings,
-          googleAppsScriptUrl: settings.googleAppsScriptUrl || cfg.appsScriptUrl,
+          googleAppsScriptUrl: cfg.appsScriptUrl,
         };
         isSheetsSettingsLoaded = true;
         lastSettingsSyncAt = Date.now();
         clearSheetsError();
+        if (cfg.source === 'override') {
+          saveSheetsConfig(cfg.appsScriptUrl, settings.googleSheetUrl || cfg.googleSheetUrl);
+        }
       } catch (err: any) {
         const info = recordSheetsError(err);
         console.warn('Google Sheets settings sync notice:', info.message);
@@ -206,7 +206,7 @@ async function ensureSheetsDataSync(forceRefresh = false, overrideUrl?: string) 
         const remote = await loadAllDataFromSheets(cfg.appsScriptUrl);
         remote.settings = {
           ...remote.settings,
-          googleAppsScriptUrl: remote.settings.googleAppsScriptUrl || cfg.appsScriptUrl,
+          googleAppsScriptUrl: cfg.appsScriptUrl,
         };
         inMemoryDb = remote;
         isSheetsDataLoaded = true;
@@ -214,6 +214,9 @@ async function ensureSheetsDataSync(forceRefresh = false, overrideUrl?: string) 
         lastFullSyncAt = Date.now();
         lastSettingsSyncAt = Date.now();
         clearSheetsError();
+        if (cfg.source === 'override') {
+          saveSheetsConfig(cfg.appsScriptUrl, remote.settings.googleSheetUrl || cfg.googleSheetUrl);
+        }
       } catch (err: any) {
         const info = recordSheetsError(err);
         console.warn('Google Sheets full sync notice:', info.message);
@@ -312,7 +315,7 @@ app.get('/api/health', async (req, res) => {
     status: 'ok',
     backend: 'google_sheets',
     sheetsConfigured: Boolean(cfg.appsScriptUrl),
-    sheetsConnected: isSheetsDataLoaded || isSheetsSettingsLoaded,
+    sheetsConnected: Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError),
     needsScriptUpgrade,
     sheetsError: lastSheetsError,
     time: new Date().toISOString(),
@@ -630,7 +633,7 @@ app.get('/api/settings', async (req, res) => {
     settings: publicSettings,
     backend: 'google_sheets',
     sheetsConfigured: Boolean(cfg.appsScriptUrl),
-    sheetsConnected: isSheetsDataLoaded || isSheetsSettingsLoaded,
+    sheetsConnected: Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError),
     needsScriptUpgrade,
     sheetsError: lastSheetsError,
     sheetsErrorCode: lastSheetsErrorCode,
@@ -688,7 +691,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (!isMatched && Date.now() - lastSettingsSyncAt > 8000) {
     try {
       const freshSettings = await loadSettingsFromSheets(cfg.appsScriptUrl);
-      db.settings = { ...db.settings, ...freshSettings };
+      db.settings = { ...db.settings, ...freshSettings, googleAppsScriptUrl: cfg.appsScriptUrl };
       isSheetsSettingsLoaded = true;
       lastSettingsSyncAt = Date.now();
       clearSheetsError();
@@ -732,10 +735,18 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
   const force = req.query.force === '1' || req.query.force === 'true';
 
   if (!cfg.appsScriptUrl) {
-    return res.status(503).json({
-      success: false,
-      code: 'SHEETS_NOT_CONFIGURED',
-      message: 'Chưa cấu hình URL Google Apps Script Web App.',
+    const db = getDatabase();
+    return res.json({
+      success: true,
+      sheetsConfigured: false,
+      sheetsConnected: false,
+      needsScriptUpgrade: false,
+      sheetsError: 'Chưa cấu hình URL Google Apps Script Web App.',
+      sheetsErrorCode: 'SHEETS_NOT_CONFIGURED',
+      debtors: db.debtors,
+      transactions: db.transactions,
+      parties: db.parties,
+      settings: db.settings,
     });
   }
 
@@ -745,7 +756,7 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
       const remote = await loadAllDataFromSheets(cfg.appsScriptUrl);
       remote.settings = {
         ...remote.settings,
-        googleAppsScriptUrl: remote.settings.googleAppsScriptUrl || cfg.appsScriptUrl,
+        googleAppsScriptUrl: cfg.appsScriptUrl,
       };
       inMemoryDb = remote;
       isSheetsDataLoaded = true;
@@ -753,8 +764,16 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
       lastFullSyncAt = Date.now();
       lastSettingsSyncAt = Date.now();
       clearSheetsError();
+      if (cfg.source === 'override') {
+        saveSheetsConfig(cfg.appsScriptUrl, remote.settings.googleSheetUrl || cfg.googleSheetUrl);
+      }
       return res.json({
         success: true,
+        sheetsConfigured: true,
+        sheetsConnected: true,
+        needsScriptUpgrade: false,
+        sheetsError: null,
+        sheetsErrorCode: null,
         debtors: remote.debtors,
         transactions: remote.transactions,
         parties: remote.parties,
@@ -762,22 +781,31 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
       });
     } catch (err: any) {
       const info = recordSheetsError(err);
-      console.warn('Error loading fresh Google Sheets data in /api/owner/data:', info.message);
-      if (!isSheetsDataLoaded) {
-        return res.status(503).json({
-          success: false,
-          code: info.code,
-          needsScriptUpgrade: info.needsUpgrade,
-          sheetsError: info.message,
-          message: info.message,
-        });
-      }
+      console.info('[Sheets sync notice] /api/owner/data:', info.message);
+      const db = getDatabase();
+      return res.json({
+        success: true,
+        sheetsConfigured: true,
+        sheetsConnected: false,
+        needsScriptUpgrade: info.needsUpgrade,
+        sheetsError: info.message,
+        sheetsErrorCode: info.code,
+        debtors: db.debtors,
+        transactions: db.transactions,
+        parties: db.parties,
+        settings: db.settings,
+      });
     }
   }
 
   const db = getDatabase();
   return res.json({
     success: true,
+    sheetsConfigured: true,
+    sheetsConnected: isSheetsDataLoaded,
+    needsScriptUpgrade,
+    sheetsError: lastSheetsError,
+    sheetsErrorCode: lastSheetsErrorCode,
     debtors: db.debtors,
     transactions: db.transactions,
     parties: db.parties,
@@ -1204,13 +1232,12 @@ app.put('/api/owner/settings', authMiddleware, async (req, res) => {
   };
   saveDatabase(db);
 
-  if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
-    saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
-  }
-
   const targetUrl = db.settings.googleAppsScriptUrl?.trim() || reqUrl;
   try {
     await saveSettingsToSheets(db.settings, targetUrl);
+    if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+      saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
+    }
     isSheetsSettingsLoaded = true;
     lastSettingsSyncAt = Date.now();
     clearSheetsError();
@@ -1363,13 +1390,13 @@ const handleSyncAllData = async (req: express.Request, res: express.Response) =>
           ? { ownerPassword: existingPass }
           : {}),
       };
-      if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
-        saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
-      }
     }
 
     saveDatabase(db);
     await persistFullStateToSheets(db, reqUrl);
+    if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+      saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
+    }
 
     return res.json({
       success: true,
@@ -1591,7 +1618,16 @@ app.post('/api/sheets/configure', async (req, res) => {
   }
 
   // Try hydrating existing data & settings from this Sheet
+  isSheetsDataLoaded = false;
+  lastFullSyncAt = 0;
   await ensureSheetsSettingsSync(true, rawUrl);
+  const hydratedDb = getDatabase();
+  if (hydratedDb.settings.googleAppsScriptUrl !== rawUrl) {
+    hydratedDb.settings.googleAppsScriptUrl = rawUrl;
+    saveDatabase(hydratedDb);
+  }
+  // Heal Tab 5 if it previously stored a stale/old Apps Script URL
+  saveSettingsToSheets(hydratedDb.settings, rawUrl).catch(() => {});
   return res.json({
     success: true,
     configured: true,
@@ -1664,7 +1700,12 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
   if (!raw || (typeof raw !== 'object' && !Array.isArray(raw))) {
     return res.status(400).json({ success: false, message: 'Dữ liệu JSON không hợp lệ!' });
   }
-  if (raw.data && (Array.isArray(raw.data.debtors) || Array.isArray(raw.data))) {
+  if (
+    raw.data &&
+    (Array.isArray(raw.data.debtors) ||
+      Array.isArray(raw.data.transactions) ||
+      Array.isArray(raw.data))
+  ) {
     raw = raw.data;
   }
 
@@ -1703,7 +1744,15 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
 
     const cleanTransactions: Transaction[] = inputTransactions.map((t: any, idx: number) => {
       let typeVal: 'ADD' | 'SUB' = 'ADD';
-      if (t.type === 'SUB' || t.type === 'REPAYMENT' || t.type === 'PAYMENT') typeVal = 'SUB';
+      const rawType = String(t.type || '').trim().toUpperCase();
+      if (
+        rawType === 'SUB' ||
+        rawType === 'REPAYMENT' ||
+        rawType === 'PAYMENT' ||
+        rawType.includes('TRẢ NỢ')
+      ) {
+        typeVal = 'SUB';
+      }
       const rawImg = t.billImage || t.billImageUrl ? String(t.billImage || t.billImageUrl) : undefined;
       const safeImg = rawImg && rawImg.startsWith('data:') && rawImg.length > 38000 ? undefined : rawImg;
       return {

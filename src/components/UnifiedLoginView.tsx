@@ -470,7 +470,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 </div>
               </div>
 
-              {cloudStatus?.configured === false && (
+              {(cloudStatus?.configured === false || Boolean(cloudStatus?.error)) && (
                 <div className="pt-1 border-t border-amber-200/70">
                   <button
                     type="button"
@@ -478,7 +478,13 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                     className="inline-flex items-center gap-1.5 text-[11.5px] font-bold text-emerald-800 hover:text-emerald-950 cursor-pointer"
                   >
                     <Link2 className="w-3.5 h-3.5" />
-                    <span>{showSheetsSetup ? 'Ẩn cấu hình Google Sheets nhanh' : 'Kết nối URL Google Apps Script ngay'}</span>
+                    <span>
+                      {showSheetsSetup
+                        ? 'Ẩn cấu hình Google Sheets nhanh'
+                        : cloudStatus?.configured === false
+                        ? 'Kết nối URL Google Apps Script ngay'
+                        : 'Cập nhật / Đổi URL Google Apps Script mới'}
+                    </span>
                     {showSheetsSetup ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                   </button>
 

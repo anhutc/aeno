@@ -366,6 +366,13 @@ export async function fetchOwnerData(force = false): Promise<{
   transactions: Transaction[];
   parties: PartySplit[];
   settings: AppSettings;
+  cloudStatus?: {
+    configured: boolean;
+    connected: boolean;
+    needsUpgrade?: boolean;
+    error: string | null;
+    errorCode?: string | null;
+  };
 }> {
   const token = getStoredOwnerToken();
   if (!token) {
@@ -376,6 +383,13 @@ export async function fetchOwnerData(force = false): Promise<{
       });
       if (sRes.ok) {
         const sData = await sRes.json();
+        const cloudStatus = {
+          configured: sData.sheetsConfigured !== false,
+          connected: sData.sheetsConnected !== false && !sData.sheetsError,
+          needsUpgrade: Boolean(sData.needsScriptUpgrade),
+          error: sData.sheetsError || null,
+          errorCode: sData.sheetsErrorCode || null,
+        };
         if (sData.success && sData.settings) {
           const existingLocal = loadSettings();
           const mergedPublic = {
@@ -397,8 +411,16 @@ export async function fetchOwnerData(force = false): Promise<{
             transactions: [],
             parties: [],
             settings: mergedPublic,
+            cloudStatus,
           };
         }
+        return {
+          debtors: [],
+          transactions: [],
+          parties: [],
+          settings: loadSettings(),
+          cloudStatus,
+        };
       }
     } catch {
       // ignore
@@ -420,6 +442,25 @@ export async function fetchOwnerData(force = false): Promise<{
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success) {
+        const cloudStatus = {
+          configured: data.sheetsConfigured !== false,
+          connected: data.sheetsConnected !== false && !data.sheetsError,
+          needsUpgrade: Boolean(data.needsScriptUpgrade),
+          error: data.sheetsError || null,
+          errorCode: data.sheetsErrorCode || null,
+        };
+
+        if (data.sheetsConnected === false) {
+          // Sheets hiện đang Offline / lỗi URL: giữ nguyên dữ liệu cache cục bộ, chỉ cập nhật trạng thái cloudStatus
+          return {
+            debtors: loadDebtors(),
+            transactions: loadTransactions(),
+            parties: loadParties(),
+            settings: loadSettings(),
+            cloudStatus,
+          };
+        }
+
         const finalDebtors = data.debtors || [];
         const finalTransactions = smartMergeTransactions(data.transactions || []);
         const finalParties = data.parties || [];
@@ -443,6 +484,7 @@ export async function fetchOwnerData(force = false): Promise<{
           transactions: finalTransactions,
           parties: finalParties,
           settings: finalSettings,
+          cloudStatus,
         };
       }
     } else {
@@ -2208,7 +2250,11 @@ async function offloadSingleBase64ImageForBackup(dataUrl: string): Promise<strin
 async function prepareCompactBackupPayload(rawInput: any): Promise<any> {
   const cloned = JSON.parse(JSON.stringify(rawInput));
   const target =
-    cloned && cloned.data && (Array.isArray(cloned.data.debtors) || Array.isArray(cloned.data))
+    cloned &&
+    cloned.data &&
+    (Array.isArray(cloned.data.debtors) ||
+      Array.isArray(cloned.data.transactions) ||
+      Array.isArray(cloned.data))
       ? cloned.data
       : cloned;
 

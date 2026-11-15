@@ -39,10 +39,6 @@ import {
   loadTransactions,
   loadParties,
   loadSettings,
-  saveDebtors,
-  saveTransactions,
-  saveParties,
-  saveSettings,
   getDebtorBalance,
   recordAuditLog,
 } from '../utils/storage';
@@ -78,6 +74,12 @@ interface SettingsViewProps {
   parties?: PartySplit[];
   onSaveSettings: (settings: AppSettings) => void;
   onDataReload: () => void;
+  onApplyRestoredData?: (payload: {
+    debtors?: Debtor[];
+    transactions?: Transaction[];
+    parties?: PartySplit[];
+    settings?: AppSettings;
+  }) => void;
   onGoBack?: () => void;
   initialTab?: SettingsTabType;
 }
@@ -89,6 +91,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   parties = [],
   onSaveSettings,
   onDataReload,
+  onApplyRestoredData,
   onGoBack,
   initialTab = 'BANK',
 }) => {
@@ -252,6 +255,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [copiedAcc, setCopiedAcc] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
   const [restorePreview, setRestorePreview] = useState<RestorePayloadPreview | null>(null);
   const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
@@ -259,7 +263,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setMessage({ text, type });
-    setTimeout(() => setMessage(null), type === 'error' ? 7000 : 3500);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setMessage(null), type === 'error' ? 9000 : 4000);
   };
 
   const handleBankChange = (bankId: string) => {
@@ -358,7 +363,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       });
       if (res.ok) {
         const cloudData = await res.json();
-        if (cloudData.success) {
+        if (cloudData.success && cloudData.sheetsConnected !== false) {
           activeDebtors = cloudData.debtors || activeDebtors;
           activeTransactions = cloudData.transactions || activeTransactions;
           activeParties = cloudData.parties || activeParties;
@@ -482,103 +487,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsRestoring(true);
     try {
       const rawJson = restorePreview.rawPayload;
-      let debtorsFound: Debtor[] = [];
-      let transactionsFound: Transaction[] = [];
-      let partiesFound: PartySplit[] = [];
-      let mergedSettings: AppSettings | null = null;
-
-      if (Array.isArray(rawJson)) {
-        if (rawJson.length > 0 && rawJson[0].debtorId !== undefined && rawJson[0].amount !== undefined) {
-          transactionsFound = rawJson;
-        } else {
-          debtorsFound = rawJson;
-        }
-      } else if (rawJson && typeof rawJson === 'object') {
-        if (Array.isArray(rawJson.debtors)) debtorsFound = rawJson.debtors;
-        if (Array.isArray(rawJson.transactions)) transactionsFound = rawJson.transactions;
-        if (Array.isArray(rawJson.parties)) partiesFound = rawJson.parties;
-        if (rawJson.settings && typeof rawJson.settings === 'object') {
-          // Bảo vệ an toàn tuyệt đối: Không để tệp JSON cũ ghi đè mật khẩu quản lý hoặc làm mất URL Google Sheets đang dùng
-          const {
-            ownerPassword: _ignoredPass,
-            reminderMessageTemplate,
-            shareMessageTemplate,
-            googleAppsScriptUrl: importedScriptUrl,
-            googleSheetUrl: importedSheetUrl,
-            ...importedSafeSettings
-          } = rawJson.settings;
-          const activeScriptUrl =
-            (formData.googleAppsScriptUrl || '').trim() ||
-            (typeof importedScriptUrl === 'string' && importedScriptUrl.startsWith('https://script.google.com/')
-              ? importedScriptUrl.trim()
-              : undefined);
-          const activeSheetUrl =
-            (formData.googleSheetUrl || '').trim() ||
-            (typeof importedSheetUrl === 'string' ? importedSheetUrl.trim() : undefined);
-          mergedSettings = {
-            ...formData,
-            ...importedSafeSettings,
-            ownerPassword: formData.ownerPassword,
-            ...(activeScriptUrl ? { googleAppsScriptUrl: activeScriptUrl } : {}),
-            ...(activeSheetUrl ? { googleSheetUrl: activeSheetUrl } : {}),
-          };
-          setFormData(mergedSettings);
-          saveSettings(mergedSettings);
-        }
-      }
-
-      if (mode === 'replace') {
-        const validDebtorIds = new Set(debtorsFound.map((d) => d.id));
-        const cleanTransactions = transactionsFound.filter((t) => validDebtorIds.has(t.debtorId));
-        if (debtorsFound.length > 0) saveDebtors(debtorsFound);
-        saveTransactions(cleanTransactions);
-        if (partiesFound.length > 0) saveParties(partiesFound);
-      } else {
-        // Merge mode:
-        const curDebtors = loadDebtors();
-        const curDebtorMap = new Map(curDebtors.map((d) => [d.id, d]));
-        for (const d of debtorsFound) {
-          curDebtorMap.set(d.id, d);
-        }
-        const mergedDebtors = Array.from(curDebtorMap.values());
-        saveDebtors(mergedDebtors);
-
-        const validDebtorIds = new Set(mergedDebtors.map((d) => d.id));
-        const curTransactions = loadTransactions();
-        const curTxMap = new Map(curTransactions.map((t) => [t.id, t]));
-        for (const t of transactionsFound) {
-          curTxMap.set(t.id, t);
-        }
-        const cleanMergedTxs = Array.from(curTxMap.values()).filter((t) => validDebtorIds.has(t.debtorId));
-        saveTransactions(cleanMergedTxs);
-
-        const curParties = loadParties();
-        const curPartyMap = new Map(curParties.map((p) => [p.id, p]));
-        for (const p of partiesFound) {
-          curPartyMap.set(p.id, p);
-        }
-        saveParties(Array.from(curPartyMap.values()));
-      }
-
       const uploadRes = await apiUploadJsonToFirestore(rawJson, mode);
       if (!uploadRes.success) {
-        if (mergedSettings) {
-          onSaveSettings(mergedSettings);
-        }
         setIsRestoreConfirmOpen(false);
         setRestorePreview(null);
         showToast(
-          `Đã nạp dữ liệu trên máy nhưng CHƯA đồng bộ được lên Google Sheets: ${uploadRes.message || 'Vui lòng kiểm tra kết nối Google Sheets trong tab này.'}`,
+          `Chưa lưu được dữ liệu lên Google Sheets: ${uploadRes.message || 'Vui lòng kiểm tra kết nối Google Sheets trong tab Đám Mây trước khi nhập JSON.'}`,
           'error'
         );
+        setActiveTab('CLOUD');
         return;
       }
 
-      handleDataReloadAndSync();
+      onApplyRestoredData?.({
+        debtors: uploadRes.debtors,
+        transactions: uploadRes.transactions,
+        parties: uploadRes.parties,
+        settings: uploadRes.settings,
+      });
+
+      const syncedSettings = uploadRes.settings || loadSettings();
+      if (syncedSettings) {
+        const norm = normalizeSettings(syncedSettings);
+        setFormData(norm);
+        setSavedSnapshot(norm);
+      }
+
+      onDataReload();
       setIsRestoreConfirmOpen(false);
       setRestorePreview(null);
       showToast(
-        `Đã khôi phục và đồng bộ lên Google Sheets thành công (${uploadRes.debtors?.length ?? debtorsFound.length} người nợ, ${uploadRes.transactions?.length ?? transactionsFound.length} giao dịch)!`,
+        `Đã khôi phục và đồng bộ lên Google Sheets thành công (${uploadRes.debtors?.length ?? 0} người nợ, ${uploadRes.transactions?.length ?? 0} giao dịch)!`,
         'success'
       );
     } catch (err: any) {

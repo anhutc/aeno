@@ -194,7 +194,11 @@ export default function App() {
       const data = await fetchOwnerData(force);
       if (!data) return;
 
-      if (force) {
+      if (data.cloudStatus) {
+        setCloudStatus(data.cloudStatus);
+      }
+
+      if (force && data.cloudStatus?.connected === true) {
         setDebtors(data.debtors || []);
         setParties(data.parties || []);
         setTransactions(data.transactions || []);
@@ -518,7 +522,7 @@ export default function App() {
     setIsOwnerAuthenticated(true);
     setCurrentView('OWNER');
     window.location.hash = 'owner';
-    refreshDataFromServer();
+    refreshDataFromServer(true);
     syncRemoteAuditLogs(false);
   };
 
@@ -853,6 +857,23 @@ export default function App() {
                   parties={parties}
                   onSaveSettings={handleSaveSettings}
                   onDataReload={() => refreshDataFromServer(true)}
+                  onApplyRestoredData={(restored) => {
+                    if (Array.isArray(restored.debtors)) setDebtors(restored.debtors);
+                    if (Array.isArray(restored.transactions)) setTransactions(restored.transactions);
+                    if (Array.isArray(restored.parties)) setParties(restored.parties);
+                    if (restored.settings) {
+                      const existingLocal = loadSettings();
+                      const merged = {
+                        ...existingLocal,
+                        ...restored.settings,
+                        ...(existingLocal.googleAppsScriptUrl && !restored.settings.googleAppsScriptUrl
+                          ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
+                          : {}),
+                      };
+                      setSettings(merged);
+                      saveSettings(merged);
+                    }
+                  }}
                   onGoBack={() => handleViewChange('OWNER')}
                 />
               </motion.div>
