@@ -241,9 +241,34 @@ export async function optimizeBillImageFile(
 }
 
 /**
- * Uploads a bill/receipt image to the server & Cloud Firestore vault.
+ * Extracts Google Drive file ID from common Drive URLs and returns the local server proxy path
+ * (/api/images/gdrive_<id>) as a reliable fallback if direct Drive thumbnail rendering is blocked.
+ */
+export function resolveBillImageFallback(src?: string | null): string | null {
+  if (!src || typeof src !== 'string') return null;
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('/api/images/')) {
+    return null;
+  }
+
+  // Match drive.google.com/thumbnail?id=..., uc?id=..., or file/d/<id>/
+  const queryIdMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+  if (queryIdMatch && trimmed.includes('drive.google.com')) {
+    return `/api/images/gdrive_${queryIdMatch[1]}`;
+  }
+
+  const pathIdMatch = trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{10,})/);
+  if (pathIdMatch) {
+    return `/api/images/gdrive_${pathIdMatch[1]}`;
+  }
+
+  return null;
+}
+
+/**
+ * Uploads a bill/receipt image to the server & Google Drive / Google Sheets vault.
  * - Compresses high-res camera photos to ~150KB JPEG to avoid stalled uploads.
- * - 7-second network timeout prevents infinite spinning circles.
+ * - 12-second network timeout prevents infinite spinning circles while allowing Drive upload.
  * - Graceful fallback returns the compressed dataUrl directly if server upload is slow or unavailable.
  */
 export async function uploadBillImage(
@@ -256,7 +281,7 @@ export async function uploadBillImage(
 
   let uploadPayloadDataUrl: string;
   let uploadMimeType = 'image/jpeg';
-  let targetFilename = (file.name || `bill_${Date.now()}`).replace(/\.[^/.]+$/, '') + '.jpg';
+  const targetFilename = (file.name || `bill_${Date.now()}`).replace(/\.[^/.]+$/, '') + '.jpg';
 
   // 1. Smart compression (scales down to 1400px, quality 0.80, ~150KB)
   try {
@@ -275,9 +300,26 @@ export async function uploadBillImage(
     throw new Error('Đã hủy tải ảnh');
   }
 
-  // 2. Upload to server endpoint with a strict 7-second timeout
+  // Resolve configured Google Apps Script URL from local settings if available
+  let appsScriptUrlHeader = '';
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const rawSettings = localStorage.getItem('debt_app_settings_v1');
+      if (rawSettings) {
+        const parsed = JSON.parse(rawSettings);
+        const url = String(parsed?.googleAppsScriptUrl || '').trim();
+        if (url.startsWith('https://script.google.com/')) {
+          appsScriptUrlHeader = url;
+        }
+      }
+    }
+  } catch {
+    // ignore storage read error
+  }
+
+  // 2. Upload to server endpoint with a strict 12-second timeout
   const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), 7000);
+  const timeoutId = setTimeout(() => abortController.abort(), 12000);
 
   // Link external abort signal if provided
   if (options?.signal) {
@@ -285,11 +327,16 @@ export async function uploadBillImage(
   }
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (appsScriptUrlHeader) {
+      headers['x-apps-script-url'] = appsScriptUrlHeader;
+    }
+
     const res = await fetch('/api/upload-image', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         image: uploadPayloadDataUrl,
         filename: targetFilename,
@@ -312,7 +359,6 @@ export async function uploadBillImage(
   }
 
   // 3. Guaranteed fallback: return the lightweight compressed dataUrl (~150KB)
-  // This fits easily into Cloud Firestore and renders immediately in <img> tags without any hang!
   return uploadPayloadDataUrl;
 }
 

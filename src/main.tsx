@@ -1,17 +1,9 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import { setLogLevel } from 'firebase/firestore';
-import App from './App.tsx';
+import App from './App';
 import './index.css';
 
-// Configure Firestore client log level to avoid benign BloomFilter fallback warnings
-try {
-  setLogLevel('error');
-} catch {
-  // ignore
-}
-
-// Intercept benign Firestore SDK BloomFilter warnings and Vite HMR websocket reconnection noise
+// Intercept benign Vite HMR websocket reconnection noise
 if (typeof window !== 'undefined') {
   const isIgnoredNoise = (arg: any): boolean => {
     const str = typeof arg === 'string' ? arg : arg?.message || (typeof arg === 'object' ? JSON.stringify(arg) : '');

@@ -19,6 +19,7 @@ import {
   Sparkles,
   Link2,
   Trash2,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
 import { loadAuditLogs } from '../utils/storage';
@@ -38,7 +39,7 @@ interface GoogleSheetsSyncSectionProps {
   parties?: PartySplit[];
   settings: AppSettings;
   onSaveSettings: (newSettings: AppSettings) => void;
-  showToast: (msg: string, type?: 'success' | 'error') => void;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = ({
@@ -320,10 +321,10 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
 
     triggerHaptic('medium');
     setIsSyncing(true);
-    setSyncStatusStep('Đang chuẩn bị dữ liệu 4 bảng tính...');
+    setSyncStatusStep('Đang chuẩn bị dữ liệu 5 Tab Google Sheets...');
 
     try {
-      setSyncStatusStep('Đang đồng bộ dữ liệu sang Google Sheet qua Google Apps Script Web App...');
+      setSyncStatusStep('Đang đồng bộ dữ liệu sang Google Sheet qua Google Apps Script Web App v3...');
       const result = await syncViaAppsScript(
         {
           debtors,
@@ -343,7 +344,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
       setSyncResult(result);
 
       showToast(
-        `Đã đồng bộ thành công sang Google Sheets! Nhật ký logs được lưu trữ vĩnh viễn.`,
+        `Đã đồng bộ thành công toàn bộ 5 Tab sang Google Sheets! Nhật ký logs được lưu trữ vĩnh viễn.`,
         'success'
       );
     } catch (err: any) {
@@ -368,7 +369,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
         settings,
         auditLogs: loadAuditLogs(),
       });
-      showToast('Đã tải tệp bảng tính CSV chuẩn 4 bảng (kèm toàn bộ Nhật ký)!', 'success');
+      showToast('Đã tải tệp bảng tính CSV (bao gồm Danh bạ, Giao dịch, Chia tiền & Nhật ký)!', 'success');
     } catch (err: any) {
       showToast(err?.message || 'Lỗi tải tệp CSV', 'error');
     }
@@ -697,17 +698,17 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
         )}
       </div>
 
-      {/* 4. Hướng dẫn 3 Bước Cực Kỳ Đơn Giản & Nút 1-Click Copy Mã */}
+      {/* 4. Hướng dẫn Cài Đặt / Nâng Cấp Google Apps Script v3 (CSDL 5 Tab + Google Drive Ảnh) */}
       {showInstructions && (
         <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 sm:p-5 space-y-3.5 animate-in fade-in">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/70 pb-3">
             <div>
               <span className="text-xs sm:text-sm font-extrabold text-emerald-950 flex items-center gap-1.5">
                 <Code className="w-4 h-4 text-emerald-700" />
-                Hướng Dẫn Cài Đặt Apps Script v2 (Đồng Bộ 4 Bảng &amp; Nhật Ký Đa Thiết Bị)
+                Hướng Dẫn Cài Đặt Apps Script v3 (CSDL 5 Tab + Google Drive Ảnh + Nhật Ký Đa Thiết Bị)
               </span>
               <p className="text-[11px] text-emerald-800 mt-0.5">
-                Sao chép mã v2 bên dưới dán vào Apps Script để tự động đồng bộ 2 chiều toàn bộ nhật ký từ mọi thiết bị qua Tab 4 (0 lượt đọc/ghi Firestore).
+                Mã v3 biến Google Sheets thành cơ sở dữ liệu duy nhất cho toàn bộ ứng dụng, tự động lưu ảnh hóa đơn vào thư mục Google Drive &quot;AENO - Ảnh Hóa Đơn&quot;.
               </p>
             </div>
 
@@ -717,35 +718,34 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-all active:scale-98"
             >
               {scriptCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span>{scriptCopied ? 'Đã sao chép mã thành công!' : 'Sao chép mã Apps Script (1-Click)'}</span>
+              <span>{scriptCopied ? 'Đã sao chép mã v3 thành công!' : 'Sao chép mã Apps Script v3'}</span>
             </button>
           </div>
 
           <div className="space-y-2 text-xs text-slate-700 bg-white/90 p-3.5 sm:p-4 rounded-xl border border-emerald-200/60">
             <ol className="list-decimal list-inside text-xs space-y-2 text-slate-700 pl-1 leading-relaxed">
               <li>
-                Mở file Google Sheet bất kỳ trên Google Drive của bạn ➔ chọn thanh menu: <strong>Tiện ích mở rộng (Extensions) ➔ Apps Script</strong>.
+                Mở file Google Sheet của bạn &rarr; chọn <strong>Tiện ích mở rộng (Extensions) &rarr; Apps Script</strong>.
               </li>
               <li>
-                Xóa toàn bộ nội dung code cũ trong file <code>Code.gs</code>, bấm nút <strong>&quot;Sao chép mã Apps Script (1-Click)&quot;</strong> ở trên rồi dán vào ➔ Nhấn <strong>Lưu (Ctrl + S)</strong>.
+                Xóa toàn bộ code cũ trong <code>Code.gs</code>, bấm <strong>&quot;Sao chép mã Apps Script v3&quot;</strong> ở trên rồi dán vào &rarr; nhấn <strong>Lưu (Ctrl + S)</strong>.
               </li>
               <li>
-                Bấm nút <strong>Triển khai (Deploy) ➔ Triển khai mới (New deployment)</strong>:
+                <strong>Triển khai Web App:</strong>
                 <div className="pl-4 pt-1 space-y-1 text-[11.5px] text-slate-600">
-                  <div>- Chọn loại: <strong>Ứng dụng web (Web app)</strong></div>
-                  <div>- Người thực thi (Execute as): <strong>Tôi (Tài khoản của bạn)</strong></div>
-                  <div className="text-emerald-900 font-bold">
-                    - Ai có quyền truy cập (Who has access): Chọn <strong>&quot;Bất kỳ ai&quot; (Anyone)</strong>
-                  </div>
-                  <div>- Bấm <strong>Triển khai</strong> ➔ Cấp quyền tài khoản ➔ Sao chép <strong>URL ứng dụng web</strong> (có dạng <code>https://script.google.com/macros/s/.../exec</code>) và dán vào ô bên trên!</div>
+                  <div>- <strong>Nếu cài lần đầu:</strong> Chọn <strong>Triển khai &rarr; Triển khai mới</strong> &rarr; Loại: <strong>Ứng dụng web</strong> &rarr; Người thực thi: <strong>Tôi</strong> &rarr; Ai có quyền truy cập: <strong className="text-emerald-900">Bất kỳ ai (Anyone)</strong>.</div>
+                  <div>- <strong>Nếu nâng cấp từ bản cũ (v1/v2):</strong> Chọn <strong>Triển khai &rarr; Quản lý các bản triển khai &rarr; Chỉnh sửa (biểu tượng bút chì) &rarr; Phiên bản: Phiên bản mới &rarr; Triển khai</strong> (giữ nguyên link cũ, cấp thêm quyền Google Drive nếu được hỏi).</div>
                 </div>
+              </li>
+              <li>
+                <strong>Dùng cho mọi điện thoại / Vercel:</strong> Dán URL <code>https://script.google.com/macros/s/.../exec</code> vào ô bên trên, đồng thời thêm biến môi trường <code className="font-mono font-bold text-emerald-800">GOOGLE_APPS_SCRIPT_URL</code> trên Vercel Settings &rarr; Environment Variables rồi Redeploy.
               </li>
             </ol>
           </div>
         </div>
       )}
 
-      {/* 5. Cấu Trúc 4 Tab Google Sheet Tự Động Tạo */}
+      {/* 5. Cấu Trúc 5 Tab Google Sheet Tự Động Tạo */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
@@ -754,13 +754,13 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
             </div>
             <div>
               <h4 className="text-sm font-black text-slate-900 tracking-tight flex items-center gap-2">
-                <span>Cấu Trúc 4 Tab Google Sheet Tự Động Đồng Bộ</span>
+                <span>Cấu Trúc 5 Tab Google Sheet (CSDL Độc Lập)</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Chuẩn hóa 100%
+                  Apps Script v3
                 </span>
               </h4>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Google Apps Script sẽ tự động sinh và sắp xếp 4 trang tính này trên file Google Sheet của bạn
+                Google Apps Script v3 tự động tạo 5 trang tính dữ liệu + thư mục Google Drive &quot;AENO - Ảnh Hóa Đơn&quot;
               </p>
             </div>
           </div>
@@ -886,6 +886,22 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
               <span>Cột: STT, Thời gian, Người làm, Thao tác, Tiêu đề, Người nợ, Số tiền, Chi tiết, Mã ID</span>
               <span className="text-amber-800 font-black">Bảo toàn trọn đời</span>
             </div>
+          </div>
+
+          {/* Tab 5: Cài Đặt Hệ Thống */}
+          <div className="md:col-span-2 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200/90 flex flex-col justify-between space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                <SettingsIcon className="w-3.5 h-3.5 text-slate-600" />
+                Tab 5: Cài Đặt Hệ Thống (Settings)
+              </span>
+              <span className="text-[10px] font-bold text-slate-700 bg-slate-200/80 px-2 py-0.5 rounded-lg">
+                Cấu hình &amp; Mật khẩu
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Lưu toàn bộ cấu hình tài khoản ngân hàng, VietQR, mật khẩu quản lý, mẫu tin nhắn và trạng thái khởi tạo sổ để đăng nhập xuyên suốt mọi thiết bị.
+            </p>
           </div>
         </div>
       </div>

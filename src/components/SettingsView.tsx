@@ -46,7 +46,12 @@ import {
   getDebtorBalance,
   recordAuditLog,
 } from '../utils/storage';
-import { apiUploadJsonToFirestore, apiCleanOrphanTransactions } from '../utils/api';
+import {
+  apiUploadJsonToFirestore,
+  apiCleanOrphanTransactions,
+  getStoredOwnerToken,
+  getSheetsHeaders,
+} from '../utils/api';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ConfirmRestoreModal, RestorePayloadPreview } from './ConfirmRestoreModal';
 import {
@@ -246,13 +251,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // UI state
   const [showPassword, setShowPassword] = useState(false);
   const [copiedAcc, setCopiedAcc] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
   const [restorePreview, setRestorePreview] = useState<RestorePayloadPreview | null>(null);
   const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 3500);
   };
@@ -342,9 +347,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     let activeParties = parties && parties.length > 0 ? parties : loadParties();
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('owner_auth_token') || '' : '';
+      const token = getStoredOwnerToken() || '';
       const res = await fetch('/api/owner/data', {
         headers: {
+          ...getSheetsHeaders(),
           Authorization: `Bearer ${token}`,
           'x-owner-token': token,
           'x-admin-password': formData.ownerPassword || '',
@@ -368,8 +374,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     const fullBackup = {
       appName: formData.appTitle || 'OK Sổ Ghi Nợ',
-      schemaVersion: 2,
-      databaseId: 'ai-studio-oksghin-2f3c913b-30df-45df-80fd-92a0a1760168',
+      schemaVersion: 3,
+      databaseId: 'google-sheets-cloud',
       exportedAt: new Date().toISOString(),
       stats: {
         debtorsCount: activeDebtors.length,
@@ -381,7 +387,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       parties: activeParties,
       settings: (() => {
         // Tuyệt đối không đưa ownerPassword vào tệp sao lưu JSON xuất ra ngoài máy
-        // Mật khẩu quản lý được lưu trữ an toàn riêng biệt trên Cloud Firestore
+        // Mật khẩu quản lý được lưu trữ riêng trên Google Sheets Tab 5 (Settings)
         const { ownerPassword, shareMessageTemplate, reminderMessageTemplate, ...cleanSettings } = formData as any;
         return cleanSettings;
       })(),
@@ -533,7 +539,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         saveParties(Array.from(curPartyMap.values()));
       }
 
-      // Also sync to Cloud Firestore automatically
+      // Also sync to Google Sheets Cloud automatically
       try {
         await apiUploadJsonToFirestore(rawJson, mode);
       } catch {
@@ -657,11 +663,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2.5 transition-all shadow-xs border animate-in fade-in ${
             message.type === 'success'
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : message.type === 'info'
+              ? 'bg-blue-50 text-blue-800 border-blue-200'
               : 'bg-rose-50 text-rose-800 border-rose-200'
           }`}
         >
           {message.type === 'success' ? (
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : message.type === 'info' ? (
+            <Info className="w-4 h-4 text-blue-600 shrink-0" />
           ) : (
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
           )}

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { PartySplit, Transaction, Debtor, AppSettings } from '../types';
 import { formatVND } from '../utils/vietqr';
-import { getBillImageDirect } from '../services/firestoreClient';
+import { resolveBillImageFallback } from '../utils/imageUploader';
 
 export interface GroupedPartyRowProps {
   party: PartySplit;
@@ -23,14 +23,11 @@ export interface GroupedPartyRowProps {
 
 const SafeReceiptThumbnail: React.FC<{ src: string }> = ({ src }) => {
   const [thumbSrc, setThumbSrc] = useState<string>(src);
+  const retriedRef = React.useRef(false);
 
   useEffect(() => {
+    retriedRef.current = false;
     setThumbSrc(src);
-    if (src.startsWith('/api/images/') || src.startsWith('/uploads/')) {
-      getBillImageDirect(src).then((direct) => {
-        if (direct) setThumbSrc(direct);
-      });
-    }
   }, [src]);
 
   return (
@@ -38,10 +35,11 @@ const SafeReceiptThumbnail: React.FC<{ src: string }> = ({ src }) => {
       src={thumbSrc}
       alt="Hóa đơn"
       onError={() => {
-        if (src.startsWith('/api/images/') || src.startsWith('/uploads/')) {
-          getBillImageDirect(src).then((direct) => {
-            if (direct) setThumbSrc(direct);
-          });
+        if (retriedRef.current) return;
+        const fallback = resolveBillImageFallback(thumbSrc);
+        if (fallback && fallback !== thumbSrc) {
+          retriedRef.current = true;
+          setThumbSrc(fallback);
         }
       }}
       className="w-8 h-8 rounded-lg object-cover border border-amber-300 shrink-0 shadow-2xs bg-white"

@@ -15,9 +15,8 @@ import {
 } from 'lucide-react';
 import { Debtor, Transaction, TransactionType } from '../types';
 import { ThousandAmountInput } from './ThousandAmountInput';
-import { uploadBillImage } from '../utils/imageUploader';
+import { uploadBillImage, resolveBillImageFallback } from '../utils/imageUploader';
 import { cleanStorageIfQuotaBloated } from '../utils/storage';
-import { getBillImageDirect } from '../services/firestoreClient';
 
 interface EditTransactionModalProps {
   isOpen: boolean;
@@ -392,10 +391,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   src={billImage}
                   alt="Bill preview"
                   onError={(e) => {
-                    if (billImage && (billImage.startsWith('/api/images/') || billImage.startsWith('/uploads/'))) {
-                      getBillImageDirect(billImage).then((direct) => {
-                        if (direct) (e.target as HTMLImageElement).src = direct;
-                      });
+                    const imgEl = e.currentTarget;
+                    if (imgEl.dataset.retried) return;
+                    const fallback = resolveBillImageFallback(imgEl.src);
+                    if (fallback) {
+                      imgEl.dataset.retried = '1';
+                      imgEl.src = fallback;
                     }
                   }}
                   className="w-14 h-14 object-cover rounded-xl border border-emerald-200 bg-white shrink-0 shadow-2xs"

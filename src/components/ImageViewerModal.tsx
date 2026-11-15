@@ -12,7 +12,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-import { getBillImageDirect } from '../services/firestoreClient';
+import { resolveBillImageFallback } from '../utils/imageUploader';
 
 interface ImageViewerModalProps {
   imageUrl: string | null;
@@ -31,68 +31,36 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [hasError, setHasError] = useState<boolean>(false);
 
-  // Auto-resolve image directly from Cloud Firestore if on Safari, iOS PWA, or cross-domain
+  // Reset resolvedSrc whenever imageUrl changes
   useEffect(() => {
     setHasError(false);
-    if (!imageUrl) {
-      setResolvedSrc(null);
-      return;
-    }
-
-    setResolvedSrc(imageUrl);
-
-    // If imageUrl is a relative endpoint, pre-emptively load from Cloud Firestore to bypass Safari ITP cookie checks
-    if (imageUrl.startsWith('/api/images/') || imageUrl.startsWith('/uploads/')) {
-      setIsLoading(true);
-      getBillImageDirect(imageUrl)
-        .then((directBase64) => {
-          if (directBase64) {
-            setResolvedSrc(directBase64);
-          }
-        })
-        .catch((err) => {
-          console.warn('Pre-emptive direct image load notice:', err);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    }
+    setIsLoading(false);
+    setResolvedSrc(imageUrl || null);
   }, [imageUrl]);
 
-  const handleImageError = async () => {
-    if (!imageUrl) {
-      setHasError(true);
+  const handleImageError = () => {
+    const current = resolvedSrc || imageUrl;
+    const fallbackUrl = resolveBillImageFallback(current);
+    if (fallbackUrl && fallbackUrl !== current) {
+      setHasError(false);
+      setResolvedSrc(fallbackUrl);
       return;
     }
-
-    // Fallback: Fetch directly from Cloud Firestore
-    setIsLoading(true);
-    try {
-      const direct = await getBillImageDirect(imageUrl);
-      if (direct) {
-        setResolvedSrc(direct);
-        setHasError(false);
-      } else {
-        setHasError(true);
-      }
-    } catch {
-      setHasError(true);
-    } finally {
-      setIsLoading(false);
-    }
+    setHasError(true);
   };
 
   const handleRetry = () => {
     if (!imageUrl) return;
     setHasError(false);
-    setIsLoading(true);
-    getBillImageDirect(imageUrl)
-      .then((direct) => {
-        if (direct) setResolvedSrc(direct);
-        else setHasError(true);
-      })
-      .catch(() => setHasError(true))
-      .finally(() => setIsLoading(false));
+    const fallbackUrl = resolveBillImageFallback(imageUrl);
+    if (fallbackUrl && resolvedSrc !== fallbackUrl) {
+      setResolvedSrc(fallbackUrl);
+    } else {
+      const separator = imageUrl.includes('?') ? '&' : '?';
+      setResolvedSrc(
+        imageUrl.startsWith('data:') ? imageUrl : `${imageUrl}${separator}_retry=${Date.now()}`
+      );
+    }
   };
 
   const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 0.3, 3));
@@ -229,7 +197,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/85 backdrop-blur-xs z-20 text-slate-800 gap-2">
                       <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
                       <span className="text-xs font-semibold text-slate-600">
-                        Đang đồng bộ ảnh từ Cloud Firestore...
+                        Đang tải ảnh từ Google Drive / Google Sheets...
                       </span>
                     </div>
                   )}

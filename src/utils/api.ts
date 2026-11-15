@@ -35,29 +35,19 @@ import {
   clearAuditLogs,
   mergeRemoteAuditLogs,
 } from './storage';
-import {
-  getClientFirebaseConfig,
-  loadDataFromFirestoreDirect,
-  saveDebtorDirect,
-  deleteDebtorDirect,
-  saveTransactionDirect,
-  deleteTransactionDirect,
-  savePartyDirect,
-  deletePartyDirect,
-  updatePartyDirect,
-  saveSettingsDirect,
-  ownerLoginDirect,
-  guestLookupDirect,
-  guestReportPaymentDirect,
-  testFirestoreDirectConnection,
-  setClientCustomDatabaseId,
-  syncAllToFirestoreDirect,
-  clearAllFirestoreDirect,
-  subscribeToFirestoreData,
-  subscribeToDebtorTransactions,
-} from '../services/firestoreClient';
 
-export { subscribeToFirestoreData, subscribeToDebtorTransactions };
+export function getSheetsHeaders(): Record<string, string> {
+  try {
+    const s = loadSettings();
+    const url = (s?.googleAppsScriptUrl || '').trim();
+    if (url.startsWith('https://script.google.com/')) {
+      return { 'x-apps-script-url': url };
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
 
 const OWNER_TOKEN_KEY = 'debt_app_owner_token';
 
@@ -138,18 +128,30 @@ function maskSecret(val?: string): string {
   return `****** (${clean.length} ký tự)`;
 }
 
-function getAuthHeaders(): HeadersInit {
+function getAuthHeaders(): Record<string, string> {
   const token = getStoredOwnerToken();
   return {
     'Content-Type': 'application/json',
+    ...getSheetsHeaders(),
     ...(token ? { Authorization: `Bearer ${token}`, 'x-owner-token': token } : {}),
   };
 }
 
+export type CloudErrorCode =
+  | 'SHEETS_NOT_CONFIGURED'
+  | 'SHEETS_LEGACY_SCRIPT'
+  | 'SHEETS_UNAVAILABLE'
+  | 'INVALID_CREDENTIALS';
+
 export async function loginOwner(
   password: string,
   methodHint?: 'PASSWORD' | 'FACE_ID'
-): Promise<{ success: boolean; message?: string }> {
+): Promise<{
+  success: boolean;
+  errorCode?: CloudErrorCode;
+  needsScriptUpgrade?: boolean;
+  message?: string;
+}> {
   const cleanPass = (password || '').trim();
   if (!cleanPass) {
     return { success: false, message: 'Vui lòng nhập mật khẩu quản lý' };
@@ -185,16 +187,26 @@ export async function loginOwner(
     }
   };
 
-  // 1. Try server-side authentication
+  let cloudErrorCode: CloudErrorCode | undefined;
+  let cloudErrorMessage: string | undefined;
+  let needsScriptUpgrade = false;
+  let serverResponded = false;
+
+  // 1. Try server-side authentication against Google Sheets
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getSheetsHeaders(),
+      },
       body: JSON.stringify({ password: cleanPass }),
     });
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      serverResponded = true;
       const data = await res.json();
-      if (data.success && data.token) {
+      if (res.ok && data.success && data.token) {
         setStoredOwnerToken(data.token);
         if (data.settings) {
           saveSettings(data.settings);
@@ -209,64 +221,74 @@ export async function loginOwner(
             : isPhoneMatch
             ? 'Số điện thoại chủ sổ'
             : 'Mật khẩu quản trị';
-        recordOwnerLoginSuccess('Server API', methodLabel);
+        recordOwnerLoginSuccess('Google Sheets Cloud', methodLabel);
         return { success: true };
+      }
+      if (
+        data.code === 'SHEETS_NOT_CONFIGURED' ||
+        data.code === 'SHEETS_LEGACY_SCRIPT' ||
+        data.code === 'SHEETS_UNAVAILABLE'
+      ) {
+        cloudErrorCode = data.code;
+        cloudErrorMessage = data.message;
+        needsScriptUpgrade = Boolean(data.needsScriptUpgrade);
+      } else if (res.status === 401) {
+        return {
+          success: false,
+          errorCode: 'INVALID_CREDENTIALS',
+          message: data.message || 'Mật khẩu quản trị không chính xác',
+        };
       }
     }
   } catch {
-    // ignore server network error
+    // network error -> allow cached offline check below
   }
 
-  // 2. Direct Firestore fallback check (handles InPrivate mode, cold-start or static preview)
-  try {
-    const directRes = await ownerLoginDirect(cleanPass);
-    if (directRes.success) {
-      setStoredOwnerToken('direct-firestore-owner-session');
-      if (directRes.settings) {
-        saveSettings(directRes.settings);
+  if (cloudErrorCode) {
+    return {
+      success: false,
+      errorCode: cloudErrorCode,
+      needsScriptUpgrade,
+      message:
+        cloudErrorMessage ||
+        'Không thể kết nối cơ sở dữ liệu Google Sheets (Apps Script Web App).',
+    };
+  }
+
+  // 2. Local offline fallback ONLY when server is unreachable due to network offline
+  if (!serverResponded) {
+    const settings = loadSettings();
+    const hasLocalSessionData = Boolean(settings.isInitialized || loadDebtors().length > 0);
+    if (hasLocalSessionData) {
+      const localOwnerPass = (settings.ownerPassword || '').trim();
+      const localOwnerPhone = (settings.ownerPhone || '').trim();
+      const cleanPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
+      const cleanInputPhone = cleanPass.replace(/[\s.-]+/g, '');
+
+      const isLocalPhone = Boolean(localOwnerPhone && cleanInputPhone === cleanPhone);
+      if (
+        (localOwnerPass && (cleanPass === localOwnerPass || cleanPass.toLowerCase() === localOwnerPass.toLowerCase())) ||
+        isLocalPhone ||
+        ((!localOwnerPass || localOwnerPass === '123456') && cleanPass === '123456')
+      ) {
+        setStoredOwnerToken('local-owner-session');
+        const methodLabel =
+          methodHint === 'FACE_ID'
+            ? 'FaceID / Sinh trắc học'
+            : isLocalPhone
+            ? 'Số điện thoại chủ sổ'
+            : 'Mật khẩu quản trị';
+        recordOwnerLoginSuccess('Bộ nhớ cục bộ (Offline)', methodLabel);
+        return { success: true };
       }
-      const s = directRes.settings || loadSettings();
-      const isPhoneMatch = Boolean(
-        s.ownerPhone && cleanPass.replace(/[\s.-]+/g, '') === String(s.ownerPhone).replace(/[\s.-]+/g, '')
-      );
-      const methodLabel =
-        methodHint === 'FACE_ID'
-          ? 'FaceID / Sinh trắc học'
-          : isPhoneMatch
-          ? 'Số điện thoại chủ sổ'
-          : 'Mật khẩu quản trị';
-      recordOwnerLoginSuccess('Cloud Firestore trực tiếp', methodLabel);
-      return { success: true };
     }
-  } catch (err) {
-    console.warn('Direct Firestore owner login warning:', err);
   }
 
-  // 3. Local fallback: Check local settings
-  const settings = loadSettings();
-  const localOwnerPass = (settings.ownerPassword || '').trim();
-  const localOwnerPhone = (settings.ownerPhone || '').trim();
-  const cleanPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
-  const cleanInputPhone = cleanPass.replace(/[\s.-]+/g, '');
-
-  const isLocalPhone = Boolean(localOwnerPhone && cleanInputPhone === cleanPhone);
-  if (
-    (localOwnerPass && (cleanPass === localOwnerPass || cleanPass.toLowerCase() === localOwnerPass.toLowerCase())) ||
-    isLocalPhone ||
-    cleanPass === '123456'
-  ) {
-    setStoredOwnerToken('local-owner-session');
-    const methodLabel =
-      methodHint === 'FACE_ID'
-        ? 'FaceID / Sinh trắc học'
-        : isLocalPhone
-        ? 'Số điện thoại chủ sổ'
-        : 'Mật khẩu quản trị';
-    recordOwnerLoginSuccess('Bộ nhớ cục bộ (Offline)', methodLabel);
-    return { success: true };
-  }
-
-  return { success: false, message: 'Mật khẩu quản trị không chính xác' };
+  return {
+    success: false,
+    errorCode: 'INVALID_CREDENTIALS',
+    message: 'Mật khẩu quản trị không chính xác',
+  };
 }
 
 export function smartMergeTransactions(remoteTxs: Transaction[], _localTxs?: Transaction[]): Transaction[] {
@@ -328,7 +350,7 @@ export function smartMergeParties(remoteParties: PartySplit[], _localParties?: P
   });
 }
 
-export async function fetchOwnerData(): Promise<{
+export async function fetchOwnerData(force = false): Promise<{
   debtors: Debtor[];
   transactions: Transaction[];
   parties: PartySplit[];
@@ -338,7 +360,9 @@ export async function fetchOwnerData(): Promise<{
   if (!token) {
     // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ danh sách con nợ / giao dịch
     try {
-      const sRes = await fetch('/api/settings');
+      const sRes = await fetch('/api/settings', {
+        headers: getSheetsHeaders(),
+      });
       if (sRes.ok) {
         const sData = await sRes.json();
         if (sData.success && sData.settings) {
@@ -362,9 +386,9 @@ export async function fetchOwnerData(): Promise<{
     };
   }
 
-  // 1. Try server API
+  // 1. Fetch from server API (backed by Google Sheets)
   try {
-    const res = await fetch('/api/owner/data', {
+    const res = await fetch(`/api/owner/data${force ? '?force=1' : ''}`, {
       headers: getAuthHeaders(),
     });
     const contentType = res.headers.get('content-type') || '';
@@ -388,9 +412,11 @@ export async function fetchOwnerData(): Promise<{
         };
       }
     } else {
-      // If unauthenticated or guest, still fetch public server settings to keep UI updated
+      // Fetch public settings if owner token expired or Sheets errored
       try {
-        const sRes = await fetch('/api/settings');
+        const sRes = await fetch('/api/settings', {
+          headers: getSheetsHeaders(),
+        });
         if (sRes.ok) {
           const sData = await sRes.json();
           if (sData.success && sData.settings) {
@@ -402,34 +428,10 @@ export async function fetchOwnerData(): Promise<{
       }
     }
   } catch (err) {
-    console.warn('Server API unavailable, connecting directly to Cloud Firestore:', err);
+    console.warn('Server API unavailable, using local cache:', err);
   }
 
-  // 2. Direct Cloud Firestore fallback (ideal for Vercel, Netlify, or static deploy)
-  try {
-    const remoteData = await loadDataFromFirestoreDirect();
-    if (remoteData) {
-      const finalDebtors = remoteData.debtors || [];
-      const finalTransactions = smartMergeTransactions(remoteData.transactions || []);
-      const finalParties = remoteData.parties || [];
-      const finalSettings = remoteData.settings || loadSettings();
-
-      saveDebtors(finalDebtors);
-      saveTransactions(finalTransactions);
-      saveParties(finalParties);
-      saveSettings(finalSettings);
-      return {
-        debtors: finalDebtors,
-        transactions: finalTransactions,
-        parties: finalParties,
-        settings: finalSettings,
-      };
-    }
-  } catch (err) {
-    console.warn('Direct Cloud Firestore fallback failed, using local cache:', err);
-  }
-
-  // 3. Local storage fallback
+  // 2. Local storage cache fallback
   return {
     debtors: loadDebtors(),
     transactions: loadTransactions(),
@@ -536,58 +538,33 @@ export async function apiSaveDebtor(
       body: JSON.stringify({ ...debtor, id: targetId }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const mergedDebtors = data.debtors ? smartMergeDebtors(data.debtors) : loadDebtors();
         saveDebtors(mergedDebtors);
-        if (data.debtor) {
-          await saveDebtorDirect(data.debtor).catch((err) => console.warn('Direct saveDebtor sync:', err));
-        }
         recordAuditLog(buildDebtorSuccessLog());
         return { success: true, debtor: data.debtor, debtors: mergedDebtors };
       }
+      const errMsg = data.message || 'Không thể lưu người nợ lên Google Sheets';
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Lỗi lưu người nợ',
+        description: `Không thể lưu thông tin "${debtor.name}": ${errMsg}`,
+        debtorId: targetId,
+        debtorName: debtor.name,
+        beforeState: debtorBeforeState,
+        afterState: `Thất bại: ${errMsg}`,
+        changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${errMsg}` }],
+      });
+      return { success: false, message: errMsg };
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Lỗi kết nối khi lưu người nợ lên Google Sheets' };
   }
 
-  // Direct Firestore fallback
-  try {
-    const allDebtors = loadDebtors();
-    const existingIndex = allDebtors.findIndex((d) => d.id === targetId);
-    const now = new Date().toISOString();
-    const savedDebtor: Debtor = {
-      id: targetId,
-      name: debtor.name,
-      note: debtor.note,
-      pin: debtor.pin,
-      createdAt: existingIndex >= 0 ? allDebtors[existingIndex].createdAt : now,
-      updatedAt: now,
-    };
-    if (existingIndex >= 0) {
-      allDebtors[existingIndex] = savedDebtor;
-    } else {
-      allDebtors.push(savedDebtor);
-    }
-    saveDebtors(allDebtors);
-    await saveDebtorDirect(savedDebtor).catch((err) => console.warn('Direct saveDebtor warning:', err));
-    recordAuditLog(buildDebtorSuccessLog());
-    return { success: true, debtor: savedDebtor, debtors: allDebtors };
-  } catch (err: any) {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Lỗi lưu người nợ',
-      description: `Không thể lưu thông tin "${debtor.name}": ${err?.message || 'Lỗi hệ thống'}`,
-      debtorId: targetId,
-      debtorName: debtor.name,
-      beforeState: debtorBeforeState,
-      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
-      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
-    });
-    return { success: false, message: err?.message || 'Lỗi khi lưu thông tin người nợ' };
-  }
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiDeleteDebtor(
@@ -643,14 +620,13 @@ export async function apiDeleteDebtor(
       headers: getAuthHeaders(),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const filteredDebtors = (data.debtors || []).filter((d: Debtor) => d.id !== id);
         const filteredTxs = (data.transactions || []).filter((t: Transaction) => t.debtorId !== id);
         saveDebtors(filteredDebtors);
         saveTransactions(filteredTxs);
-        await deleteDebtorDirect(id).catch((err) => console.warn('Direct deleteDebtor sync:', err));
         recordAuditLog(buildDeleteDebtorLog());
         return { success: true, debtors: filteredDebtors, transactions: filteredTxs };
       }
@@ -659,12 +635,11 @@ export async function apiDeleteDebtor(
     // ignore
   }
 
-  // Direct fallback
+  // Fallback local cleanup if offline
   const allDebtors = loadDebtors().filter((d) => d.id !== id);
   const allTxs = loadTransactions().filter((t) => t.debtorId !== id);
   saveDebtors(allDebtors);
   saveTransactions(allTxs);
-  await deleteDebtorDirect(id).catch((err) => console.warn('Direct deleteDebtor warning:', err));
   recordAuditLog(buildDeleteDebtorLog());
   return { success: true, debtors: allDebtors, transactions: allTxs };
 }
@@ -771,7 +746,8 @@ export async function apiSaveTransaction(
   };
 
   // Immediate optimistic local update to guarantee responsiveness
-  const currentLocal = loadTransactions();
+  const prevSnapshot = loadTransactions();
+  const currentLocal = [...prevSnapshot];
   currentLocal.unshift(localNewTx);
   try {
     saveTransactions(currentLocal);
@@ -786,48 +762,47 @@ export async function apiSaveTransaction(
       body: JSON.stringify(localNewTx),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const merged = smartMergeTransactions(data.transactions || currentLocal);
         try {
           saveTransactions(merged);
         } catch {
           // ignore
         }
-        if (data.transaction) {
-          await saveTransactionDirect(data.transaction).catch((err) => console.warn('Direct saveTx sync:', err));
-        } else {
-          await saveTransactionDirect(localNewTx).catch((err) => console.warn('Direct saveTx sync:', err));
-        }
         recordAuditLog(buildSaveTxLog());
         return { success: true, transaction: data.transaction || localNewTx, transactions: merged };
       }
+      // Server rejected or Google Sheets failed: roll back optimistic local state
+      try {
+        saveTransactions(prevSnapshot);
+      } catch {
+        // ignore
+      }
+      const errMsg = data.message || 'Không thể lưu giao dịch lên Google Sheets';
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Lỗi ghi nhận giao dịch',
+        description: `Không thể lưu giao dịch cho "${debtorName}": ${errMsg}`,
+        debtorId: tx.debtorId,
+        debtorName,
+        amount: tx.amount,
+        beforeState: txBeforeState,
+        afterState: `Thất bại: ${errMsg}`,
+        changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${errMsg}` }],
+      });
+      return { success: false, message: errMsg };
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Lỗi kết nối khi lưu giao dịch lên Google Sheets',
+    };
   }
 
-  // Direct Firestore fallback
-  try {
-    await saveTransactionDirect(localNewTx).catch((err) => console.warn('Direct saveTransaction warning:', err));
-    recordAuditLog(buildSaveTxLog());
-    return { success: true, transaction: localNewTx, transactions: currentLocal };
-  } catch (err: any) {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Lỗi ghi nhận giao dịch',
-      description: `Không thể lưu giao dịch cho "${debtorName}": ${err?.message || 'Lỗi hệ thống'}`,
-      debtorId: tx.debtorId,
-      debtorName,
-      amount: tx.amount,
-      beforeState: txBeforeState,
-      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
-      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
-    });
-    return { success: false, message: err?.message || 'Lỗi khi lưu giao dịch' };
-  }
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiUpdateTransaction(
@@ -954,7 +929,7 @@ export async function apiUpdateTransaction(
   };
 
   // Optimistic local update
-  const allTxs = loadTransactions();
+  const allTxs = [...prevAllTxs];
   const idx = allTxs.findIndex((t) => t.id === tx.id);
   if (idx !== -1) {
     allTxs[idx] = tx;
@@ -970,44 +945,35 @@ export async function apiUpdateTransaction(
       body: JSON.stringify(tx),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const merged = smartMergeTransactions(data.transactions || allTxs);
         saveTransactions(merged);
-        if (data.transaction) {
-          await saveTransactionDirect(data.transaction).catch((err) => console.warn('Direct updateTx sync:', err));
-        } else {
-          await saveTransactionDirect(tx).catch((err) => console.warn('Direct updateTx sync:', err));
-        }
         recordAuditLog(buildUpdateTxLog());
         return { success: true, transaction: data.transaction || tx, transactions: merged };
       }
+      saveTransactions(prevAllTxs);
+      const errMsg = data.message || 'Không thể cập nhật giao dịch lên Google Sheets';
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Lỗi cập nhật giao dịch',
+        description: `Không thể cập nhật giao dịch: ${errMsg}`,
+        debtorId: tx.debtorId,
+        debtorName: newDebtorObj?.name,
+        amount: tx.amount,
+        beforeState: txBeforeState,
+        afterState: `Thất bại: ${errMsg}`,
+        changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${errMsg}` }],
+      });
+      return { success: false, message: errMsg };
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Lỗi kết nối khi cập nhật giao dịch' };
   }
 
-  // Direct fallback
-  try {
-    await saveTransactionDirect(tx).catch((err) => console.warn('Direct updateTx warning:', err));
-    recordAuditLog(buildUpdateTxLog());
-    return { success: true, transaction: tx, transactions: allTxs };
-  } catch (err: any) {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Lỗi cập nhật giao dịch',
-      description: `Không thể cập nhật giao dịch: ${err?.message || 'Lỗi hệ thống'}`,
-      debtorId: tx.debtorId,
-      debtorName: newDebtorObj?.name,
-      amount: tx.amount,
-      beforeState: txBeforeState,
-      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
-      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
-    });
-    return { success: false, message: err?.message || 'Lỗi khi cập nhật giao dịch' };
-  }
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiDeleteTransaction(
@@ -1089,12 +1055,11 @@ export async function apiDeleteTransaction(
       headers: getAuthHeaders(),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const filtered = (data.transactions || []).filter((t: Transaction) => t.id !== id);
         saveTransactions(filtered);
-        await deleteTransactionDirect(id).catch((err) => console.warn('Direct deleteTx sync:', err));
         recordAuditLog(buildDeleteTxLog());
         return { success: true, transactions: filtered };
       }
@@ -1103,7 +1068,6 @@ export async function apiDeleteTransaction(
     // ignore
   }
 
-  await deleteTransactionDirect(id).catch((err) => console.warn('Direct deleteTransaction warning:', err));
   recordAuditLog(buildDeleteTxLog());
   return { success: true, transactions: allTxs };
 }
@@ -1213,40 +1177,34 @@ export async function apiSavePartySplit(
       body: JSON.stringify({ party: newParty, transactions: createdTxs }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const mergedParties = smartMergeParties(data.parties || allParties);
         const mergedTxs = smartMergeTransactions(data.transactions || updatedTxs);
         saveParties(mergedParties);
         saveTransactions(mergedTxs);
-        await savePartyDirect(newParty, createdTxs).catch((err) => console.warn('Direct saveParty sync:', err));
         recordAuditLog(buildSavePartyLog());
         return { success: true, parties: mergedParties, transactions: mergedTxs };
       }
+      const errMsg = data.message || 'Không thể lưu chia tiền lên Google Sheets';
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Lỗi tạo cuộc chia tiền',
+        description: `Không thể tạo cuộc chia bill "${newParty.name}": ${errMsg}`,
+        amount: newParty.totalAmount,
+        beforeState: partyBeforeState,
+        afterState: `Thất bại: ${errMsg}`,
+        changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang tạo', after: `Lỗi: ${errMsg}` }],
+      });
+      return { success: false, message: errMsg };
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Lỗi kết nối khi lưu chia tiền' };
   }
 
-  // Direct fallback
-  try {
-    await savePartyDirect(newParty, createdTxs).catch((err) => console.warn('Direct saveParty warning:', err));
-    recordAuditLog(buildSavePartyLog());
-    return { success: true, parties: allParties, transactions: updatedTxs };
-  } catch (err: any) {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Lỗi tạo cuộc chia tiền',
-      description: `Không thể tạo cuộc chia bill "${newParty.name}": ${err?.message || 'Lỗi hệ thống'}`,
-      amount: newParty.totalAmount,
-      beforeState: partyBeforeState,
-      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
-      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang tạo', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
-    });
-    return { success: false, message: err?.message || 'Lỗi khi lưu chia tiền' };
-  }
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiDeletePartySplit(
@@ -1303,14 +1261,13 @@ export async function apiDeletePartySplit(
       headers: getAuthHeaders(),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const finalParties = (data.parties || []).filter((p: PartySplit) => p.id !== partyId);
         const finalTxs = (data.transactions || []).filter((t: Transaction) => t.partyId !== partyId);
         saveParties(finalParties);
         saveTransactions(finalTxs);
-        await deletePartyDirect(partyId).catch((err) => console.warn('Direct deleteParty sync:', err));
         recordAuditLog(buildDeletePartyLog());
         return { success: true, parties: finalParties, transactions: finalTxs };
       }
@@ -1319,8 +1276,6 @@ export async function apiDeletePartySplit(
     // ignore
   }
 
-  // 3. Fallback direct Firestore sync
-  await deletePartyDirect(partyId).catch((err) => console.warn('Direct deleteParty warning:', err));
   recordAuditLog(buildDeletePartyLog());
   return { success: true, parties: currentParties, transactions: filteredTxs };
 }
@@ -1482,40 +1437,34 @@ export async function apiUpdatePartySplit(
       body: JSON.stringify({ party: updatedParty, transactions: createdTxs }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         const mergedParties = smartMergeParties(data.parties || [], allParties);
         const mergedTxs = smartMergeTransactions(data.transactions || [], updatedTxs);
         saveParties(mergedParties);
         saveTransactions(mergedTxs);
-        await updatePartyDirect(updatedParty, createdTxs).catch((err) => console.warn('Direct updateParty sync:', err));
         recordAuditLog(buildUpdatePartyLog());
         return { success: true, parties: mergedParties, transactions: mergedTxs };
       }
+      const errMsg = data.message || 'Không thể cập nhật chia tiền lên Google Sheets';
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Lỗi sửa cuộc chia tiền',
+        description: `Không thể cập nhật cuộc chia bill "${updatedParty.name}": ${errMsg}`,
+        amount: updatedParty.totalAmount,
+        beforeState: partyUpdateBeforeState,
+        afterState: `Thất bại: ${errMsg}`,
+        changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${errMsg}` }],
+      });
+      return { success: false, message: errMsg };
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Lỗi kết nối khi cập nhật chia tiền' };
   }
 
-  // 2. Direct fallback
-  try {
-    await updatePartyDirect(updatedParty, createdTxs).catch((err) => console.warn('Direct updateParty warning:', err));
-    recordAuditLog(buildUpdatePartyLog());
-    return { success: true, parties: allParties, transactions: updatedTxs };
-  } catch (err: any) {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Lỗi sửa cuộc chia tiền',
-      description: `Không thể cập nhật cuộc chia bill "${updatedParty.name}": ${err?.message || 'Lỗi hệ thống'}`,
-      amount: updatedParty.totalAmount,
-      beforeState: partyUpdateBeforeState,
-      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
-      changes: [{ fieldLabel: 'Kết quả thao tác', before: 'Đang lưu', after: `Lỗi: ${err?.message || 'Thất bại'}` }],
-    });
-    return { success: false, message: err?.message || 'Lỗi khi cập nhật chia tiền' };
-  }
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiSaveSettings(
@@ -1620,44 +1569,46 @@ export async function apiSaveSettings(
       body: JSON.stringify(settings),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success && data.settings) {
+      if (res.ok && data.success && data.settings) {
         saveSettings(data.settings);
-        await saveSettingsDirect(data.settings).catch((err) =>
-          console.warn('Direct saveSettings sync:', err)
-        );
         recordSettingsLogIfChanged(data.settings);
         return { success: true, settings: data.settings };
       }
+      return {
+        success: false,
+        settings: data.settings || settings,
+        message: data.message || 'Không thể lưu cài đặt lên Google Sheets',
+      };
     }
-  } catch (err) {
-    console.warn('Server saveSettings notice, falling back to direct Firestore:', err);
-  }
-
-  // 3. Fallback direct Firestore sync
-  try {
-    await saveSettingsDirect(settings);
-    recordSettingsLogIfChanged(settings);
-  } catch (err) {
-    console.warn('Direct saveSettings warning:', err);
+  } catch (err: any) {
+    console.warn('Server saveSettings notice:', err);
+    return { success: false, settings, message: err?.message || 'Lỗi kết nối khi lưu cài đặt' };
   }
 
   return { success: true, settings };
 }
 
 // --- GUEST APIS (LOOKUP BY PIN) ---
-export async function apiGuestLookup(pin: string): Promise<{
+export async function apiGuestLookup(
+  pin: string,
+  options?: { silent?: boolean }
+): Promise<{
   success: boolean;
   debtor?: Debtor;
   transactions?: Transaction[];
   settings?: AppSettings;
+  errorCode?: CloudErrorCode;
+  needsScriptUpgrade?: boolean;
   message?: string;
 }> {
   const cleanPin = pin.trim();
   const cleanPinLower = cleanPin.toLowerCase();
+  const isSilent = Boolean(options?.silent);
 
   const recordLookupAudit = (debtor: Debtor, txs: Transaction[] = [], source: string) => {
+    if (isSilent) return;
     try {
       const stats = getDebtorAuditStats(debtor.id, txs);
       const balanceStr = fmtMoney(stats.balance);
@@ -1698,17 +1649,23 @@ export async function apiGuestLookup(pin: string): Promise<{
     }
   };
 
+  let serverResponded = false;
+
   try {
     const res = await fetch('/api/guest/lookup', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getSheetsHeaders(),
+      },
       body: JSON.stringify({ pin: cleanPin }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
+      serverResponded = true;
       const data = await res.json();
-      if (data.success && data.debtor) {
-        recordLookupAudit(data.debtor, data.transactions || [], 'Server API');
+      if (res.ok && data.success && data.debtor) {
+        recordLookupAudit(data.debtor, data.transactions || [], 'Google Sheets Cloud');
         return {
           success: true,
           debtor: data.debtor,
@@ -1716,57 +1673,69 @@ export async function apiGuestLookup(pin: string): Promise<{
           settings: data.settings,
         };
       }
-      return {
-        success: false,
-        message: data.message || 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
-      };
+      if (
+        data.code === 'SHEETS_NOT_CONFIGURED' ||
+        data.code === 'SHEETS_LEGACY_SCRIPT' ||
+        data.code === 'SHEETS_UNAVAILABLE'
+      ) {
+        return {
+          success: false,
+          errorCode: data.code,
+          needsScriptUpgrade: Boolean(data.needsScriptUpgrade),
+          message:
+            data.message ||
+            'Không thể kết nối cơ sở dữ liệu Google Sheets để tra cứu. Vui lòng thử lại sau.',
+        };
+      }
+      if (res.status === 404) {
+        if (!isSilent) {
+          const maskedPin = cleanPin.length > 2 ? `${cleanPin.slice(0, 1)}***${cleanPin.slice(-1)}` : '***';
+          recordAuditLog({
+            action: 'LOOKUP_FAILED',
+            actor: 'Khách vãng lai',
+            title: 'Khách tra cứu thất bại',
+            description: `Khách đã nhập mã tra cứu không hợp lệ hoặc không tồn tại (${maskedPin}).`,
+            beforeState: 'Chưa tra cứu',
+            afterState: 'Từ chối xem thông tin (Sai mã PIN)',
+            changes: [{ fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: `Không tìm thấy (${maskedPin})` }],
+            metadata: { maskedInput: maskedPin, inputLength: cleanPin.length },
+          });
+        }
+        return {
+          success: false,
+          errorCode: 'INVALID_CREDENTIALS',
+          message: data.message || 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
+        };
+      }
     }
   } catch {
-    // ignore
+    // network error -> offline fallback check below
   }
 
-  // Direct Firestore lookup fallback (works on any device on Vercel)
-  try {
-    const directRes = await guestLookupDirect(cleanPin);
-    if (directRes.success && directRes.debtor) {
-      recordLookupAudit(directRes.debtor, directRes.transactions || [], 'Cloud Firestore trực tiếp');
-      return directRes;
+  // Local offline fallback ONLY when server is unreachable
+  if (!serverResponded) {
+    const allDebtors = loadDebtors();
+    const found = allDebtors.find(
+      (d) => d.pin.trim().toLowerCase() === cleanPinLower || d.pin.trim() === cleanPin
+    );
+    if (found) {
+      const allTxs = loadTransactions();
+      const debtorTxs = allTxs.filter((tx) => tx.debtorId === found.id);
+      const settings = loadSettings();
+      recordLookupAudit(found, debtorTxs, 'Bộ nhớ cục bộ (Offline)');
+      return {
+        success: true,
+        debtor: found,
+        transactions: debtorTxs,
+        settings,
+      };
     }
-  } catch (e) {
-    console.warn('Direct guest lookup warning:', e);
   }
 
-  // Local fallback
-  const allDebtors = loadDebtors();
-  const found = allDebtors.find(
-    (d) => d.pin.trim().toLowerCase() === cleanPinLower || d.pin.trim() === cleanPin
-  );
-  if (found) {
-    const allTxs = loadTransactions();
-    const debtorTxs = allTxs.filter((tx) => tx.debtorId === found.id);
-    const settings = loadSettings();
-    recordLookupAudit(found, debtorTxs, 'Bộ nhớ cục bộ (Offline)');
-    return {
-      success: true,
-      debtor: found,
-      transactions: debtorTxs,
-      settings,
-    };
-  }
-  const maskedPin = cleanPin.length > 2 ? `${cleanPin.slice(0, 1)}***${cleanPin.slice(-1)}` : '***';
-  recordAuditLog({
-    action: 'LOOKUP_FAILED',
-    actor: 'Khách vãng lai',
-    title: 'Khách tra cứu thất bại',
-    description: `Khách đã nhập mã tra cứu không hợp lệ hoặc không tồn tại (${maskedPin}).`,
-    beforeState: 'Chưa tra cứu',
-    afterState: 'Từ chối xem thông tin (Sai mã PIN)',
-    changes: [{ fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: `Không tìm thấy (${maskedPin})` }],
-    metadata: { maskedInput: maskedPin, inputLength: cleanPin.length },
-  });
   return {
     success: false,
-    message: 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
+    errorCode: 'SHEETS_UNAVAILABLE',
+    message: 'Không thể kết nối đến máy chủ Google Sheets để tra cứu. Vui lòng thử lại sau.',
   };
 }
 
@@ -1826,51 +1795,62 @@ export async function apiGuestReportPayment(
   try {
     const res = await fetch('/api/guest/report-payment', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getSheetsHeaders(),
+      },
       body: JSON.stringify({ pin: cleanPin, amount, note, billImage }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         recordReportAudit(debtorObj?.name, debtorObj?.id);
         return { success: true, transactions: data.transactions };
       }
+      const errMsg = data.message || 'Không thể gửi báo thanh toán lên Google Sheets';
+      recordAuditLog({
+        action: 'OPERATION_FAILED',
+        actor: debtorObj?.name ? `Khách: ${debtorObj.name}` : 'Khách vãng lai',
+        title: 'Lỗi khách báo chuyển khoản',
+        description: `Báo chuyển khoản thất bại: ${errMsg}`,
+        debtorId: debtorObj?.id,
+        debtorName: debtorObj?.name,
+        amount,
+        beforeState: `Định gửi báo chuyển khoản ${fmtMoney(amount)}`,
+        afterState: `Thất bại: ${errMsg}`,
+        changes: [{ fieldLabel: 'Kết quả gửi báo', before: 'Đang gửi', after: 'Thất bại' }],
+      });
+      return { success: false, message: errMsg };
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Lỗi kết nối khi gửi báo chuyển khoản lên Google Sheets',
+    };
   }
 
-  const directRes = await guestReportPaymentDirect(cleanPin, amount, note, billImage);
-  if (directRes.success) {
-    recordReportAudit(debtorObj?.name, debtorObj?.id);
-  } else {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: debtorObj?.name ? `Khách: ${debtorObj.name}` : 'Khách vãng lai',
-      title: 'Lỗi khách báo chuyển khoản',
-      description: `Báo chuyển khoản thất bại: ${directRes.message || 'Lỗi không xác định'}`,
-      debtorId: debtorObj?.id,
-      debtorName: debtorObj?.name,
-      amount,
-      beforeState: `Định gửi báo chuyển khoản ${fmtMoney(amount)}`,
-      afterState: `Thất bại: ${directRes.message || 'Lỗi'}`,
-      changes: [{ fieldLabel: 'Kết quả gửi báo', before: 'Đang gửi', after: 'Thất bại' }],
-    });
-  }
-  return directRes;
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
-// --- CLOUD FIRESTORE STATUS & MANAGEMENT ---
+/// --- GOOGLE SHEETS CLOUD DATABASE STATUS & MANAGEMENT ---
 
 export interface FirestoreStatusInfo {
   success: boolean;
+  configured?: boolean;
   connected: boolean;
   latencyMs: number;
+  version?: number;
+  supportsFullDb?: boolean;
+  supportsLogSync?: boolean;
+  supportsDriveUpload?: boolean;
+  needsUpgrade?: boolean;
+  source?: string;
+  googleSheetUrl?: string;
   databaseId: string;
-  defaultDatabaseId: string;
-  projectId: string;
-  isCustom: boolean;
+  defaultDatabaseId?: string;
+  projectId?: string;
+  isCustom?: boolean;
   stats: {
     debtors: number;
     transactions: number;
@@ -1880,267 +1860,158 @@ export interface FirestoreStatusInfo {
   lastChecked: string;
 }
 
-export async function apiGetFirestoreStatus(): Promise<FirestoreStatusInfo> {
-  // 1. Try server endpoint
+export async function apiGetSheetsStatus(): Promise<FirestoreStatusInfo> {
   try {
-    const res = await fetch('/api/firestore/status');
+    const res = await fetch('/api/sheets/status', {
+      headers: getAuthHeaders(),
+    });
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
-      if (data && typeof data.connected === 'boolean') {
-        return data;
-      }
+      return {
+        success: Boolean(data.success),
+        configured: data.configured,
+        connected: Boolean(data.connected),
+        latencyMs: Number(data.latencyMs || 0),
+        version: data.version,
+        supportsFullDb: data.supportsFullDb,
+        supportsLogSync: data.supportsLogSync,
+        supportsDriveUpload: data.supportsDriveUpload,
+        needsUpgrade: Boolean(data.needsUpgrade),
+        source: data.source,
+        googleSheetUrl: data.googleSheetUrl,
+        databaseId: data.databaseId || (data.configured ? 'Google Sheets Cloud' : 'Chưa cấu hình'),
+        stats: data.stats || {
+          debtors: loadDebtors().length,
+          transactions: loadTransactions().length,
+          parties: loadParties().length,
+        },
+        error: data.error || null,
+        lastChecked: data.lastChecked || new Date().toISOString(),
+      };
     }
-  } catch {
-    // ignore
-  }
-
-  // 2. Direct browser test to Cloud Firestore
-  try {
-    const direct = await testFirestoreDirectConnection();
-    const config = getClientFirebaseConfig();
-    return {
-      success: direct.success,
-      connected: direct.success,
-      latencyMs: direct.latencyMs,
-      databaseId: direct.databaseId,
-      defaultDatabaseId: config.defaultDatabaseId,
-      projectId: direct.projectId,
-      isCustom: direct.isCustom,
-      stats: direct.stats || {
-        debtors: loadDebtors().length,
-        transactions: loadTransactions().length,
-        parties: loadParties().length,
-      },
-      error: direct.error,
-      lastChecked: new Date().toISOString(),
-    };
   } catch (err: any) {
-    const config = getClientFirebaseConfig();
     return {
       success: false,
+      configured: false,
       connected: false,
       latencyMs: 0,
-      databaseId: config.firestoreDatabaseId,
-      defaultDatabaseId: config.defaultDatabaseId,
-      projectId: config.projectId,
-      isCustom: config.isCustom,
+      databaseId: 'Chưa cấu hình',
       stats: { debtors: 0, transactions: 0, parties: 0 },
-      error: err?.message || 'Không thể kết nối đến Cloud Firestore',
+      error: err?.message || 'Không thể kết nối đến máy chủ Google Sheets',
       lastChecked: new Date().toISOString(),
     };
   }
+
+  return {
+    success: false,
+    configured: false,
+    connected: false,
+    latencyMs: 0,
+    databaseId: 'Chưa cấu hình',
+    stats: { debtors: 0, transactions: 0, parties: 0 },
+    error: 'Không nhận được trạng thái Google Sheets từ máy chủ',
+    lastChecked: new Date().toISOString(),
+  };
 }
 
-export async function apiTestFirestoreConnection(options?: {
-  databaseId?: string;
-  projectId?: string;
-  apiKey?: string;
+export const apiGetFirestoreStatus = apiGetSheetsStatus;
+
+export async function apiTestSheetsConnection(options?: {
+  appsScriptUrl?: string;
 }): Promise<{
   success: boolean;
+  configured?: boolean;
+  connected?: boolean;
   latencyMs: number;
-  databaseId: string;
-  projectId: string;
-  isCustom: boolean;
+  version?: number;
+  supportsFullDb?: boolean;
+  supportsLogSync?: boolean;
+  supportsDriveUpload?: boolean;
+  needsUpgrade?: boolean;
+  databaseId?: string;
   stats?: { debtors: number; transactions: number; parties: number };
   error?: string;
 }> {
   try {
-    const res = await fetch('/api/firestore/test-connection', {
+    const res = await fetch('/api/sheets/test-connection', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getSheetsHeaders(),
+      },
       body: JSON.stringify(options || {}),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
-      return await res.json();
-    }
-  } catch {
-    // ignore
-  }
-
-  return await testFirestoreDirectConnection();
-}
-
-export async function apiChangeFirestoreDatabase(options: {
-  databaseId: string;
-  projectId?: string;
-  apiKey?: string;
-  migrateExistingData?: boolean;
-}): Promise<{
-  success: boolean;
-  message?: string;
-  databaseId?: string;
-  debtors?: Debtor[];
-  transactions?: Transaction[];
-  parties?: PartySplit[];
-  settings?: AppSettings;
-}> {
-  const prevDbId = getClientFirebaseConfig().firestoreDatabaseId;
-  const logDbSwitch = (channel: string) => {
-    recordAuditLog({
-      action: 'CLOUD_SYNC',
-      actor: 'Chủ Sổ (Admin)',
-      title: `Chuyển Database Cloud Firestore: ${options.databaseId}`,
-      description: `Đã chuyển kết nối Cloud Firestore từ "${prevDbId}" sang "${options.databaseId}" qua ${channel}${options.migrateExistingData ? ' (có di chuyển dữ liệu hiện có)' : ''}.`,
-      beforeState: `Database: ${prevDbId}`,
-      afterState: `Database: ${options.databaseId}`,
-      changes: [
-        { fieldLabel: 'Database ID', before: prevDbId, after: options.databaseId },
-        { fieldLabel: 'Di chuyển dữ liệu', before: '-', after: options.migrateExistingData ? 'Có di chuyển' : 'Không' },
-        { fieldLabel: 'Kênh kết nối', before: '-', after: channel },
-      ],
-      metadata: {
-        previousDatabaseId: prevDbId,
-        targetDatabaseId: options.databaseId,
-        migrateExistingData: Boolean(options.migrateExistingData),
-        channel,
-      },
-    });
-  };
-
-  try {
-    const res = await fetch('/api/firestore/change-database', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(options),
-    });
-    const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success && data.data) {
-        if (data.data.debtors) saveDebtors(data.data.debtors);
-        if (data.data.transactions) saveTransactions(data.data.transactions);
-        if (data.data.parties) saveParties(data.data.parties);
-        if (data.data.settings) saveSettings(data.data.settings);
-        setClientCustomDatabaseId(options.databaseId);
-        logDbSwitch('Server API');
-        return {
-          success: true,
-          message: data.message,
-          databaseId: data.databaseId,
-          debtors: data.data.debtors,
-          transactions: data.data.transactions,
-          parties: data.data.parties,
-          settings: data.data.settings,
-        };
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // Direct client switch
-  setClientCustomDatabaseId(options.databaseId);
-  const test = await testFirestoreDirectConnection();
-  if (test.success) {
-    const fresh = await loadDataFromFirestoreDirect();
-    if (fresh) {
-      saveDebtors(fresh.debtors);
-      saveTransactions(fresh.transactions);
-      saveParties(fresh.parties);
-      saveSettings(fresh.settings);
-      logDbSwitch('Cloud Firestore trực tiếp');
       return {
-        success: true,
-        message: `Đã kết nối trực tiếp tới cơ sở dữ liệu Cloud Firestore: "${options.databaseId}"`,
-        databaseId: options.databaseId,
-        debtors: fresh.debtors,
-        transactions: fresh.transactions,
-        parties: fresh.parties,
-        settings: fresh.settings,
+        ...data,
+        connected: Boolean(data.success),
+        databaseId: data.configured ? `Google Sheets (Apps Script v${data.version || 3})` : 'Chưa cấu hình',
       };
     }
+  } catch (err: any) {
+    return {
+      success: false,
+      configured: false,
+      connected: false,
+      latencyMs: 0,
+      error: err?.message || 'Không thể kiểm tra kết nối Google Sheets',
+    };
   }
-  recordAuditLog({
-    action: 'OPERATION_FAILED',
-    actor: 'Chủ Sổ (Admin)',
-    title: 'Lỗi chuyển Database Cloud Firestore',
-    description: `Không thể chuyển kết nối sang "${options.databaseId}": ${test.error || 'Lỗi kết nối'}`,
-    beforeState: `Database: ${prevDbId}`,
-    afterState: `Thất bại khi nối "${options.databaseId}"`,
-    changes: [{ fieldLabel: 'Database đích', before: prevDbId, after: `Lỗi: ${options.databaseId}` }],
-  });
   return {
     success: false,
-    message: test.error || 'Không thể kết nối đến cơ sở dữ liệu mới trên Cloud Firestore',
+    configured: false,
+    connected: false,
+    latencyMs: 0,
+    error: 'Không thể kiểm tra kết nối Google Sheets',
   };
 }
 
-export async function apiResetDefaultFirestoreDatabase(): Promise<{
+export const apiTestFirestoreConnection = apiTestSheetsConnection;
+
+export async function apiConfigureSheets(
+  appsScriptUrl: string,
+  googleSheetUrl?: string
+): Promise<{
   success: boolean;
+  configured?: boolean;
+  connected?: boolean;
+  needsUpgrade?: boolean;
+  version?: number;
   message?: string;
-  databaseId?: string;
-  debtors?: Debtor[];
-  transactions?: Transaction[];
-  parties?: PartySplit[];
-  settings?: AppSettings;
 }> {
-  const prevDbId = getClientFirebaseConfig().firestoreDatabaseId;
-  const defaultDbId = getClientFirebaseConfig().defaultDatabaseId;
-
-  const logResetDb = (targetDb: string) => {
-    recordAuditLog({
-      action: 'CLOUD_SYNC',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Khôi phục Database Cloud Firestore mặc định',
-      description: `Đã khôi phục kết nối Cloud Firestore từ "${prevDbId}" về database mặc định "${targetDb}".`,
-      beforeState: `Database tùy chỉnh: ${prevDbId}`,
-      afterState: `Database mặc định: ${targetDb}`,
-      changes: [{ fieldLabel: 'Database ID', before: prevDbId, after: targetDb }],
-      metadata: { previousDatabaseId: prevDbId, targetDatabaseId: targetDb },
-    });
-  };
-
   try {
-    const res = await fetch('/api/firestore/reset-default-database', {
+    const res = await fetch('/api/sheets/configure', {
       method: 'POST',
       headers: getAuthHeaders(),
+      body: JSON.stringify({
+        appsScriptUrl: appsScriptUrl.trim(),
+        ...(googleSheetUrl?.trim() ? { googleSheetUrl: googleSheetUrl.trim() } : {}),
+      }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success && data.data) {
-        if (data.data.debtors) saveDebtors(data.data.debtors);
-        if (data.data.transactions) saveTransactions(data.data.transactions);
-        if (data.data.parties) saveParties(data.data.parties);
-        if (data.data.settings) saveSettings(data.data.settings);
-        setClientCustomDatabaseId(null);
-        logResetDb(data.databaseId || defaultDbId);
-        return {
-          success: true,
-          message: data.message,
-          databaseId: data.databaseId,
-          debtors: data.data.debtors,
-          transactions: data.data.transactions,
-          parties: data.data.parties,
-          settings: data.data.settings,
-        };
+      if (res.ok && data.success) {
+        const current = loadSettings();
+        saveSettings({
+          ...current,
+          googleAppsScriptUrl: appsScriptUrl.trim(),
+          ...(googleSheetUrl?.trim() ? { googleSheetUrl: googleSheetUrl.trim() } : {}),
+          autoSyncGoogleSheets: true,
+        });
       }
+      return data;
     }
-  } catch {
-    // ignore
-  }
-
-  setClientCustomDatabaseId(null);
-  const fresh = await loadDataFromFirestoreDirect();
-  if (fresh) {
-    saveDebtors(fresh.debtors);
-    saveTransactions(fresh.transactions);
-    saveParties(fresh.parties);
-    saveSettings(fresh.settings);
-    logResetDb(defaultDbId);
+  } catch (err: any) {
     return {
-      success: true,
-      message: 'Đã khôi phục cơ sở dữ liệu Cloud Firestore mặc định.',
-      databaseId: defaultDbId,
-      debtors: fresh.debtors,
-      transactions: fresh.transactions,
-      parties: fresh.parties,
-      settings: fresh.settings,
+      success: false,
+      message: err?.message || 'Lỗi kết nối khi cấu hình URL Google Apps Script',
     };
   }
-  return { success: false, message: 'Lỗi khi khôi phục database mặc định' };
+  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export interface BackupItem {
@@ -2155,7 +2026,7 @@ export interface BackupItem {
 
 export async function apiGetFirestoreBackups(): Promise<{ success: boolean; backups: BackupItem[] }> {
   try {
-    const res = await fetch('/api/firestore/backups', {
+    const res = await fetch('/api/sheets/backups', {
       headers: getAuthHeaders(),
     });
     if (res.ok) {
@@ -2170,7 +2041,7 @@ export async function apiGetFirestoreBackups(): Promise<{ success: boolean; back
 
 export async function apiCreateFirestoreBackup(label?: string): Promise<{ success: boolean; message?: string; filename?: string }> {
   try {
-    const res = await fetch('/api/firestore/create-backup', {
+    const res = await fetch('/api/sheets/create-backup', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ label }),
@@ -2214,7 +2085,7 @@ export async function apiRestoreFirestoreBackup(filename: string): Promise<{
   const prevDebtors = loadDebtors().length;
   const prevTxs = loadTransactions().length;
   try {
-    const res = await fetch('/api/firestore/restore-backup', {
+    const res = await fetch('/api/sheets/restore-backup', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ filename }),
@@ -2232,7 +2103,7 @@ export async function apiRestoreFirestoreBackup(filename: string): Promise<{
           action: 'RESTORE_DATA',
           actor: 'Chủ Sổ (Admin)',
           title: `Khôi phục Snapshot: ${filename}`,
-          description: `Đã khôi phục dữ liệu từ bản sao lưu "${filename}" (${nextDebtors} người nợ, ${nextTxs} giao dịch).`,
+          description: `Đã khôi phục dữ liệu từ bản sao lưu "${filename}" (${nextDebtors} người nợ, ${nextTxs} giao dịch) lên Google Sheets.`,
           beforeState: `Trước khôi phục: ${prevDebtors} người nợ · ${prevTxs} GD`,
           afterState: `Sau khôi phục: ${nextDebtors} người nợ · ${nextTxs} GD`,
           changes: [
@@ -2270,31 +2141,8 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
   const prevTxsCount = loadTransactions().length;
   const prevPartiesCount = loadParties().length;
 
-  const logRestoreSuccess = (
-    nextD: number,
-    nextT: number,
-    nextP: number,
-    channel: string
-  ) => {
-    recordAuditLog({
-      action: 'RESTORE_DATA',
-      actor: 'Chủ Sổ (Admin)',
-      title: `Khôi phục dữ liệu từ JSON (${mode === 'merge' ? 'Gộp' : 'Ghi đè'})`,
-      description: `Đã nạp thành công ${nextD} người nợ, ${nextT} giao dịch, ${nextP} cuộc vui từ tệp JSON qua ${channel}.`,
-      beforeState: `Trước khi nhập: ${prevDebtorsCount} người nợ · ${prevTxsCount} GD · ${prevPartiesCount} cuộc vui`,
-      afterState: `Sau khi nhập: ${nextD} người nợ · ${nextT} GD · ${nextP} cuộc vui`,
-      changes: [
-        { fieldLabel: 'Chế độ khôi phục', before: '-', after: mode === 'merge' ? 'Gộp dữ liệu' : 'Ghi đè hoàn toàn' },
-        { fieldLabel: 'Người nợ', before: `${prevDebtorsCount} người`, after: `${nextD} người` },
-        { fieldLabel: 'Giao dịch', before: `${prevTxsCount} GD`, after: `${nextT} GD` },
-        { fieldLabel: 'Cuộc chia bill', before: `${prevPartiesCount} cuộc`, after: `${nextP} cuộc` },
-      ],
-      metadata: { mode, channel, prevDebtorsCount, prevTxsCount, nextDebtorsCount: nextD, nextTxsCount: nextT, nextPartiesCount: nextP },
-    });
-  };
-
   try {
-    const res = await fetch('/api/firestore/upload-json', {
+    const res = await fetch('/api/sheets/upload-json', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ data: jsonData, mode }),
@@ -2307,12 +2155,24 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
         if (data.data.transactions) saveTransactions(data.data.transactions);
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
-        logRestoreSuccess(
-          (data.data.debtors || []).length,
-          (data.data.transactions || []).length,
-          (data.data.parties || []).length,
-          'Server API'
-        );
+        const nextD = (data.data.debtors || []).length;
+        const nextT = (data.data.transactions || []).length;
+        const nextP = (data.data.parties || []).length;
+        recordAuditLog({
+          action: 'RESTORE_DATA',
+          actor: 'Chủ Sổ (Admin)',
+          title: `Khôi phục dữ liệu từ JSON (${mode === 'merge' ? 'Gộp' : 'Ghi đè'})`,
+          description: `Đã nạp thành công ${nextD} người nợ, ${nextT} giao dịch, ${nextP} cuộc vui từ tệp JSON lên Google Sheets.`,
+          beforeState: `Trước khi nhập: ${prevDebtorsCount} người nợ · ${prevTxsCount} GD · ${prevPartiesCount} cuộc vui`,
+          afterState: `Sau khi nhập: ${nextD} người nợ · ${nextT} GD · ${nextP} cuộc vui`,
+          changes: [
+            { fieldLabel: 'Chế độ khôi phục', before: '-', after: mode === 'merge' ? 'Gộp dữ liệu' : 'Ghi đè hoàn toàn' },
+            { fieldLabel: 'Người nợ', before: `${prevDebtorsCount} người`, after: `${nextD} người` },
+            { fieldLabel: 'Giao dịch', before: `${prevTxsCount} GD`, after: `${nextT} GD` },
+            { fieldLabel: 'Cuộc chia bill', before: `${prevPartiesCount} cuộc`, after: `${nextP} cuộc` },
+          ],
+          metadata: { mode, channel: 'Google Sheets Cloud', prevDebtorsCount, prevTxsCount, nextDebtorsCount: nextD, nextTxsCount: nextT, nextPartiesCount: nextP },
+        });
         return {
           success: true,
           message: data.message,
@@ -2321,77 +2181,9 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
           parties: data.data.parties,
           settings: data.data.settings,
         };
-      } else if (!res.ok) {
-        console.warn('Server upload-json returned error response:', data);
       }
+      return { success: false, message: data.message || 'Lỗi khi nạp tệp JSON lên Google Sheets' };
     }
-  } catch (serverErr) {
-    console.warn('Server upload-json error, attempting client-side fallback:', serverErr);
-  }
-
-  // Fallback: Direct client-side restore to Firestore
-  try {
-    let parsedDebtors = Array.isArray(jsonData?.debtors) ? jsonData.debtors : (Array.isArray(jsonData) ? jsonData : []);
-    let parsedTransactions = Array.isArray(jsonData?.transactions) ? jsonData.transactions : [];
-    let parsedParties = Array.isArray(jsonData?.parties) ? jsonData.parties : [];
-    let parsedSettings = jsonData?.settings || null;
-
-    const currentSettings = loadSettings();
-    if (parsedSettings && typeof parsedSettings === 'object') {
-      const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...cleanSettings } = parsedSettings;
-      parsedSettings = { ...currentSettings, ...cleanSettings, ownerPassword: currentSettings.ownerPassword };
-    } else {
-      parsedSettings = currentSettings;
-    }
-
-    if (mode === 'merge') {
-      const currentDebtors = loadDebtors();
-      const currentTx = loadTransactions();
-      const currentParties = loadParties();
-
-      const dMap = new Map<string, Debtor>();
-      currentDebtors.forEach((d) => dMap.set(d.id, d));
-      parsedDebtors.forEach((d: Debtor) => dMap.set(d.id, d));
-
-      const tMap = new Map<string, Transaction>();
-      currentTx.forEach((t) => tMap.set(t.id, t));
-      parsedTransactions.forEach((t: Transaction) => tMap.set(t.id, t));
-
-      const pMap = new Map<string, PartySplit>();
-      currentParties.forEach((p) => pMap.set(p.id, p));
-      parsedParties.forEach((p: PartySplit) => pMap.set(p.id, p));
-
-      parsedDebtors = Array.from(dMap.values());
-      parsedTransactions = Array.from(tMap.values());
-      parsedParties = Array.from(pMap.values());
-    }
-
-    // Ensure orphan transactions are filtered out in client fallback as well
-    const validDebtorIds = new Set((parsedDebtors || []).map((d: any) => d.id));
-    const cleanTransactions = (parsedTransactions || []).filter((t: any) => validDebtorIds.has(t.debtorId));
-
-    const formatted = {
-      debtors: parsedDebtors,
-      transactions: cleanTransactions,
-      parties: parsedParties,
-      settings: parsedSettings,
-    };
-    await syncAllToFirestoreDirect(formatted);
-    saveDebtors(formatted.debtors);
-    saveTransactions(formatted.transactions);
-    saveParties(formatted.parties);
-    saveSettings(formatted.settings);
-    logRestoreSuccess(
-      formatted.debtors.length,
-      formatted.transactions.length,
-      formatted.parties.length,
-      'Cloud Firestore trực tiếp'
-    );
-    return {
-      success: true,
-      message: `Đã khôi phục thành công ${formatted.debtors.length} người nợ, ${formatted.transactions.length} giao dịch lên Cloud Firestore!`,
-      ...formatted,
-    };
   } catch (err: any) {
     recordAuditLog({
       action: 'OPERATION_FAILED',
@@ -2404,6 +2196,8 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
     });
     return { success: false, message: err?.message || 'Lỗi khi khôi phục dữ liệu từ tệp JSON' };
   }
+
+  return { success: false, message: 'Không thể kết nối máy chủ để khôi phục JSON' };
 }
 
 export async function apiCleanOrphanTransactions(): Promise<{
@@ -2454,44 +2248,36 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
   parties?: PartySplit[];
   settings?: AppSettings;
 }> {
-  const dbId = getClientFirebaseConfig().firestoreDatabaseId;
-  const logSync = (dCount: number, tCount: number, pCount: number, channel: string) => {
-    recordAuditLog({
-      action: 'CLOUD_SYNC',
-      actor: 'Chủ Sổ (Admin)',
-      title: direction === 'PUSH' ? 'Đẩy dữ liệu lên Cloud Firestore' : 'Tải dữ liệu từ Cloud Firestore về máy',
-      description: `Đã đồng bộ (${direction === 'PUSH' ? 'Đẩy lên Cloud' : 'Tải về máy'}) qua ${channel}: ${dCount} người nợ, ${tCount} giao dịch, ${pCount} cuộc chia tiền (Database: ${dbId}).`,
-      beforeState: `Database: ${dbId}`,
-      afterState: `Đồng bộ ${direction} thành công (${dCount} người nợ, ${tCount} GD)`,
-      changes: [
-        { fieldLabel: 'Hướng đồng bộ', before: '-', after: direction === 'PUSH' ? 'Máy -> Cloud Firestore' : 'Cloud Firestore -> Máy' },
-        { fieldLabel: 'Database ID', before: '-', after: dbId },
-        { fieldLabel: 'Khối lượng dữ liệu', before: '-', after: `${dCount} người nợ · ${tCount} GD · ${pCount} cuộc vui` },
-      ],
-      metadata: { direction, databaseId: dbId, channel, debtorsCount: dCount, transactionsCount: tCount, partiesCount: pCount },
-    });
-  };
-
   try {
-    const res = await fetch('/api/firestore/force-sync', {
+    const res = await fetch('/api/sheets/force-sync', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ direction }),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success && data.data) {
+      if (res.ok && data.success && data.data) {
         if (data.data.debtors) saveDebtors(data.data.debtors);
         if (data.data.transactions) saveTransactions(data.data.transactions);
         if (data.data.parties) saveParties(data.data.parties);
         if (data.data.settings) saveSettings(data.data.settings);
-        logSync(
-          (data.data.debtors || []).length,
-          (data.data.transactions || []).length,
-          (data.data.parties || []).length,
-          'Server API'
-        );
+        const dCount = (data.data.debtors || []).length;
+        const tCount = (data.data.transactions || []).length;
+        const pCount = (data.data.parties || []).length;
+        recordAuditLog({
+          action: 'CLOUD_SYNC',
+          actor: 'Chủ Sổ (Admin)',
+          title: direction === 'PUSH' ? 'Đẩy dữ liệu lên Google Sheets' : 'Tải dữ liệu từ Google Sheets về máy',
+          description: `Đã đồng bộ (${direction === 'PUSH' ? 'Đẩy lên Google Sheets' : 'Tải về máy'}): ${dCount} người nợ, ${tCount} giao dịch, ${pCount} cuộc chia tiền.`,
+          beforeState: 'Google Sheets Cloud',
+          afterState: `Đồng bộ ${direction} thành công (${dCount} người nợ, ${tCount} GD)`,
+          changes: [
+            { fieldLabel: 'Hướng đồng bộ', before: '-', after: direction === 'PUSH' ? 'Máy -> Google Sheets' : 'Google Sheets -> Máy' },
+            { fieldLabel: 'Khối lượng dữ liệu', before: '-', after: `${dCount} người nợ · ${tCount} GD · ${pCount} cuộc vui` },
+          ],
+          metadata: { direction, channel: 'Google Sheets Cloud', debtorsCount: dCount, transactionsCount: tCount, partiesCount: pCount },
+        });
         return {
           success: true,
           message: data.message,
@@ -2501,59 +2287,17 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
           settings: data.data.settings,
         };
       }
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    if (direction === 'PULL') {
-      const fresh = await loadDataFromFirestoreDirect();
-      if (fresh) {
-        saveDebtors(fresh.debtors);
-        saveTransactions(fresh.transactions);
-        saveParties(fresh.parties);
-        saveSettings(fresh.settings);
-        logSync(fresh.debtors.length, fresh.transactions.length, fresh.parties.length, 'Cloud Firestore trực tiếp');
-        return {
-          success: true,
-          message: 'Đã tải dữ liệu mới nhất trực tiếp từ Cloud Firestore về máy!',
-          debtors: fresh.debtors,
-          transactions: fresh.transactions,
-          parties: fresh.parties,
-          settings: fresh.settings,
-        };
-      }
-    } else {
-      const pushRes = await apiSyncAllNow();
-      if (pushRes.success) {
-        logSync(
-          pushRes.debtors?.length ?? loadDebtors().length,
-          pushRes.transactions?.length ?? loadTransactions().length,
-          pushRes.parties?.length ?? loadParties().length,
-          'Cloud Firestore trực tiếp'
-        );
-      }
-      return pushRes;
+      return { success: false, message: data.message || 'Đồng bộ Google Sheets thất bại' };
     }
   } catch (err: any) {
-    recordAuditLog({
-      action: 'OPERATION_FAILED',
-      actor: 'Chủ Sổ (Admin)',
-      title: `Lỗi đồng bộ Cloud Firestore (${direction})`,
-      description: err?.message || 'Đồng bộ trực tiếp Cloud Firestore thất bại',
-      beforeState: `Yêu cầu đồng bộ ${direction}`,
-      afterState: 'Thất bại',
-      changes: [{ fieldLabel: 'Kết quả đồng bộ', before: direction, after: `Lỗi: ${err?.message || 'Thất bại'}` }],
-    });
-    return { success: false, message: err?.message || 'Đồng bộ trực tiếp Cloud Firestore thất bại' };
+    return { success: false, message: err?.message || 'Không thể kết nối đến Google Sheets để đồng bộ' };
   }
 
-  return { success: false, message: 'Đồng bộ thất bại' };
+  return { success: false, message: 'Đồng bộ Google Sheets thất bại' };
 }
 
 /**
- * Save and synchronize ALL data immediately to Cloud Firestore (both via Server & Direct Client SDK)
+ * Save and synchronize ALL data immediately to Google Sheets Cloud DB
  */
 export async function apiSyncAllNow(dataOverride?: {
   debtors?: Debtor[];
@@ -2576,16 +2320,6 @@ export async function apiSyncAllNow(dataOverride?: {
     settings: dataOverride?.settings || loadSettings(),
   };
 
-  // 1. Direct browser sync to Cloud Firestore
-  let directSyncOk = false;
-  try {
-    await syncAllToFirestoreDirect(localData);
-    directSyncOk = true;
-  } catch (err) {
-    console.warn('Direct client sync warning:', err);
-  }
-
-  // 2. Server API sync
   try {
     const res = await fetch('/api/owner/sync-all', {
       method: 'POST',
@@ -2593,16 +2327,18 @@ export async function apiSyncAllNow(dataOverride?: {
       body: JSON.stringify(localData),
     });
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         if (data.debtors) saveDebtors(data.debtors);
         if (data.transactions) saveTransactions(data.transactions);
         if (data.parties) saveParties(data.parties);
         if (data.settings) saveSettings(data.settings);
         return {
           success: true,
-          message: data.message || `Đã lưu và đồng bộ toàn bộ ${localData.debtors.length} người nợ, ${localData.transactions.length} giao dịch lên Cloud Firestore thành công!`,
+          message:
+            data.message ||
+            `Đã lưu và đồng bộ toàn bộ ${localData.debtors.length} người nợ, ${localData.transactions.length} giao dịch lên Google Sheets thành công!`,
           debtors: data.debtors || localData.debtors,
           transactions: data.transactions || localData.transactions,
           parties: data.parties || localData.parties,
@@ -2614,29 +2350,14 @@ export async function apiSyncAllNow(dataOverride?: {
           },
         };
       }
+      return { success: false, message: data.message || 'Không thể đồng bộ lên Google Sheets' };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn('Server sync-all API warning:', err);
+    return { success: false, message: err?.message || 'Không thể kết nối đến máy chủ để đồng bộ Google Sheets' };
   }
 
-  if (directSyncOk) {
-    saveDebtors(localData.debtors);
-    saveTransactions(localData.transactions);
-    saveParties(localData.parties);
-    saveSettings(localData.settings);
-    return {
-      success: true,
-      message: `Đã lưu và đồng bộ tức thì ${localData.debtors.length} người nợ, ${localData.transactions.length} giao dịch lên Cloud Firestore thành công!`,
-      ...localData,
-      stats: {
-        debtorsCount: localData.debtors.length,
-        transactionsCount: localData.transactions.length,
-        partiesCount: localData.parties.length,
-      },
-    };
-  }
-
-  return { success: false, message: 'Không thể kết nối đến máy chủ hoặc Cloud Firestore để đồng bộ' };
+  return { success: false, message: 'Không thể kết nối đến máy chủ để đồng bộ Google Sheets' };
 }
 
 export async function apiClearAllSampleData(
@@ -2676,7 +2397,6 @@ export async function apiClearAllSampleData(
     });
   };
 
-  // 1. Try server endpoint (/api/owner/clear-all or /api/owner/clear-sample-data)
   try {
     const res = await fetch('/api/owner/clear-all', {
       method: 'POST',
@@ -2692,49 +2412,23 @@ export async function apiClearAllSampleData(
     const contentType = res.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         markSampleDataCleared(true);
         saveDebtors([]);
         saveTransactions([]);
         saveParties([]);
-        // Ensure direct client-side Firestore also executes in dual-mode
-        try {
-          await clearAllFirestoreDirect();
-        } catch (fErr) {
-          console.warn('Dual-mode direct clear note:', fErr);
-        }
         recordClearSuccess();
         return { success: true, message: data.message };
       } else {
-        recordClearFailure();
+        if (res.status === 401) recordClearFailure();
         return { success: false, message: data.message || 'Mật khẩu quản trị không chính xác!' };
       }
     }
-  } catch (err) {
-    console.warn('Server clear endpoint unreachable, attempting direct client fallback:', err);
-  }
-
-  // 2. Direct client-side verification and fallback
-  const currentSettings = loadSettings();
-  const correctPass = (currentSettings.ownerPassword || '123456').trim();
-
-  // MUST strictly match the owner password
-  if (!trimmedPassword || trimmedPassword !== correctPass) {
-    recordClearFailure();
-    return { success: false, message: 'Mật khẩu quản trị không chính xác!' };
-  }
-
-  markSampleDataCleared(true);
-  saveDebtors([]);
-  saveTransactions([]);
-  saveParties([]);
-  try {
-    await clearAllFirestoreDirect();
   } catch (err: any) {
-    console.warn('Direct clear sample error:', err);
+    return { success: false, message: err?.message || 'Lỗi kết nối khi xóa dữ liệu trên Google Sheets' };
   }
-  recordClearSuccess();
-  return { success: true, message: 'Đã xóa toàn bộ dữ liệu mẫu thành công!' };
+
+  return { success: false, message: 'Không thể xóa dữ liệu lúc này' };
 }
 
 export async function apiResetSampleData(
@@ -2782,58 +2476,23 @@ export async function apiResetSampleData(
     const contentType = res.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         markSampleDataCleared(false);
         saveDebtors(INITIAL_DEBTORS);
         saveTransactions(INITIAL_TRANSACTIONS);
         saveParties(INITIAL_PARTIES);
-        try {
-          await syncAllToFirestoreDirect({
-            debtors: INITIAL_DEBTORS,
-            transactions: INITIAL_TRANSACTIONS,
-            parties: INITIAL_PARTIES,
-            settings: loadSettings(),
-          });
-        } catch (fErr) {
-          console.warn('Dual-mode direct reset sync note:', fErr);
-        }
         recordResetSuccess();
         return { success: true, message: data.message };
       } else {
-        recordResetFailure();
+        if (res.status === 401) recordResetFailure();
         return { success: false, message: data.message || 'Mật khẩu quản trị không chính xác!' };
       }
     }
-  } catch (err) {
-    console.warn('Server reset endpoint unreachable, attempting direct client fallback:', err);
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Lỗi kết nối khi nạp lại dữ liệu mẫu' };
   }
 
-  // Direct client-side verification and fallback
-  const currentSettings = loadSettings();
-  const correctPass = (currentSettings.ownerPassword || '123456').trim();
-
-  // MUST strictly match the owner password
-  if (!trimmedPassword || trimmedPassword !== correctPass) {
-    recordResetFailure();
-    return { success: false, message: 'Mật khẩu quản trị không chính xác!' };
-  }
-
-  markSampleDataCleared(false);
-  saveDebtors(INITIAL_DEBTORS);
-  saveTransactions(INITIAL_TRANSACTIONS);
-  saveParties(INITIAL_PARTIES);
-  try {
-    await syncAllToFirestoreDirect({
-      debtors: INITIAL_DEBTORS,
-      transactions: INITIAL_TRANSACTIONS,
-      parties: INITIAL_PARTIES,
-      settings: currentSettings,
-    });
-  } catch (err) {
-    console.warn('Direct reset sample error:', err);
-  }
-  recordResetSuccess();
-  return { success: true, message: 'Đã nạp lại dữ liệu mẫu ban đầu thành công!' };
+  return { success: false, message: 'Không thể nạp lại dữ liệu mẫu lúc này' };
 }
 
 export async function apiSyncExternal(

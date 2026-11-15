@@ -28,24 +28,17 @@ import {
   apiFetchRemoteAuditLogs,
   getStoredOwnerToken,
   removeStoredOwnerToken,
+  getSheetsHeaders,
 } from './utils/api';
-import { getSettingsDirect } from './services/firestoreClient';
 import {
   loadSettings,
   saveSettings,
-  saveDebtors,
-  saveTransactions,
-  saveParties,
   getDebtorBalance,
   deepCleanSessionData,
   loadAuditLogs,
   recordAuditLog,
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
-import { subscribeToFirestoreData, subscribeToDebtorTransactions } from './services/firestoreClient';
-import {
-  triggerDebouncedAutoSync,
-} from './services/googleSheetsService';
 import { Header } from './components/Header';
 import { OwnerDashboard } from './components/OwnerDashboard';
 import { GuestPortal } from './components/GuestPortal';
@@ -74,6 +67,13 @@ export default function App() {
     source?: string;
     sheetsError?: string;
   }>({});
+  const [cloudStatus, setCloudStatus] = useState<{
+    configured: boolean;
+    connected: boolean;
+    needsUpgrade?: boolean;
+    error: string | null;
+    errorCode?: string | null;
+  }>({ configured: true, connected: true, error: null });
 
   useEffect(() => {
     const handleLogRecorded = (e: any) => {
@@ -142,66 +142,29 @@ export default function App() {
     Boolean(editingParty)
   );
 
-  // Maintain current refs for background auto-sync without stale closures
-  const debtorsRef = useRef(debtors);
-  debtorsRef.current = debtors;
-  const transactionsRef = useRef(transactions);
-  transactionsRef.current = transactions;
-  const partiesRef = useRef(parties);
-  partiesRef.current = parties;
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
-
-  // Helper to trigger debounced auto-sync to Google Sheets in background
-  const maybeTriggerGoogleSheetsAutoSync = useCallback(
-    (
-      currentDebtors?: Debtor[],
-      currentTxs?: Transaction[],
-      currentParties?: PartySplit[],
-      customSettings?: AppSettings
-    ) => {
-      const activeSettings = customSettings || settingsRef.current;
-      // Tự động đồng bộ sang Google Sheets qua Google Apps Script Web App
-      if (
-        activeSettings?.autoSyncGoogleSheets !== false &&
-        Boolean(activeSettings?.googleAppsScriptUrl)
-      ) {
-        triggerDebouncedAutoSync({
-          debtors: currentDebtors || debtorsRef.current,
-          transactions: currentTxs || transactionsRef.current,
-          parties: currentParties || partiesRef.current,
-          settings: activeSettings,
-          auditLogs: loadAuditLogs(),
-        });
-      }
-    },
-    []
-  );
-
-  // Load / Sync Data from Backend
+  // Load / Sync Data from Backend (Google Sheets Cloud)
   const refreshDataFromServer = useCallback(async (force = false) => {
     // Nếu chưa xác thực Chủ Nợ, chỉ cập nhật cấu hình công khai (Settings)
     if (!getStoredOwnerToken()) {
       try {
-        const sRes = await fetch('/api/settings');
+        const sRes = await fetch('/api/settings', {
+          headers: getSheetsHeaders(),
+        });
         if (sRes.ok) {
           const sData = await sRes.json();
-          if (sData.success && sData.settings) {
+          setCloudStatus({
+            configured: sData.sheetsConfigured !== false,
+            connected: sData.sheetsConnected !== false && !sData.sheetsError,
+            needsUpgrade: Boolean(sData.needsScriptUpgrade),
+            error: sData.sheetsError || null,
+            errorCode: sData.sheetsErrorCode || null,
+          });
+
+          if (sData.success && sData.settings && sData.sheetsConnected !== false) {
             setSettings(sData.settings);
             saveSettings(sData.settings);
             return;
           }
-        }
-      } catch {
-        // ignore
-      }
-
-      // Direct Firestore settings hydration fallback (essential for InPrivate mode)
-      try {
-        const directSettings = await getSettingsDirect();
-        if (directSettings) {
-          setSettings(directSettings);
-          saveSettings(directSettings);
         }
       } catch {
         // ignore
@@ -214,7 +177,7 @@ export default function App() {
       return;
     }
     try {
-      const data = await fetchOwnerData();
+      const data = await fetchOwnerData(force);
       if (!data) return;
 
       setDebtors((prevDebtors) => {
@@ -263,95 +226,28 @@ export default function App() {
     }
   }, [settings?.appTitle]);
 
-  // 1. Luôn đồng bộ cấu hình cài đặt thời gian thực (Tên app, Số tài khoản, Ngân hàng, SĐT chủ sổ)
+  // Đồng bộ nền định kỳ cho Chủ Nợ đang đăng nhập (mỗi 25 giây khi đang mở tab và không mở modal)
   useEffect(() => {
-    let unsub: (() => void) | null = null;
-    try {
-      unsub = subscribeToFirestoreData({
-        onSettings: (remoteSettings) => {
-          if (remoteSettings && remoteSettings.appTitle) {
-            setSettings((prev) => ({ ...prev, ...remoteSettings }));
-            saveSettings(remoteSettings);
-          }
-        },
-      });
-    } catch (e) {
-      console.warn('Realtime settings listener notice:', e);
-    }
-    return () => {
-      if (unsub) unsub();
+    if (!isOwnerAuthenticated) return;
+
+    const handleFocusRefresh = () => {
+      if (document.visibilityState === 'visible' && !isAnyModalOpenRef.current) {
+        refreshDataFromServer(false);
+      }
     };
-  }, []);
 
-  // 2. Real-time synchronization cho Người nợ / Khách xem: Tự cập nhật giao dịch tức thì khi Chủ sổ thêm/sửa/xóa
-  useEffect(() => {
-    if (isOwnerAuthenticated || !guestInitialDebtor) {
-      return;
-    }
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && !isAnyModalOpenRef.current) {
+        refreshDataFromServer(false);
+      }
+    }, 25000);
 
-    let unsub: (() => void) | null = null;
-    try {
-      unsub = subscribeToDebtorTransactions(guestInitialDebtor.id, (updatedTxs) => {
-        if (Array.isArray(updatedTxs)) {
-          setTransactions(updatedTxs);
-          saveTransactions(updatedTxs);
-        }
-      });
-    } catch (e) {
-      console.warn('Realtime guest transactions listener notice:', e);
-    }
-
+    window.addEventListener('focus', handleFocusRefresh);
     return () => {
-      if (unsub) unsub();
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocusRefresh);
     };
-  }, [isOwnerAuthenticated, guestInitialDebtor?.id]);
-
-  // 3. Real-time synchronization cho Quản lý / Chủ Nợ: Đồng bộ toàn bộ Danh bạ, Giao dịch, Chia bill
-  useEffect(() => {
-    if (!isOwnerAuthenticated) {
-      return;
-    }
-
-    let unsubscribe: (() => void) | null = null;
-    try {
-      unsubscribe = subscribeToFirestoreData({
-        onDebtors: (remoteDebtors) => {
-          if (Array.isArray(remoteDebtors)) {
-            setDebtors(remoteDebtors);
-            saveDebtors(remoteDebtors);
-            maybeTriggerGoogleSheetsAutoSync(remoteDebtors, transactionsRef.current, partiesRef.current);
-          }
-        },
-        onTransactions: (remoteTxs) => {
-          if (Array.isArray(remoteTxs)) {
-            setTransactions(remoteTxs);
-            saveTransactions(remoteTxs);
-            maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, remoteTxs, partiesRef.current);
-          }
-        },
-        onParties: (remoteParties) => {
-          if (Array.isArray(remoteParties)) {
-            setParties(remoteParties);
-            saveParties(remoteParties);
-            maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, transactionsRef.current, remoteParties);
-          }
-        },
-        onSettings: (remoteSettings) => {
-          if (remoteSettings && remoteSettings.appTitle) {
-            setSettings(remoteSettings);
-            saveSettings(remoteSettings);
-            maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, transactionsRef.current, partiesRef.current, remoteSettings);
-          }
-        },
-      });
-    } catch (e) {
-      console.warn('Realtime owner listener notice:', e);
-    }
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [isOwnerAuthenticated, maybeTriggerGoogleSheetsAutoSync]);
+  }, [isOwnerAuthenticated, refreshDataFromServer]);
 
   // Khi tải hoặc tải lại trang: Xóa sạch phiên đăng nhập cũ & mã PIN hoặc hash guest khỏi URL
   useEffect(() => {
@@ -630,35 +526,6 @@ export default function App() {
     return () => window.removeEventListener('googlesheets-autosynced', handleAutoSynced);
   }, []);
 
-  // Auto-sync full 4 tabs to Google Sheets ONLY on data mutations (pure log events already sync via /api/audit-logs/push -> Tab 4 APPEND_LOGS)
-  useEffect(() => {
-    const DATA_MUTATION_ACTIONS = new Set([
-      'ADD_TRANSACTION',
-      'UPDATE_TRANSACTION',
-      'DELETE_TRANSACTION',
-      'SETTLE_DEBT',
-      'GUEST_REPORT',
-      'ADD_DEBTOR',
-      'UPDATE_DEBTOR',
-      'DELETE_DEBTOR',
-      'ADD_PARTY',
-      'UPDATE_PARTY',
-      'DELETE_PARTY',
-      'UPDATE_SETTINGS',
-      'RESTORE_DATA',
-    ]);
-    const handleLogRecorded = (e: any) => {
-      const log = e?.detail as AuditLog | undefined;
-      if (!log || !DATA_MUTATION_ACTIONS.has(log.action)) {
-        return;
-      }
-      maybeTriggerGoogleSheetsAutoSync();
-    };
-
-    window.addEventListener('audit-log-recorded', handleLogRecorded);
-    return () => window.removeEventListener('audit-log-recorded', handleLogRecorded);
-  }, [maybeTriggerGoogleSheetsAutoSync]);
-
   // --- Debtor Handlers (Synchronized) ---
   const handleSaveDebtor = async (
     debtorData: Omit<Debtor, 'id' | 'createdAt' | 'updatedAt'>,
@@ -675,7 +542,6 @@ export default function App() {
       if (selectedDetailDebtor && editId && res.debtor) {
         setSelectedDetailDebtor(res.debtor);
       }
-      maybeTriggerGoogleSheetsAutoSync(res.debtors, transactions, parties);
       return res.debtor;
     } else {
       alert(res.message || 'Lỗi khi lưu người nợ');
@@ -696,7 +562,6 @@ export default function App() {
     if (res.success && res.debtors && res.transactions) {
       setDebtors(res.debtors);
       setTransactions(res.transactions);
-      maybeTriggerGoogleSheetsAutoSync(res.debtors, res.transactions, parties);
     }
   };
 
@@ -712,7 +577,6 @@ export default function App() {
       if (prevBalance > 0 && newBalance <= 0) {
         triggerSettledCelebration();
       }
-      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, parties);
     } else {
       alert(res.message || 'Lỗi khi lưu giao dịch');
     }
@@ -730,7 +594,6 @@ export default function App() {
       if (prevBalance > 0 && newBalance <= 0) {
         triggerSettledCelebration();
       }
-      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, parties);
     } else if (!res.success) {
       alert(res.message || 'Lỗi khi cập nhật giao dịch');
     }
@@ -743,7 +606,6 @@ export default function App() {
     const res = await apiDeleteTransaction(txId);
     if (res.success && res.transactions) {
       setTransactions(res.transactions);
-      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, parties);
     }
   };
 
@@ -757,7 +619,6 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
-      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, res.parties);
     } else {
       alert(res.message || 'Lỗi khi lưu nhóm chia tiền');
     }
@@ -773,7 +634,6 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
-      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, res.parties);
     } else {
       alert(res.message || 'Lỗi khi cập nhật nhóm chia tiền');
     }
@@ -789,7 +649,6 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
-      maybeTriggerGoogleSheetsAutoSync(debtors, res.transactions, res.parties);
     }
   };
 
@@ -801,9 +660,8 @@ export default function App() {
     if (newSettings.appTitle) {
       document.title = newSettings.appTitle;
     }
-    maybeTriggerGoogleSheetsAutoSync(debtorsRef.current, transactionsRef.current, partiesRef.current, newSettings);
 
-    // 2. Persist to server and Firestore in background
+    // 2. Persist to server & Google Sheets
     try {
       const res = await apiSaveSettings(newSettings);
       if (res.success && res.settings) {
@@ -925,6 +783,8 @@ export default function App() {
             >
               <UnifiedLoginView
                 settings={settings}
+                cloudStatus={cloudStatus}
+                onRefreshCloudStatus={() => refreshDataFromServer(true)}
                 onLoginOwnerSuccess={handleOwnerLoginSuccess}
                 onLoginGuestSuccess={(debtor, txs, setts) => {
                   setGuestInitialDebtor(debtor);

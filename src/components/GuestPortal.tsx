@@ -40,8 +40,7 @@ import {
 import { Debtor, Transaction, AppSettings, PartySplit } from '../types';
 import { formatVND, generateVietQrUrl } from '../utils/vietqr';
 import { getDebtorBalance, getDebtorStatement, loadSettings, recordAuditLog } from '../utils/storage';
-import { subscribeToDebtorTransactions } from '../utils/api';
-import { subscribeToFirestoreData } from '../services/firestoreClient';
+import { apiGuestLookup } from '../utils/api';
 import { DEFAULT_SETTLED_NOTE } from '../utils/textTemplate';
 import { AnimatedCounter } from './AnimatedCounter';
 import { triggerSettledCelebration } from '../utils/confetti';
@@ -117,30 +116,34 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     }
   }, [appSettings]);
 
-  // Real-time listener: When debtor is viewing statement on mobile, auto-update when owner records changes
+  // Background polling: tự cập nhật giao dịch & cài đặt mỗi 30s khi khách đang xem sổ (silent để không ghi trùng log tra cứu)
   useEffect(() => {
-    if (!debtor || isOwnerAuthenticated) return;
-    const unsub = subscribeToDebtorTransactions(debtor.id, (updatedTxs) => {
-      setTransactions(updatedTxs);
-    });
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [debtor?.id, isOwnerAuthenticated]);
+    if (!debtor?.pin || isOwnerAuthenticated) return;
 
-  // Real-time settings listener for guests (if owner updates bank, phone, or name)
-  useEffect(() => {
-    const unsub = subscribeToFirestoreData({
-      onSettings: (newSettings) => {
-        if (newSettings) {
-          setLiveSettings((prev) => ({ ...prev, ...newSettings }));
+    let cancelled = false;
+    const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      try {
+        const res = await apiGuestLookup(debtor.pin, { silent: true });
+        if (!cancelled && res.success) {
+          if (Array.isArray(res.transactions)) {
+            setTransactions(res.transactions);
+          }
+          if (res.settings) {
+            setLiveSettings((prev) => ({ ...prev, ...res.settings }));
+          }
         }
-      },
-    });
-    return () => {
-      if (unsub) unsub();
+      } catch {
+        // ignore silent background poll errors
+      }
     };
-  }, []);
+
+    const interval = setInterval(poll, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [debtor?.pin, isOwnerAuthenticated]);
 
   // --- Active Settings ---
   const activeSettings = liveSettings || loadSettings();

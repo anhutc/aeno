@@ -10,39 +10,22 @@ import {
 } from './src/data/mockData';
 import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './src/types';
 import {
-  loadDataFromFirestore,
-  saveDebtorToFirestore,
-  deleteDebtorFromFirestore,
-  saveTransactionToFirestore,
-  deleteTransactionFromFirestore,
-  savePartySplitToFirestore,
-  deletePartySplitFromFirestore,
-  updatePartySplitInFirestore,
-  saveSettingsToFirestore,
-  clearAllFirestoreData,
-  resetSampleDataInFirestore,
-  getActiveFirestoreConfig,
-  testFirestoreConnection,
-  reconfigureFirestore,
-  resetToDefaultFirestoreConfig,
-  migrateDataToDatabase,
-  replaceFirestoreData,
-  syncAllDataToFirestore,
+  SheetsDatabaseSchema,
+  getActiveSheetsConfig,
+  saveSheetsConfig,
+  classifySheetsError,
+  testSheetsConnection,
+  loadSettingsFromSheets,
+  loadAllDataFromSheets,
+  lookupGuestInSheets,
+  saveAllDataToSheets,
+  saveSettingsToSheets,
+  guestReportPaymentToSheets,
+  uploadBillImageToDrive,
   createSnapshotBackup,
   listSnapshotBackups,
   restoreSnapshotBackup,
-  saveBillImageToFirestore,
-  getBillImageFromFirestore,
-  deleteBillImageFromFirestore,
-} from './src/services/firestoreService';
-
-interface DatabaseSchema {
-  debtors: Debtor[];
-  transactions: Transaction[];
-  parties: PartySplit[];
-  settings: AppSettings;
-  auditLogs?: AuditLog[];
-}
+} from './src/services/googleSheetsDbService';
 
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
@@ -54,40 +37,22 @@ const PORT = portFromArgs || 3000;
 const HOST = hostFromArgs || '0.0.0.0';
 const IS_VERCEL = Boolean(process.env.VERCEL);
 
-// Guard against benign Firestore BloomFilter fallback warnings and websocket errors
 process.on('uncaughtException', (err: any) => {
   const msg = String(err?.message || err);
-  if (msg.includes('WebSocket') || msg.includes('24678') || msg.includes('BloomFilter') || msg.includes('EADDRINUSE')) {
+  if (msg.includes('WebSocket') || msg.includes('24678') || msg.includes('EADDRINUSE')) {
     return;
   }
   console.error('Process error notice:', err?.message || err);
 });
 process.on('unhandledRejection', (reason: any) => {
   const msg = String(reason?.message || reason);
-  if (msg.includes('WebSocket') || msg.includes('BloomFilter') || msg.includes('24678')) {
+  if (msg.includes('WebSocket') || msg.includes('24678')) {
     return;
   }
   console.warn('Unhandled promise notice:', reason);
 });
 
-const isBloomFilterNoise = (args: any[]): boolean => {
-  return args.some((arg) => {
-    const str = typeof arg === 'string' ? arg : arg?.message || (typeof arg === 'object' ? JSON.stringify(arg) : '');
-    return str.includes('BloomFilter') || str.includes('Invalid hash count');
-  });
-};
-const origWarn = console.warn;
-console.warn = (...args: any[]) => {
-  if (isBloomFilterNoise(args)) return;
-  origWarn.apply(console, args);
-};
-const origError = console.error;
-console.error = (...args: any[]) => {
-  if (isBloomFilterNoise(args)) return;
-  origError.apply(console, args);
-};
 const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'debt-app-data') : path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 try {
   if (!fs.existsSync(UPLOADS_DIR)) {
@@ -97,627 +62,761 @@ try {
   // safe fallback
 }
 
-let isFirestoreActive = false;
-let inMemoryDb: DatabaseSchema | null = null;
+let inMemoryDb: SheetsDatabaseSchema | null = null;
+let isSheetsDataLoaded = false;
+let isSheetsSettingsLoaded = false;
+let sheetsDataSyncPromise: Promise<void> | null = null;
+let sheetsSettingsSyncPromise: Promise<void> | null = null;
+let lastFullSyncAt = 0;
+let lastSettingsSyncAt = 0;
+let lastSheetsErrorAt = 0;
+let lastSheetsError: string | null = null;
+let lastSheetsErrorCode: 'SHEETS_NOT_CONFIGURED' | 'SHEETS_LEGACY_SCRIPT' | 'SHEETS_UNAVAILABLE' | null = null;
+let needsScriptUpgrade = false;
 
-// Pure Cloud Storage: User requested "Tôi không muốn lưu dữ liệu ở file, chỉ lưu ở cloud".
-// No local database files are written to disk. Cloud Firestore is the persistent source of truth.
-function loadLocalDatabase(): DatabaseSchema {
+function loadEmptyDatabase(): SheetsDatabaseSchema {
   return {
     debtors: [],
     transactions: [],
     parties: [],
-    settings: DEFAULT_SETTINGS,
+    settings: { ...DEFAULT_SETTINGS },
   };
 }
 
-function saveDatabaseLocal(_db: DatabaseSchema) {
-  // Pure Cloud Mode: No file persistence on server disk.
-}
-
-// Ensure database state exists
-function getDatabase(): DatabaseSchema {
+function getDatabase(): SheetsDatabaseSchema {
   if (inMemoryDb) {
     return inMemoryDb;
   }
-  inMemoryDb = loadLocalDatabase();
+  inMemoryDb = loadEmptyDatabase();
   return inMemoryDb;
 }
 
-function saveDatabase(db: DatabaseSchema) {
+function saveDatabase(db: SheetsDatabaseSchema) {
   inMemoryDb = db;
-  // Pure Cloud Mode: only keep in memory; persistence is performed directly to Cloud Firestore
 }
 
-// Instantiate Express App for both standalone and serverless (Vercel) runtimes
-const app = express();
+function resolveRequestScriptUrl(req?: express.Request): string | undefined {
+  if (!req) return undefined;
+  const headerUrl =
+    typeof req.headers['x-apps-script-url'] === 'string'
+      ? req.headers['x-apps-script-url'].trim()
+      : '';
+  if (headerUrl && headerUrl.startsWith('https://script.google.com/')) {
+    // Remember client-provided script URL in config/memory when server env is unset
+    const current = getActiveSheetsConfig();
+    if (!current.appsScriptUrl || current.source === 'file') {
+      saveSheetsConfig(headerUrl);
+      const db = getDatabase();
+      db.settings = { ...db.settings, googleAppsScriptUrl: headerUrl };
+    }
+    return headerUrl;
+  }
+  return undefined;
+}
 
-// Allow larger payload for high-resolution image uploads (receipt / bill images up to 50MB)
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+function recordSheetsError(err: any) {
+  const info = classifySheetsError(err);
+  lastSheetsErrorAt = Date.now();
+  lastSheetsError = info.message;
+  lastSheetsErrorCode = info.code;
+  needsScriptUpgrade = info.needsUpgrade;
+  return info;
+}
 
-// Initial async Firestore synchronization (100% Pure Cloud)
-let firestoreSyncPromise: Promise<void> | null = null;
-async function ensureFirestoreSync() {
-  if (inMemoryDb && isFirestoreActive) return;
-  if (!firestoreSyncPromise) {
-    firestoreSyncPromise = (async () => {
+function clearSheetsError() {
+  lastSheetsErrorAt = 0;
+  lastSheetsError = null;
+  lastSheetsErrorCode = null;
+  needsScriptUpgrade = false;
+}
+
+async function ensureSheetsSettingsSync(forceRefresh = false, overrideUrl?: string) {
+  const cfg = getActiveSheetsConfig(overrideUrl);
+  if (!cfg.appsScriptUrl) {
+    isSheetsSettingsLoaded = false;
+    lastSheetsErrorCode = 'SHEETS_NOT_CONFIGURED';
+    lastSheetsError = 'Chưa cấu hình URL Google Apps Script Web App.';
+    needsScriptUpgrade = false;
+    if (!inMemoryDb) inMemoryDb = loadEmptyDatabase();
+    return;
+  }
+
+  if (!forceRefresh && isSheetsSettingsLoaded && Date.now() - lastSettingsSyncAt < 20000) {
+    return;
+  }
+  if (!forceRefresh && !sheetsSettingsSyncPromise && lastSheetsErrorAt > 0 && Date.now() - lastSheetsErrorAt < 8000) {
+    if (!inMemoryDb) inMemoryDb = loadEmptyDatabase();
+    return;
+  }
+
+  if (!sheetsSettingsSyncPromise) {
+    sheetsSettingsSyncPromise = (async () => {
       try {
-        console.log('Connecting to Cloud Firestore (100% Pure Cloud)...');
-        const remoteData = await loadDataFromFirestore();
-        inMemoryDb = remoteData;
-        isFirestoreActive = true;
-        console.log(`Connected to Cloud Firestore: ${remoteData.debtors.length} debtors, ${remoteData.transactions.length} transactions, ${remoteData.parties.length} parties.`);
+        const settings = await loadSettingsFromSheets(cfg.appsScriptUrl);
+        const db = getDatabase();
+        db.settings = {
+          ...db.settings,
+          ...settings,
+          googleAppsScriptUrl: settings.googleAppsScriptUrl || cfg.appsScriptUrl,
+        };
+        isSheetsSettingsLoaded = true;
+        lastSettingsSyncAt = Date.now();
+        clearSheetsError();
       } catch (err: any) {
-        firestoreSyncPromise = null; // allow retry on next request
-        console.warn('Cloud Firestore boot sync notice:', err?.message);
-        if (!inMemoryDb) {
-          inMemoryDb = loadLocalDatabase();
-        }
+        const info = recordSheetsError(err);
+        console.warn('Google Sheets settings sync notice:', info.message);
+        if (!inMemoryDb) inMemoryDb = loadEmptyDatabase();
+      } finally {
+        sheetsSettingsSyncPromise = null;
       }
     })();
   }
-  return firestoreSyncPromise;
+  return sheetsSettingsSyncPromise;
 }
 
-// Trigger background sync immediately
-ensureFirestoreSync();
+async function ensureSheetsDataSync(forceRefresh = false, overrideUrl?: string) {
+  const cfg = getActiveSheetsConfig(overrideUrl);
+  if (!cfg.appsScriptUrl) {
+    isSheetsDataLoaded = false;
+    isSheetsSettingsLoaded = false;
+    lastSheetsErrorCode = 'SHEETS_NOT_CONFIGURED';
+    lastSheetsError = 'Chưa cấu hình URL Google Apps Script Web App.';
+    needsScriptUpgrade = false;
+    if (!inMemoryDb) inMemoryDb = loadEmptyDatabase();
+    return;
+  }
 
-// Middleware: Ensure Cloud Firestore data is hydrated before processing any /api routes
+  if (!forceRefresh && inMemoryDb && isSheetsDataLoaded && Date.now() - lastFullSyncAt < 10000) {
+    return;
+  }
+
+  if (!sheetsDataSyncPromise) {
+    sheetsDataSyncPromise = (async () => {
+      try {
+        const remote = await loadAllDataFromSheets(cfg.appsScriptUrl);
+        remote.settings = {
+          ...remote.settings,
+          googleAppsScriptUrl: remote.settings.googleAppsScriptUrl || cfg.appsScriptUrl,
+        };
+        inMemoryDb = remote;
+        isSheetsDataLoaded = true;
+        isSheetsSettingsLoaded = true;
+        lastFullSyncAt = Date.now();
+        lastSettingsSyncAt = Date.now();
+        clearSheetsError();
+      } catch (err: any) {
+        const info = recordSheetsError(err);
+        console.warn('Google Sheets full sync notice:', info.message);
+        if (!inMemoryDb) inMemoryDb = loadEmptyDatabase();
+      } finally {
+        sheetsDataSyncPromise = null;
+      }
+    })();
+  }
+  return sheetsDataSyncPromise;
+}
+
+if (!IS_VERCEL) {
+  ensureSheetsSettingsSync();
+}
+
+const app = express();
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+const SKIP_FULL_HYDRATION_PREFIXES = [
+  '/api/health',
+  '/api/settings',
+  '/api/auth/login',
+  '/api/guest/lookup',
+  '/api/guest/report-payment',
+  '/api/owner/data',
+  '/api/audit-logs/',
+  '/api/proxy-vietqr',
+  '/api/images/',
+  '/api/upload-image',
+  '/api/sheets/status',
+  '/api/sheets/test-connection',
+  '/api/sheets/configure',
+  '/api/firestore/status',
+  '/api/firestore/test-connection',
+];
+
 app.use(async (req, _res, next) => {
-  if (req.url && req.url.startsWith('/api') && req.url !== '/api/health') {
+  const url = req.url || '';
+  const reqUrl = resolveRequestScriptUrl(req);
+  if (url.startsWith('/api') && !SKIP_FULL_HYDRATION_PREFIXES.some((prefix) => url.startsWith(prefix))) {
     try {
-      // Bounded sync with 10s maximum wait so serverless function never crashes or prematurely serves stale defaults
       await Promise.race([
-        ensureFirestoreSync(),
-        new Promise((resolve) => setTimeout(resolve, 10000)),
+        ensureSheetsDataSync(false, reqUrl),
+        new Promise((resolve) => setTimeout(resolve, 12000)),
       ]);
     } catch (err: any) {
-      console.warn('Middleware Firestore sync notice:', err?.message);
+      console.warn('Middleware Sheets sync notice:', err?.message);
     }
   }
   next();
 });
 
-  // Session token tolerance
-  const OWNER_TOKEN_PREFIX = 'secret-owner-token-';
-  const OWNER_TOKEN = 'secret-owner-token-' + Date.now();
+const OWNER_TOKEN_PREFIX = 'secret-owner-token-';
+const OWNER_TOKEN = 'secret-owner-token-' + Date.now();
 
-  const authMiddleware = (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction
-  ) => {
-    const authHeader = req.headers['authorization'] || req.headers['x-owner-token'];
-    const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/, '').trim() : '';
-    const db = getDatabase();
-    const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
-    const adminPasswordHeader = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'].trim() : '';
-    const bodyPassword = typeof req.body?.ownerPassword === 'string' ? req.body.ownerPassword.trim() : '';
+function isAuthorizedOwnerRequest(req: express.Request): boolean {
+  const authHeader = req.headers['authorization'] || req.headers['x-owner-token'];
+  const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/, '').trim() : '';
+  const db = getDatabase();
+  const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
+  const adminPasswordHeader = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'].trim() : '';
+  const bodyPassword = typeof req.body?.ownerPassword === 'string' ? req.body.ownerPassword.trim() : '';
 
-    // Allow if matches token prefix, session token, or current admin password
-    if (
-      (typeof token === 'string' && token.length > 0 && (token.startsWith(OWNER_TOKEN_PREFIX) || token === 'direct-firestore-owner-session')) ||
-      token === 'local-owner-session' ||
-      (currentOwnerPassword && token === currentOwnerPassword) ||
-      (currentOwnerPassword && token.toLowerCase() === currentOwnerPassword.toLowerCase()) ||
-      (currentOwnerPassword && adminPasswordHeader === currentOwnerPassword) ||
-      (currentOwnerPassword && adminPasswordHeader.toLowerCase() === currentOwnerPassword.toLowerCase()) ||
+  return Boolean(
+    (typeof token === 'string' &&
+      token.length > 0 &&
+      (token.startsWith(OWNER_TOKEN_PREFIX) ||
+        token === 'sheets-owner-session' ||
+        token === 'local-owner-session')) ||
+      (currentOwnerPassword && (token === currentOwnerPassword || token.toLowerCase() === currentOwnerPassword.toLowerCase())) ||
+      (currentOwnerPassword &&
+        (adminPasswordHeader === currentOwnerPassword ||
+          adminPasswordHeader.toLowerCase() === currentOwnerPassword.toLowerCase())) ||
       (currentOwnerPassword && bodyPassword && bodyPassword === currentOwnerPassword)
-    ) {
-      return next();
-    }
-    return res.status(401).json({ success: false, message: 'Yêu cầu mật khẩu chủ sổ!' });
-  };
+  );
+}
 
-  // --- API ROUTES ---
+const authMiddleware = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  if (isAuthorizedOwnerRequest(req)) {
+    return next();
+  }
+  return res.status(401).json({ success: false, message: 'Yêu cầu mật khẩu chủ sổ!' });
+};
 
-  // Health check
-  app.get('/api/health', (_req, res) => {
-    res.json({
-      status: 'ok',
-      firestore: isFirestoreActive ? 'connected' : 'local_fallback',
-      time: new Date().toISOString(),
-    });
+// --- HEALTH CHECK ---
+app.get('/api/health', async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const cfg = getActiveSheetsConfig(reqUrl);
+  res.json({
+    status: 'ok',
+    backend: 'google_sheets',
+    sheetsConfigured: Boolean(cfg.appsScriptUrl),
+    sheetsConnected: isSheetsDataLoaded || isSheetsSettingsLoaded,
+    needsScriptUpgrade,
+    sheetsError: lastSheetsError,
+    time: new Date().toISOString(),
   });
+});
 
-  // --- UNCOMPRESSED FULL-RESOLUTION IMAGE STORAGE ROUTES (100% FREE & ZERO QUALITY LOSS) ---
+// --- IMAGE UPLOAD & GOOGLE DRIVE / PROXY ROUTES ---
+async function processAndOffloadBillImage(
+  rawImage?: string,
+  providedMimeType?: string,
+  overrideUrl?: string
+): Promise<string | undefined> {
+  if (!rawImage || typeof rawImage !== 'string') return undefined;
+  if (!rawImage.startsWith('data:')) return rawImage;
 
-  // Offload raw base64 data URLs into static /api/images vault and Cloud Firestore chunked store
-  async function processAndOffloadBillImage(
-    rawImage?: string,
-    providedMimeType?: string
-  ): Promise<string | undefined> {
-    if (!rawImage || typeof rawImage !== 'string') return undefined;
-    if (!rawImage.startsWith('data:')) return rawImage;
+  try {
+    let mimeType = providedMimeType || 'image/jpeg';
+    let cleanBase64 = rawImage;
 
+    const matches = rawImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      mimeType = matches[1];
+      cleanBase64 = matches[2];
+    } else {
+      cleanBase64 = rawImage.split(',')[1] || rawImage;
+    }
+
+    let ext = '.jpg';
+    if (mimeType.includes('png')) ext = '.png';
+    else if (mimeType.includes('webp')) ext = '.webp';
+    else if (mimeType.includes('gif')) ext = '.gif';
+    else if (mimeType.includes('svg')) ext = '.svg';
+
+    const imageId = `bill_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const safeFilename = `${imageId}${ext}`;
+    const buffer = Buffer.from(cleanBase64, 'base64');
+
+    // 1. Local cache when writable
     try {
-      let mimeType = providedMimeType || 'image/jpeg';
-      let cleanBase64 = rawImage;
+      fs.writeFileSync(path.join(UPLOADS_DIR, safeFilename), buffer);
+    } catch {
+      // ignore on read-only serverless
+    }
 
-      const matches = rawImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        mimeType = matches[1];
-        cleanBase64 = matches[2];
-      } else {
-        cleanBase64 = rawImage.split(',')[1] || rawImage;
-      }
+    // 2. Upload to Google Drive via Apps Script v3 (returns public Drive URL)
+    const driveRes = await uploadBillImageToDrive(cleanBase64, mimeType, safeFilename, overrideUrl);
+    if (driveRes && driveRes.url) {
+      return driveRes.url;
+    }
 
-      let ext = '.jpg';
-      if (mimeType.includes('png')) ext = '.png';
-      else if (mimeType.includes('webp')) ext = '.webp';
-      else if (mimeType.includes('gif')) ext = '.gif';
-      else if (mimeType.includes('svg')) ext = '.svg';
-      else if (mimeType.includes('heic')) ext = '.heic';
-      else if (mimeType.includes('heif')) ext = '.heif';
-
-      const imageId = `bill_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const safeFilename = `${imageId}${ext}`;
-      const buffer = Buffer.from(cleanBase64, 'base64');
-
-      // 1. Save to local disk cache if possible
-      try {
-        const localFilePath = path.join(UPLOADS_DIR, safeFilename);
-        fs.writeFileSync(localFilePath, buffer);
-      } catch (fErr: any) {
-        console.warn('Local disk image cache notice (safe in serverless):', fErr?.message);
-      }
-
-      // 2. Persist in Cloud Firestore chunked vault asynchronously
-      saveBillImageToFirestore(imageId, cleanBase64, mimeType, safeFilename).catch((err) => {
-        console.warn('Async saveBillImageToFirestore notice:', err?.message);
-      });
-
-      return `/api/images/${safeFilename}`;
-    } catch (err: any) {
-      console.warn('Could not offload base64 bill image on server:', err?.message);
+    // 3. Fallback: if compact enough for Sheets cell (<38KB), return inline; else local route
+    if (rawImage.length < 38000) {
       return rawImage;
     }
+    return `/api/images/${safeFilename}`;
+  } catch (err: any) {
+    console.warn('Could not offload base64 bill image:', err?.message);
+    return rawImage;
   }
+}
 
-  // Upload original bill image
-  app.post('/api/upload-image', async (req, res) => {
-    try {
-      const { image, filename: originalFilename, mimeType: providedMimeType } = req.body;
-      if (!image || typeof image !== 'string') {
-        return res.status(400).json({ success: false, message: 'Dữ liệu hình ảnh không hợp lệ' });
-      }
-
-      const imageUrl = await processAndOffloadBillImage(image, providedMimeType);
-      const safeFilename = imageUrl && imageUrl.startsWith('/api/images/') ? path.basename(imageUrl) : 'bill.jpg';
-
-      return res.json({
-        success: true,
-        url: imageUrl || image,
-        filename: safeFilename,
-        mimeType: providedMimeType || 'image/jpeg',
-      });
-    } catch (err: any) {
-      console.error('Error handling /api/upload-image:', err);
-      return res.status(500).json({ success: false, message: err?.message || 'Lỗi lưu trữ hình ảnh' });
+app.post('/api/upload-image', async (req, res) => {
+  try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const { image, mimeType: providedMimeType } = req.body;
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ success: false, message: 'Dữ liệu hình ảnh không hợp lệ' });
     }
-  });
 
-  // Serve full-resolution image with automatic disk caching and Cloud Firestore retrieval
-  app.get('/api/images/:filename', async (req, res) => {
-    try {
-      const safeFilename = path.basename(req.params.filename);
-      const localFilePath = path.join(UPLOADS_DIR, safeFilename);
+    const imageUrl = await processAndOffloadBillImage(image, providedMimeType, reqUrl);
+    const safeFilename =
+      imageUrl && imageUrl.startsWith('/api/images/') ? path.basename(imageUrl) : 'bill.jpg';
 
-      // Helper to determine accurate content type
-      const getContentType = (fn: string) => {
-        if (fn.endsWith('.png')) return 'image/png';
-        if (fn.endsWith('.webp')) return 'image/webp';
-        if (fn.endsWith('.gif')) return 'image/gif';
-        if (fn.endsWith('.svg')) return 'image/svg+xml';
-        if (fn.endsWith('.heic')) return 'image/heic';
-        if (fn.endsWith('.heif')) return 'image/heif';
-        return 'image/jpeg';
-      };
+    return res.json({
+      success: true,
+      url: imageUrl || image,
+      filename: safeFilename,
+      mimeType: providedMimeType || 'image/jpeg',
+    });
+  } catch (err: any) {
+    console.error('Error handling /api/upload-image:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Lỗi lưu trữ hình ảnh' });
+  }
+});
 
-      // Check if file is cached locally on disk
-      if (fs.existsSync(localFilePath)) {
-        res.setHeader('Content-Type', getContentType(safeFilename));
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        return res.sendFile(localFilePath);
-      }
+// Proxy Google Drive image cleanly if Safari/ITP blocks external Drive thumbnail cookies
+app.get('/api/images/gdrive_:fileId', async (req, res) => {
+  try {
+    const fileId = String(req.params.fileId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!fileId) return res.status(400).send('Invalid fileId');
 
-      // If not on disk (e.g. freshly restarted Cloud Run container), load from Cloud Firestore
-      const imageId = safeFilename.replace(/\.[^/.]+$/, '');
-      const cloudImage = await getBillImageFromFirestore(imageId);
-      if (cloudImage && cloudImage.base64Data) {
-        const buffer = Buffer.from(cloudImage.base64Data, 'base64');
-        try {
-          fs.writeFileSync(localFilePath, buffer);
-        } catch {
-          // ignore cache write error
+    const candidates = [
+      `https://drive.google.com/thumbnail?id=${fileId}&sz=w2000`,
+      `https://drive.google.com/uc?export=view&id=${fileId}`,
+    ];
+    for (const url of candidates) {
+      try {
+        const up = await fetch(url, { redirect: 'follow' });
+        const contentType = up.headers.get('content-type') || '';
+        if (up.ok && contentType.startsWith('image/')) {
+          const buf = Buffer.from(await up.arrayBuffer());
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return res.end(buf);
         }
-        res.setHeader('Content-Type', cloudImage.mimeType || 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        return res.end(buffer);
+      } catch {
+        // try next candidate
       }
-
-      return res.status(404).send('Không tìm thấy hình ảnh chứng từ');
-    } catch (err: any) {
-      console.error('Error serving /api/images/:filename:', err);
-      return res.status(500).send('Lỗi tải hình ảnh');
     }
-  });
+    return res.status(404).send('Không tìm thấy ảnh trên Google Drive');
+  } catch (err: any) {
+    return res.status(500).send(err?.message || 'Lỗi tải ảnh Google Drive');
+  }
+});
 
-  // Static fallback alias for /uploads
-  app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '365d', immutable: true }));
+app.get('/api/images/:filename', async (req, res) => {
+  try {
+    const safeFilename = path.basename(req.params.filename);
+    const localFilePath = path.join(UPLOADS_DIR, safeFilename);
+    const getContentType = (fn: string) => {
+      if (fn.endsWith('.png')) return 'image/png';
+      if (fn.endsWith('.webp')) return 'image/webp';
+      if (fn.endsWith('.gif')) return 'image/gif';
+      if (fn.endsWith('.svg')) return 'image/svg+xml';
+      return 'image/jpeg';
+    };
 
-  // --- VIETQR PROXY & BASE64 GENERATOR (Guarantees zero-CORS statement image export) ---
-  const VIETQR_BANK_BIN_MAP: Record<string, string> = {
-    ICB: '970415',
-    VCB: '970436',
-    BIDV: '970418',
-    VBA: '970405',
-    OCB: '970448',
-    MB: '970422',
-    TCB: '970407',
-    ACB: '970416',
-    VPB: '970432',
-    TPB: '970423',
-    STB: '970403',
-    HDB: '970437',
-    VCCB: '970454',
-    SCB: '970429',
-    VIB: '970441',
-    SHB: '970443',
-    EIB: '970431',
-    MSB: '970426',
-    CAKE: '546034',
-    TIMO: '963388',
-    VTLMONEY: '971005',
-    VNPTMONEY: '971011',
-    SGICB: '970400',
-    BAB: '970409',
-    momo: '971025',
-    PVCB: '970412',
-    MBV: '970414',
-    NCB: '970419',
-    SHBVN: '970424',
-    ABB: '970425',
-    VAB: '970427',
-    NAB: '970428',
-    PGB: '970430',
-    VIETBANK: '970433',
-    BVB: '970438',
-    SEAB: '970440',
-    COOPBANK: '970446',
-    LPB: '970449',
-    KLB: '970452',
-    KBank: '668888',
-    ZALOPAY: '971101',
-  };
+    if (fs.existsSync(localFilePath)) {
+      res.setHeader('Content-Type', getContentType(safeFilename));
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return res.sendFile(localFilePath);
+    }
+    return res.status(404).send('Không tìm thấy hình ảnh chứng từ');
+  } catch {
+    return res.status(500).send('Lỗi tải hình ảnh');
+  }
+});
 
-  const vietQrCache = new Map<string, { dataUrl: string; buffer: Buffer; timestamp: number }>();
+app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '365d', immutable: true }));
 
-  app.get('/api/proxy-vietqr', async (req, res) => {
-    try {
-      const rawUrl = String(req.query.url || '').trim();
-      const format = String(req.query.format || '').trim();
+// --- VIETQR PROXY & BASE64 GENERATOR ---
+const VIETQR_BANK_BIN_MAP: Record<string, string> = {
+  ICB: '970415', VCB: '970436', BIDV: '970418', VBA: '970405', OCB: '970448',
+  MB: '970422', TCB: '970407', ACB: '970416', VPB: '970432', TPB: '970423',
+  STB: '970403', HDB: '970437', VCCB: '970454', SCB: '970429', VIB: '970441',
+  SHB: '970443', EIB: '970431', MSB: '970426', CAKE: '546034', TIMO: '963388',
+  VTLMONEY: '971005', VNPTMONEY: '971011', SGICB: '970400', BAB: '970409',
+  momo: '971025', PVCB: '970412', MBV: '970414', NCB: '970419', SHBVN: '970424',
+  ABB: '970425', VAB: '970427', NAB: '970428', PGB: '970430', VIETBANK: '970433',
+  BVB: '970438', SEAB: '970440', COOPBANK: '970446', LPB: '970449', KLB: '970452',
+  KBank: '668888', ZALOPAY: '971101',
+};
 
-      let bankId = String(req.query.bankId || '').trim();
-      let accountNo = String(req.query.accountNo || '').trim();
-      let accountName = String(req.query.accountName || '').trim();
-      let amount = Number(req.query.amount) || 0;
-      let addInfo = String(req.query.addInfo || req.query.memo || '').trim();
-      let template = String(req.query.template || 'compact2').trim();
+const vietQrCache = new Map<string, { dataUrl: string; buffer: Buffer; timestamp: number }>();
 
-      // If rawUrl is provided, parse parameters from it
-      if (rawUrl) {
-        try {
-          const parsed = new URL(rawUrl);
-          const pathFilename = parsed.pathname.split('/').pop() || '';
-          const parts = pathFilename.replace(/\.(png|jpg|svg)$/i, '').split('-');
-          if (parts.length >= 2) {
-            if (!bankId) bankId = parts[0];
-            if (!accountNo) accountNo = parts[1];
-            if (parts[2] && (!template || template === 'compact2')) template = parts[2];
-          }
-          if (!accountName && parsed.searchParams.get('accountName')) {
-            accountName = parsed.searchParams.get('accountName') || '';
-          }
-          if (!amount && parsed.searchParams.get('amount')) {
-            amount = Number(parsed.searchParams.get('amount')) || 0;
-          }
-          if (!addInfo && parsed.searchParams.get('addInfo')) {
-            addInfo = parsed.searchParams.get('addInfo') || '';
-          }
-        } catch {
-          // ignore parse errors
+app.get('/api/proxy-vietqr', async (req, res) => {
+  try {
+    const rawUrl = String(req.query.url || '').trim();
+    const format = String(req.query.format || '').trim();
+    let bankId = String(req.query.bankId || '').trim();
+    let accountNo = String(req.query.accountNo || '').trim();
+    let accountName = String(req.query.accountName || '').trim();
+    let amount = Number(req.query.amount) || 0;
+    let addInfo = String(req.query.addInfo || req.query.memo || '').trim();
+    let template = String(req.query.template || 'compact2').trim();
+
+    if (rawUrl) {
+      try {
+        const parsed = new URL(rawUrl);
+        const pathFilename = parsed.pathname.split('/').pop() || '';
+        const parts = pathFilename.replace(/\.(png|jpg|svg)$/i, '').split('-');
+        if (parts.length >= 2) {
+          if (!bankId) bankId = parts[0];
+          if (!accountNo) accountNo = parts[1];
+          if (parts[2] && (!template || template === 'compact2')) template = parts[2];
         }
-      }
-
-      const cacheKey = `${bankId}-${accountNo}-${accountName}-${amount}-${template}-${addInfo}`;
-      const cached = vietQrCache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < 3600000) {
-        if (format === 'json') {
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          return res.json({ success: true, dataUrl: cached.dataUrl, isEmbeddedPng: true });
+        if (!accountName && parsed.searchParams.get('accountName')) {
+          accountName = parsed.searchParams.get('accountName') || '';
         }
-        res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.end(cached.buffer);
-      }
-
-      // Method 1: Generate branded VietQR PNG directly via official api.vietqr.io/v2/generate
-      let finalDataUrl: string | null = null;
-      let finalBuffer: Buffer | null = null;
-
-      if (accountNo && bankId) {
-        const cleanBank = bankId.trim().toUpperCase();
-        const acqId = VIETQR_BANK_BIN_MAP[cleanBank] || cleanBank;
-        try {
-          const genRes = await fetch('https://api.vietqr.io/v2/generate', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            },
-            body: JSON.stringify({
-              accountNo,
-              accountName: accountName ? accountName.toUpperCase() : undefined,
-              acqId,
-              amount: amount > 0 ? amount : undefined,
-              addInfo: addInfo ? addInfo.slice(0, 50) : undefined,
-              template: template || 'compact2',
-            }),
-          });
-
-          if (genRes.ok) {
-            const genData = await genRes.json();
-            if (genData?.code === '00' && genData.data?.qrDataURL) {
-              finalDataUrl = genData.data.qrDataURL;
-              const rawBase64 = finalDataUrl!.replace(/^data:image\/png;base64,/, '');
-              finalBuffer = Buffer.from(rawBase64, 'base64');
-            }
-          }
-        } catch (apiErr) {
-          console.warn('api.vietqr.io/v2/generate notice:', apiErr);
+        if (!amount && parsed.searchParams.get('amount')) {
+          amount = Number(parsed.searchParams.get('amount')) || 0;
         }
-      }
-
-      // Method 2: Fallback to fetching rawUrl upstream
-      if (!finalDataUrl && rawUrl) {
-        try {
-          const upstreamRes = await fetch(rawUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/png,image/*,*/*',
-            },
-          });
-          if (upstreamRes.ok) {
-            const cType = upstreamRes.headers.get('content-type') || 'image/png';
-            const arrBuf = await upstreamRes.arrayBuffer();
-            const rawBuf = Buffer.from(arrBuf);
-            if (cType.includes('svg')) {
-              const svgText = rawBuf.toString('utf-8');
-              const match = svgText.match(/href="(data:image\/png;base64,[^"]+)"/) ||
-                            svgText.match(/xlink:href="(data:image\/png;base64,[^"]+)"/);
-              if (match && match[1]) {
-                finalDataUrl = match[1];
-                finalBuffer = Buffer.from(match[1].replace(/^data:image\/png;base64,/, ''), 'base64');
-              }
-            } else if (cType.includes('png') || cType.includes('jpeg')) {
-              finalDataUrl = `data:${cType};base64,${rawBuf.toString('base64')}`;
-              finalBuffer = rawBuf;
-            }
-          }
-        } catch (upErr) {
-          console.warn('Upstream fetch notice:', upErr);
+        if (!addInfo && parsed.searchParams.get('addInfo')) {
+          addInfo = parsed.searchParams.get('addInfo') || '';
         }
+      } catch {
+        // ignore
       }
+    }
 
-      // Method 3: Ultimate reliable offline fallback with QRCode.toDataURL
-      if (!finalDataUrl) {
-        const qrContent = rawUrl || `2|99|${accountNo}|${accountName}|${bankId}|0|0|${amount}|${addInfo}`;
-        finalDataUrl = await QRCode.toDataURL(qrContent, {
-          errorCorrectionLevel: 'M',
-          width: 360,
-          margin: 1,
-          color: { dark: '#0f172a', light: '#ffffff' },
-        });
-        const rawBase64 = finalDataUrl.replace(/^data:image\/png;base64,/, '');
-        finalBuffer = Buffer.from(rawBase64, 'base64');
-      }
-
-      // Cache result
-      if (finalDataUrl && finalBuffer) {
-        vietQrCache.set(cacheKey, { dataUrl: finalDataUrl, buffer: finalBuffer, timestamp: Date.now() });
-      }
-
+    const cacheKey = `${bankId}-${accountNo}-${accountName}-${amount}-${template}-${addInfo}`;
+    const cached = vietQrCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 3600000) {
       if (format === 'json') {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.json({
-          success: true,
-          dataUrl: finalDataUrl,
-          isEmbeddedPng: true,
-        });
+        return res.json({ success: true, dataUrl: cached.dataUrl, isEmbeddedPng: true });
       }
-
       res.setHeader('Content-Type', 'image/png');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.end(finalBuffer);
-    } catch (err: any) {
-      console.error('Error in /api/proxy-vietqr:', err);
-      // Last-ditch emergency QR generation so user NEVER sees a broken image
-      try {
-        const emergencyDataUrl = await QRCode.toDataURL('https://vietqr.me', { width: 300 });
-        if (req.query.format === 'json') {
-          return res.json({ success: true, dataUrl: emergencyDataUrl, isEmbeddedPng: true });
-        }
-        const emergencyBuf = Buffer.from(emergencyDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
-        res.setHeader('Content-Type', 'image/png');
-        return res.end(emergencyBuf);
-      } catch {
-        return res.status(500).json({ success: false, message: 'Lỗi tạo mã QR' });
-      }
-    }
-  });
-
-  // Public: App Settings (Available for Guest and initial load)
-  app.get('/api/settings', async (_req, res) => {
-    if (!isFirestoreActive) {
-      try {
-        await ensureFirestoreSync();
-      } catch {
-        // ignore
-      }
-    }
-    const db = getDatabase();
-    const {
-      ownerPassword,
-      reminderMessageTemplate,
-      googleAppsScriptUrl,
-      ...publicSettings
-    } = (db.settings || {}) as any;
-    res.json({
-      success: true,
-      settings: publicSettings,
-    });
-  });
-
-  // Owner Login
-  app.post('/api/auth/login', async (req, res) => {
-    const { password } = req.body;
-    const inputPass = String(password || '').trim();
-
-    if (!inputPass) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vui lòng nhập mật khẩu quản trị',
-      });
+      return res.end(cached.buffer);
     }
 
-    if (!isFirestoreActive) {
+    let finalDataUrl: string | null = null;
+    let finalBuffer: Buffer | null = null;
+
+    if (accountNo && bankId) {
+      const cleanBank = bankId.trim().toUpperCase();
+      const acqId = VIETQR_BANK_BIN_MAP[cleanBank] || cleanBank;
       try {
-        await ensureFirestoreSync();
-      } catch {
-        // ignore
-      }
-    }
-
-    let db = getDatabase();
-    let correctPassword = (db.settings?.ownerPassword || '').trim();
-    let ownerPhone = (db.settings?.ownerPhone || '').trim();
-
-    const cleanInput = inputPass.toLowerCase();
-    const cleanCorrect = correctPassword.toLowerCase();
-    const cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
-    const cleanInputPhone = inputPass.replace(/[\s.-]+/g, '');
-
-    let isMatched =
-      (correctPassword && (inputPass === correctPassword || cleanInput === cleanCorrect)) ||
-      (ownerPhone && cleanInputPhone === cleanPhone);
-
-    // If not matched, reload directly from Cloud Firestore to ensure fresh settings
-    if (!isMatched) {
-      try {
-        const firestoreData = await loadDataFromFirestore();
-        if (firestoreData && firestoreData.settings) {
-          db.settings = { ...db.settings, ...firestoreData.settings };
-          saveDatabaseLocal(db);
-          const rPass = (firestoreData.settings.ownerPassword || '').trim();
-          const rPhone = (firestoreData.settings.ownerPhone || '').trim();
-          if (
-            (rPass && (inputPass === rPass || cleanInput === rPass.toLowerCase())) ||
-            (rPhone && cleanInputPhone === rPhone.replace(/[\s.-]+/g, ''))
-          ) {
-            isMatched = true;
+        const genRes = await fetch('https://api.vietqr.io/v2/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountNo,
+            accountName: accountName ? accountName.toUpperCase() : undefined,
+            acqId,
+            amount: amount > 0 ? amount : undefined,
+            addInfo: addInfo ? addInfo.slice(0, 50) : undefined,
+            template: template || 'compact2',
+          }),
+        });
+        if (genRes.ok) {
+          const genData = await genRes.json();
+          if (genData?.code === '00' && genData.data?.qrDataURL) {
+            finalDataUrl = genData.data.qrDataURL;
+            finalBuffer = Buffer.from(finalDataUrl!.replace(/^data:image\/png;base64,/, ''), 'base64');
           }
         }
-      } catch (err: any) {
-        console.warn('Direct Firestore check in /api/auth/login:', err?.message);
+      } catch {
+        // ignore
       }
     }
 
-    // Default safety fallback if unconfigured
-    if (!isMatched && (!correctPassword || correctPassword === '123456') && inputPass === '123456') {
-      isMatched = true;
+    if (!finalDataUrl && rawUrl) {
+      try {
+        const upstreamRes = await fetch(rawUrl);
+        if (upstreamRes.ok) {
+          const cType = upstreamRes.headers.get('content-type') || 'image/png';
+          const rawBuf = Buffer.from(await upstreamRes.arrayBuffer());
+          if (cType.includes('svg')) {
+            const svgText = rawBuf.toString('utf-8');
+            const match =
+              svgText.match(/href="(data:image\/png;base64,[^"]+)"/) ||
+              svgText.match(/xlink:href="(data:image\/png;base64,[^"]+)"/);
+            if (match && match[1]) {
+              finalDataUrl = match[1];
+              finalBuffer = Buffer.from(match[1].replace(/^data:image\/png;base64,/, ''), 'base64');
+            }
+          } else if (cType.includes('png') || cType.includes('jpeg')) {
+            finalDataUrl = `data:${cType};base64,${rawBuf.toString('base64')}`;
+            finalBuffer = rawBuf;
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
 
-    if (isMatched) {
-      return res.json({
-        success: true,
-        token: OWNER_TOKEN,
-        settings: db.settings,
+    if (!finalDataUrl) {
+      const qrContent = rawUrl || `2|99|${accountNo}|${accountName}|${bankId}|0|0|${amount}|${addInfo}`;
+      finalDataUrl = await QRCode.toDataURL(qrContent, {
+        errorCorrectionLevel: 'M',
+        width: 360,
+        margin: 1,
+        color: { dark: '#0f172a', light: '#ffffff' },
       });
+      finalBuffer = Buffer.from(finalDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
     }
 
-    return res.status(401).json({
-      success: false,
-      message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
-    });
-  });
+    if (finalDataUrl && finalBuffer) {
+      vietQrCache.set(cacheKey, { dataUrl: finalDataUrl, buffer: finalBuffer, timestamp: Date.now() });
+    }
 
-  // Get all data for authenticated owner
-  app.get('/api/owner/data', authMiddleware, async (_req, res) => {
+    if (format === 'json') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.json({ success: true, dataUrl: finalDataUrl, isEmbeddedPng: true });
+    }
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.end(finalBuffer);
+  } catch {
     try {
-      if (isFirestoreActive) {
-        const remote = await loadDataFromFirestore();
-        inMemoryDb = remote;
-        return res.json({
-          success: true,
-          debtors: remote.debtors,
-          transactions: remote.transactions,
-          parties: remote.parties,
-          settings: remote.settings,
-        });
+      const emergencyDataUrl = await QRCode.toDataURL('https://vietqr.me', { width: 300 });
+      if (req.query.format === 'json') {
+        return res.json({ success: true, dataUrl: emergencyDataUrl, isEmbeddedPng: true });
       }
-    } catch (e) {
-      console.warn('Error loading fresh Firestore data in /api/owner/data:', e);
+      res.setHeader('Content-Type', 'image/png');
+      return res.end(Buffer.from(emergencyDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64'));
+    } catch {
+      return res.status(500).json({ success: false, message: 'Lỗi tạo mã QR' });
     }
+  }
+});
 
-    const db = getDatabase();
-    res.json({
+// --- PUBLIC SETTINGS ---
+app.get('/api/settings', async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const cfg = getActiveSheetsConfig(reqUrl);
+  await ensureSheetsSettingsSync(false, reqUrl);
+  const db = getDatabase();
+  const {
+    ownerPassword,
+    reminderMessageTemplate,
+    googleAppsScriptUrl,
+    ...publicSettings
+  } = (db.settings || {}) as any;
+
+  res.json({
+    success: true,
+    settings: publicSettings,
+    backend: 'google_sheets',
+    sheetsConfigured: Boolean(cfg.appsScriptUrl),
+    sheetsConnected: isSheetsDataLoaded || isSheetsSettingsLoaded,
+    needsScriptUpgrade,
+    sheetsError: lastSheetsError,
+    sheetsErrorCode: lastSheetsErrorCode,
+  });
+});
+
+// --- OWNER LOGIN ---
+app.post('/api/auth/login', async (req, res) => {
+  const { password } = req.body;
+  const inputPass = String(password || '').trim();
+  const reqUrl = resolveRequestScriptUrl(req);
+  const cfg = getActiveSheetsConfig(reqUrl);
+
+  if (!inputPass) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng nhập mật khẩu quản trị',
+    });
+  }
+
+  if (!cfg.appsScriptUrl) {
+    return res.status(503).json({
+      success: false,
+      code: 'SHEETS_NOT_CONFIGURED',
+      message: 'Chưa kết nối URL Google Apps Script Web App. Vui lòng dán URL Apps Script để kết nối cơ sở dữ liệu Google Sheets.',
+    });
+  }
+
+  await ensureSheetsSettingsSync(false, reqUrl);
+
+  if (!isSheetsSettingsLoaded && !isSheetsDataLoaded) {
+    return res.status(503).json({
+      success: false,
+      code: lastSheetsErrorCode || 'SHEETS_UNAVAILABLE',
+      needsScriptUpgrade,
+      sheetsError: lastSheetsError,
+      message:
+        lastSheetsError ||
+        'Không thể kết nối cơ sở dữ liệu Google Sheets (Apps Script Web App) để kiểm tra mật khẩu.',
+    });
+  }
+
+  const db = getDatabase();
+  let correctPassword = (db.settings?.ownerPassword || '').trim();
+  let ownerPhone = (db.settings?.ownerPhone || '').trim();
+
+  const cleanInput = inputPass.toLowerCase();
+  const cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
+  const cleanInputPhone = inputPass.replace(/[\s.-]+/g, '');
+
+  let isMatched =
+    (correctPassword && (inputPass === correctPassword || cleanInput === correctPassword.toLowerCase())) ||
+    (ownerPhone && cleanInputPhone === cleanPhone);
+
+  if (!isMatched && Date.now() - lastSettingsSyncAt > 8000) {
+    try {
+      const freshSettings = await loadSettingsFromSheets(cfg.appsScriptUrl);
+      db.settings = { ...db.settings, ...freshSettings };
+      isSheetsSettingsLoaded = true;
+      lastSettingsSyncAt = Date.now();
+      clearSheetsError();
+      const rPass = (freshSettings.ownerPassword || '').trim();
+      const rPhone = (freshSettings.ownerPhone || '').trim();
+      if (
+        (rPass && (inputPass === rPass || cleanInput === rPass.toLowerCase())) ||
+        (rPhone && cleanInputPhone === rPhone.replace(/[\s.-]+/g, ''))
+      ) {
+        isMatched = true;
+      }
+      correctPassword = rPass;
+    } catch (err: any) {
+      recordSheetsError(err);
+    }
+  }
+
+  if (!isMatched && (!correctPassword || correctPassword === '123456') && inputPass === '123456') {
+    isMatched = true;
+  }
+
+  if (isMatched) {
+    return res.json({
       success: true,
-      debtors: db.debtors,
-      transactions: db.transactions,
-      parties: db.parties,
+      token: OWNER_TOKEN,
       settings: db.settings,
     });
+  }
+
+  return res.status(401).json({
+    success: false,
+    code: 'INVALID_CREDENTIALS',
+    message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
   });
+});
 
-  // Owner: Add or Edit Debtor
-  app.post('/api/owner/debtor', authMiddleware, async (req, res) => {
-    const { id, name, phone, pin, note } = req.body;
-    if (!name || !pin) {
-      return res.status(400).json({ success: false, message: 'Tên và mật khẩu là bắt buộc' });
-    }
+// --- OWNER DATA & CRUD ---
+app.get('/api/owner/data', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const cfg = getActiveSheetsConfig(reqUrl);
+  const force = req.query.force === '1' || req.query.force === 'true';
 
-    const trimmedPin = String(pin).trim();
-    if (trimmedPin.length < 2) {
-      return res.status(400).json({ success: false, message: 'Mật khẩu phải từ 2 ký tự trở lên' });
-    }
+  if (!cfg.appsScriptUrl) {
+    return res.status(503).json({
+      success: false,
+      code: 'SHEETS_NOT_CONFIGURED',
+      message: 'Chưa cấu hình URL Google Apps Script Web App.',
+    });
+  }
 
-    const db = getDatabase();
-
-    // Check pass uniqueness (case-insensitive for convenience)
-    const duplicatePin = db.debtors.find(
-      (d) => d.id !== id && d.pin.trim().toLowerCase() === trimmedPin.toLowerCase()
-    );
-    if (duplicatePin) {
-      return res.status(400).json({
-        success: false,
-        message: `Mật khẩu "${trimmedPin}" đã được gán cho "${duplicatePin.name}". Mỗi người cần một pass riêng để tra cứu bảo mật.`,
+  const shouldFetchFull = force || !isSheetsDataLoaded || Date.now() - lastFullSyncAt > 8000;
+  if (shouldFetchFull) {
+    try {
+      const remote = await loadAllDataFromSheets(cfg.appsScriptUrl);
+      remote.settings = {
+        ...remote.settings,
+        googleAppsScriptUrl: remote.settings.googleAppsScriptUrl || cfg.appsScriptUrl,
+      };
+      inMemoryDb = remote;
+      isSheetsDataLoaded = true;
+      isSheetsSettingsLoaded = true;
+      lastFullSyncAt = Date.now();
+      lastSettingsSyncAt = Date.now();
+      clearSheetsError();
+      return res.json({
+        success: true,
+        debtors: remote.debtors,
+        transactions: remote.transactions,
+        parties: remote.parties,
+        settings: remote.settings,
       });
-    }
-
-    const now = new Date().toISOString();
-    let savedDebtor: Debtor;
-
-    if (id) {
-      const existingIdx = db.debtors.findIndex((d) => d.id === id);
-      if (existingIdx === -1) {
-        return res.status(404).json({ success: false, message: 'Không tìm thấy người nợ' });
+    } catch (err: any) {
+      const info = recordSheetsError(err);
+      console.warn('Error loading fresh Google Sheets data in /api/owner/data:', info.message);
+      if (!isSheetsDataLoaded) {
+        return res.status(503).json({
+          success: false,
+          code: info.code,
+          needsScriptUpgrade: info.needsUpgrade,
+          sheetsError: info.message,
+          message: info.message,
+        });
       }
+    }
+  }
+
+  const db = getDatabase();
+  return res.json({
+    success: true,
+    debtors: db.debtors,
+    transactions: db.transactions,
+    parties: db.parties,
+    settings: db.settings,
+  });
+});
+
+async function persistFullStateToSheets(db: SheetsDatabaseSchema, overrideUrl?: string) {
+  const synced = await saveAllDataToSheets(db, overrideUrl);
+  db.debtors = synced.debtors;
+  db.transactions = synced.transactions;
+  db.parties = synced.parties;
+  saveDatabase(db);
+  isSheetsDataLoaded = true;
+  isSheetsSettingsLoaded = true;
+  lastFullSyncAt = Date.now();
+  lastSettingsSyncAt = Date.now();
+  clearSheetsError();
+}
+
+app.post('/api/owner/debtor', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id, name, phone, pin, note } = req.body;
+  if (!name || !pin) {
+    return res.status(400).json({ success: false, message: 'Tên và mật khẩu là bắt buộc' });
+  }
+
+  const trimmedPin = String(pin).trim();
+  if (trimmedPin.length < 2) {
+    return res.status(400).json({ success: false, message: 'Mật khẩu phải từ 2 ký tự trở lên' });
+  }
+
+  const db = getDatabase();
+  const duplicatePin = db.debtors.find(
+    (d) => d.id !== id && d.pin.trim().toLowerCase() === trimmedPin.toLowerCase()
+  );
+  if (duplicatePin) {
+    return res.status(400).json({
+      success: false,
+      message: `Mật khẩu "${trimmedPin}" đã được gán cho "${duplicatePin.name}". Mỗi người cần một pass riêng để tra cứu bảo mật.`,
+    });
+  }
+
+  const now = new Date().toISOString();
+  let savedDebtor: Debtor;
+
+  if (id) {
+    const existingIdx = db.debtors.findIndex((d) => d.id === id);
+    if (existingIdx !== -1) {
       savedDebtor = {
         ...db.debtors[existingIdx],
         name: name.trim(),
@@ -729,7 +828,7 @@ app.use(async (req, _res, next) => {
       db.debtors[existingIdx] = savedDebtor;
     } else {
       savedDebtor = {
-        id: `debtor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id,
         name: name.trim(),
         phone: phone ? phone.trim() : undefined,
         pin: trimmedPin,
@@ -739,1457 +838,1441 @@ app.use(async (req, _res, next) => {
       };
       db.debtors.push(savedDebtor);
     }
-
-    saveDatabase(db);
-    try {
-      await saveDebtorToFirestore(savedDebtor);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error saving debtor to Cloud Firestore:', err?.message);
-    }
-    res.json({ success: true, debtor: savedDebtor, debtors: db.debtors });
-  });
-
-  // Owner: Delete Debtor
-  app.delete('/api/owner/debtor/:id', authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const db = getDatabase();
-    db.debtors = db.debtors.filter((d) => d.id !== id);
-    db.transactions = db.transactions.filter((tx) => tx.debtorId !== id);
-    saveDatabase(db);
-    try {
-      await deleteDebtorFromFirestore(id);
-    } catch (err: any) {
-      console.error('Error deleting debtor from Cloud Firestore:', err?.message);
-    }
-    res.json({ success: true, debtors: db.debtors, transactions: db.transactions });
-  });
-
-  // Owner: Add Transaction
-  app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
-    const { debtorId, type, amount, date, note, category, billImage, partyId } = req.body;
-    if (!debtorId || !amount || !date) {
-      return res.status(400).json({ success: false, message: 'Thiếu thông tin giao dịch' });
-    }
-
-    const processedBillImage = await processAndOffloadBillImage(billImage);
-    const db = getDatabase();
-    const newTx: Transaction = {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      debtorId,
-      type,
-      amount: Number(amount),
-      date,
-      note: note || '',
-      category: category || 'SINGLE',
-      ...(processedBillImage ? { billImage: processedBillImage } : {}),
-      ...(partyId ? { partyId } : {}),
-      createdAt: new Date().toISOString(),
+  } else {
+    savedDebtor = {
+      id: `debtor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: name.trim(),
+      phone: phone ? phone.trim() : undefined,
+      pin: trimmedPin,
+      note: note ? note.trim() : undefined,
+      createdAt: now,
+      updatedAt: now,
     };
+    db.debtors.push(savedDebtor);
+  }
 
-    db.transactions.unshift(newTx);
-    saveDatabase(db);
-    try {
-      await saveTransactionToFirestore(newTx);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error saving transaction to Cloud Firestore:', err?.message);
-    }
-    res.json({ success: true, transaction: newTx, transactions: db.transactions });
-  });
+  saveDatabase(db);
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({ success: true, debtor: savedDebtor, debtors: db.debtors });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể lưu người nợ lên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
-  // Owner: Edit/Update Transaction
-  app.put('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const { type, amount, date, note, category, billImage, debtorId, partyId } = req.body;
-    const db = getDatabase();
-    const index = db.transactions.findIndex((t) => t.id === id);
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Không tìm thấy giao dịch cần sửa' });
-    }
+app.delete('/api/owner/debtor/:id', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id } = req.params;
+  const db = getDatabase();
+  db.debtors = db.debtors.filter((d) => d.id !== id);
+  db.transactions = db.transactions.filter((tx) => tx.debtorId !== id);
+  saveDatabase(db);
 
-    const existing = db.transactions[index];
-    const updatedTx: Transaction = {
-      ...existing,
-      type: type || existing.type,
-      amount: amount !== undefined ? Number(amount) : existing.amount,
-      date: date || existing.date,
-      note: note !== undefined ? note : existing.note,
-      category: category !== undefined ? category : existing.category,
-      debtorId: debtorId || existing.debtorId,
-      createdAt: existing.createdAt || new Date().toISOString(),
-    };
-    if (billImage !== undefined) {
-      if (billImage) {
-        updatedTx.billImage = await processAndOffloadBillImage(billImage);
-      } else {
-        delete updatedTx.billImage;
-      }
-    }
-    if (partyId !== undefined) {
-      if (partyId) {
-        updatedTx.partyId = partyId;
-      } else {
-        delete updatedTx.partyId;
-      }
-    }
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({ success: true, debtors: db.debtors, transactions: db.transactions });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể xóa người nợ trên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
+app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id, debtorId, type, amount, date, note, category, billImage, partyId } = req.body;
+  if (!debtorId || !amount || !date) {
+    return res.status(400).json({ success: false, message: 'Thiếu thông tin giao dịch' });
+  }
+
+  const processedBillImage = await processAndOffloadBillImage(billImage, undefined, reqUrl);
+  const db = getDatabase();
+  const txId = id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const newTx: Transaction = {
+    id: txId,
+    debtorId,
+    type,
+    amount: Number(amount),
+    date,
+    note: note || '',
+    category: category || 'SINGLE',
+    ...(processedBillImage ? { billImage: processedBillImage } : {}),
+    ...(partyId ? { partyId } : {}),
+    createdAt: req.body.createdAt || new Date().toISOString(),
+  };
+
+  db.transactions = [newTx, ...db.transactions.filter((t) => t.id !== txId)];
+  saveDatabase(db);
+
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    const updatedTx = db.transactions.find((t) => t.id === txId) || newTx;
+    return res.json({ success: true, transaction: updatedTx, transactions: db.transactions });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể lưu giao dịch lên Google Sheets: ${info.message}`,
+    });
+  }
+});
+
+app.put('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id } = req.params;
+  const { type, amount, date, note, category, billImage, debtorId, partyId, customNote } = req.body;
+  const db = getDatabase();
+  const index = db.transactions.findIndex((t) => t.id === id);
+
+  const existing: Partial<Transaction> = index !== -1 ? db.transactions[index] : {};
+  const updatedTx: Transaction = {
+    ...existing,
+    id,
+    type: type || existing.type || 'ADD',
+    amount: amount !== undefined ? Number(amount) : Number(existing.amount || 0),
+    date: date || existing.date || new Date().toISOString().split('T')[0],
+    note: note !== undefined ? note : existing.note || '',
+    category: category !== undefined ? category : existing.category || 'SINGLE',
+    debtorId: debtorId || existing.debtorId || '',
+    createdAt: existing.createdAt || req.body.createdAt || new Date().toISOString(),
+    ...(customNote !== undefined ? { customNote } : {}),
+  };
+
+  if (billImage !== undefined) {
+    if (billImage) {
+      updatedTx.billImage = await processAndOffloadBillImage(billImage, undefined, reqUrl);
+    } else {
+      delete updatedTx.billImage;
+    }
+  }
+  if (partyId !== undefined) {
+    if (partyId) updatedTx.partyId = partyId;
+    else delete updatedTx.partyId;
+  }
+
+  if (index !== -1) {
     db.transactions[index] = updatedTx;
-    saveDatabase(db);
-    try {
-      await saveTransactionToFirestore(updatedTx);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error updating transaction to Cloud Firestore:', err?.message);
-    }
-    res.json({ success: true, transaction: updatedTx, transactions: db.transactions });
-  });
+  } else {
+    db.transactions.unshift(updatedTx);
+  }
+  saveDatabase(db);
 
-  // Owner: Delete Transaction
-  app.delete('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const db = getDatabase();
-    db.transactions = db.transactions.filter((t) => t.id !== id);
-    saveDatabase(db);
-    try {
-      await deleteTransactionFromFirestore(id);
-    } catch (err: any) {
-      console.error('Error deleting transaction from Cloud Firestore:', err?.message);
-    }
-    res.json({ success: true, transactions: db.transactions });
-  });
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    const savedTx = db.transactions.find((t) => t.id === id) || updatedTx;
+    return res.json({ success: true, transaction: savedTx, transactions: db.transactions });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể cập nhật giao dịch lên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
-  // Owner: Clean orphan transactions (transactions without existing debtor)
-  app.post('/api/owner/clean-orphans', authMiddleware, async (_req, res) => {
-    const db = getDatabase();
-    const debtorIdSet = new Set(db.debtors.map((d) => d.id));
-    const orphans = db.transactions.filter((t) => !debtorIdSet.has(t.debtorId));
+app.delete('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id } = req.params;
+  const db = getDatabase();
+  db.transactions = db.transactions.filter((t) => t.id !== id);
+  saveDatabase(db);
 
-    if (orphans.length === 0) {
-      return res.json({
-        success: true,
-        removedCount: 0,
-        message: 'Dữ liệu hoàn toàn sạch sẽ, không có giao dịch mồ côi nào!',
-        debtorsCount: db.debtors.length,
-        transactionsCount: db.transactions.length,
-      });
-    }
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({ success: true, transactions: db.transactions });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể xóa giao dịch trên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
-    createSnapshotBackup(db, 'pre_clean_orphans');
-    db.transactions = db.transactions.filter((t) => debtorIdSet.has(t.debtorId));
-    saveDatabase(db);
+app.post('/api/owner/clean-orphans', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const db = getDatabase();
+  const debtorIdSet = new Set(db.debtors.map((d) => d.id));
+  const orphans = db.transactions.filter((t) => !debtorIdSet.has(t.debtorId));
 
-    try {
-      for (const orphan of orphans) {
-        await deleteTransactionFromFirestore(orphan.id);
-      }
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error deleting orphan transactions from Firestore:', err?.message);
-    }
-
-    res.json({
+  if (orphans.length === 0) {
+    return res.json({
       success: true,
-      removedCount: orphans.length,
-      message: `Đã dọn dẹp thành công ${orphans.length} giao dịch mồ côi!`,
+      removedCount: 0,
+      message: 'Dữ liệu hoàn toàn sạch sẽ, không có giao dịch mồ côi nào!',
       debtorsCount: db.debtors.length,
       transactionsCount: db.transactions.length,
     });
-  });
+  }
 
-  // Owner: Save Party Split
-  app.post('/api/owner/party-split', authMiddleware, async (req, res) => {
-    const { party, transactions: newTxs } = req.body;
-    if (!party || !Array.isArray(newTxs)) {
-      return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
-    }
+  createSnapshotBackup(db, 'pre_clean_orphans');
+  db.transactions = db.transactions.filter((t) => debtorIdSet.has(t.debtorId));
+  saveDatabase(db);
 
-    const db = getDatabase();
-    const partyId = party.id || `party-${Date.now()}`;
-    
-    // Check if party with partyId already exists (intercepts duplicate rapid submission)
-    const existingIndex = db.parties.findIndex((p) => p.id === partyId);
-    if (existingIndex >= 0) {
-      return res.json({
-        success: true,
-        party: db.parties[existingIndex],
-        parties: db.parties,
-        transactions: db.transactions,
-      });
-    }
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({
+      success: true,
+      removedCount: orphans.length,
+      message: `Đã dọn dẹp thành công ${orphans.length} giao dịch mồ côi trên Google Sheets!`,
+      debtorsCount: db.debtors.length,
+      transactionsCount: db.transactions.length,
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      removedCount: 0,
+      message: `Lỗi ghi lên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
-    const savedParty: PartySplit = {
-      ...party,
-      id: partyId,
-      createdAt: party.createdAt || new Date().toISOString(),
-    };
+app.post('/api/owner/party-split', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { party, transactions: newTxs } = req.body;
+  if (!party || !Array.isArray(newTxs)) {
+    return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
+  }
 
-    const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
-      ...tx,
-      id: tx.id || `tx-party-${partyId}-${tx.debtorId || idx}`,
-      partyId,
-      createdAt: tx.createdAt || new Date().toISOString(),
-    }));
+  const db = getDatabase();
+  const partyId = party.id || `party-${Date.now()}`;
+  const existingIndex = db.parties.findIndex((p) => p.id === partyId);
+  if (existingIndex >= 0) {
+    return res.json({
+      success: true,
+      party: db.parties[existingIndex],
+      parties: db.parties,
+      transactions: db.transactions,
+    });
+  }
 
-    db.parties.unshift(savedParty);
-    const existingTxIds = new Set(savedTransactions.map((t) => t.id));
-    db.transactions = [...savedTransactions, ...db.transactions.filter((t) => !existingTxIds.has(t.id))];
-    saveDatabase(db);
-    try {
-      await savePartySplitToFirestore(savedParty, savedTransactions);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error saving party split to Cloud Firestore:', err?.message);
-    }
+  const processedPartyImage = party.billImage
+    ? await processAndOffloadBillImage(party.billImage, undefined, reqUrl)
+    : undefined;
 
-    res.json({
+  const savedParty: PartySplit = {
+    ...party,
+    id: partyId,
+    ...(processedPartyImage ? { billImage: processedPartyImage } : {}),
+    createdAt: party.createdAt || new Date().toISOString(),
+  };
+
+  const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
+    ...tx,
+    id: tx.id || `tx-party-${partyId}-${tx.debtorId || idx}`,
+    partyId,
+    ...(processedPartyImage && !tx.billImage ? { billImage: processedPartyImage } : {}),
+    createdAt: tx.createdAt || new Date().toISOString(),
+  }));
+
+  db.parties.unshift(savedParty);
+  const existingTxIds = new Set(savedTransactions.map((t) => t.id));
+  db.transactions = [...savedTransactions, ...db.transactions.filter((t) => !existingTxIds.has(t.id))];
+  saveDatabase(db);
+
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({
       success: true,
       party: savedParty,
       parties: db.parties,
       transactions: db.transactions,
     });
-  });
-
-  // Owner: Delete Party Split (Cascading delete all participant transactions)
-  app.delete('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const db = getDatabase();
-
-    db.parties = db.parties.filter((p) => p.id !== id);
-    // Cascade delete all transactions generated by this party split
-    db.transactions = db.transactions.filter((t) => t.partyId !== id);
-    saveDatabase(db);
-
-    try {
-      await deletePartySplitFromFirestore(id);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error deleting party split from Cloud Firestore:', err?.message);
-    }
-
-    res.json({
-      success: true,
-      parties: db.parties,
-      transactions: db.transactions,
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể lưu chia tiền lên Google Sheets: ${info.message}`,
     });
-  });
+  }
+});
 
-  // Owner: Update Party Split (Cascading update all participant transactions)
-  app.put('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const { party, transactions: newTxs } = req.body;
-    if (!party || !Array.isArray(newTxs)) {
-      return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
-    }
+app.delete('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id } = req.params;
+  const db = getDatabase();
+  db.parties = db.parties.filter((p) => p.id !== id);
+  db.transactions = db.transactions.filter((t) => t.partyId !== id);
+  saveDatabase(db);
 
-    const db = getDatabase();
-    const existingIndex = db.parties.findIndex((p) => p.id === id);
-    const updatedParty: PartySplit = {
-      ...party,
-      id,
-      createdAt: existingIndex >= 0 ? db.parties[existingIndex].createdAt : new Date().toISOString(),
-    };
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({ success: true, parties: db.parties, transactions: db.transactions });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể xóa cuộc chia tiền trên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
-    if (existingIndex >= 0) {
-      db.parties[existingIndex] = updatedParty;
-    } else {
-      db.parties.unshift(updatedParty);
-    }
+app.put('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { id } = req.params;
+  const { party, transactions: newTxs } = req.body;
+  if (!party || !Array.isArray(newTxs)) {
+    return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
+  }
 
-    // Remove old transactions for this partyId and insert new recalculated transactions
-    const filteredTxs = db.transactions.filter((t) => t.partyId !== id);
-    const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
-      ...tx,
-      id: tx.id || `tx-party-${id}-${tx.debtorId || idx}`,
-      partyId: id,
-      createdAt: tx.createdAt || new Date().toISOString(),
-    }));
+  const db = getDatabase();
+  const existingIndex = db.parties.findIndex((p) => p.id === id);
+  const processedPartyImage = party.billImage
+    ? await processAndOffloadBillImage(party.billImage, undefined, reqUrl)
+    : undefined;
 
-    db.transactions = [...savedTransactions, ...filteredTxs];
-    saveDatabase(db);
+  const updatedParty: PartySplit = {
+    ...party,
+    id,
+    ...(party.billImage !== undefined ? { billImage: processedPartyImage } : {}),
+    createdAt: existingIndex >= 0 ? db.parties[existingIndex].createdAt : new Date().toISOString(),
+  };
 
-    try {
-      await updatePartySplitInFirestore(updatedParty, savedTransactions);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error updating party split in Cloud Firestore:', err?.message);
-    }
+  if (existingIndex >= 0) db.parties[existingIndex] = updatedParty;
+  else db.parties.unshift(updatedParty);
 
-    res.json({
+  const filteredTxs = db.transactions.filter((t) => t.partyId !== id);
+  const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
+    ...tx,
+    id: tx.id || `tx-party-${id}-${tx.debtorId || idx}`,
+    partyId: id,
+    ...(processedPartyImage ? { billImage: processedPartyImage } : {}),
+    createdAt: tx.createdAt || new Date().toISOString(),
+  }));
+
+  db.transactions = [...savedTransactions, ...filteredTxs];
+  saveDatabase(db);
+
+  try {
+    await persistFullStateToSheets(db, reqUrl);
+    return res.json({
       success: true,
       party: updatedParty,
       parties: db.parties,
       transactions: db.transactions,
     });
-  });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể cập nhật chia tiền lên Google Sheets: ${info.message}`,
+    });
+  }
+});
 
-  // Owner: Update Settings
-  app.put('/api/owner/settings', authMiddleware, async (req, res) => {
-    const newSettings = req.body;
-    const db = getDatabase();
-    const { reminderMessageTemplate, ...cleanedNewSettings } = (newSettings || {}) as any;
-    db.settings = {
-      ...db.settings,
-      ...cleanedNewSettings,
-    };
-    saveDatabase(db);
-    try {
-      await saveSettingsToFirestore(db.settings);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error saving settings to Cloud Firestore:', err?.message);
-    }
-    res.json({ success: true, settings: db.settings });
-  });
+app.put('/api/owner/settings', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const newSettings = req.body;
+  const db = getDatabase();
+  const { reminderMessageTemplate, ...cleanedNewSettings } = (newSettings || {}) as any;
 
-  // Owner: Clear all sample data to start fresh (Requires strict password verification)
-  const handleClearAllSampleData = async (req: express.Request, res: express.Response) => {
-    const { adminPassword, password } = req.body || {};
-    const db = getDatabase();
-    const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
-    const inputPassword = (typeof adminPassword === 'string' ? adminPassword : (typeof password === 'string' ? password : '')).trim();
+  db.settings = {
+    ...db.settings,
+    ...cleanedNewSettings,
+  };
+  saveDatabase(db);
 
-    // MUST strictly verify the password matches the current owner password
-    if (!inputPassword || inputPassword !== currentOwnerPassword) {
-      return res.status(401).json({
-        success: false,
-        message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!',
-      });
-    }
+  if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+    saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
+  }
 
-    try {
-      createSnapshotBackup(getDatabase(), 'pre_clear_sample');
-    } catch {
-      // ignore
-    }
+  const targetUrl = db.settings.googleAppsScriptUrl?.trim() || reqUrl;
+  try {
+    await saveSettingsToSheets(db.settings, targetUrl);
+    isSheetsSettingsLoaded = true;
+    lastSettingsSyncAt = Date.now();
+    clearSheetsError();
+    return res.json({ success: true, settings: db.settings });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể lưu cài đặt lên Google Sheets: ${info.message}`,
+      settings: db.settings,
+    });
+  }
+});
 
-    db.debtors = [];
-    db.transactions = [];
-    db.parties = [];
-    saveDatabase(db);
+const handleClearAllSampleData = async (req: express.Request, res: express.Response) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { adminPassword, password } = req.body || {};
+  const db = getDatabase();
+  const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
+  const inputPassword = (
+    typeof adminPassword === 'string'
+      ? adminPassword
+      : typeof password === 'string'
+      ? password
+      : ''
+  ).trim();
 
-    try {
-      await clearAllFirestoreData();
-    } catch (err: any) {
-      console.error('Error clearing Cloud Firestore data:', err?.message);
-    }
+  if (!inputPassword || inputPassword !== currentOwnerPassword) {
+    return res.status(401).json({
+      success: false,
+      message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!',
+    });
+  }
 
+  try {
+    createSnapshotBackup(db, 'pre_clear_sample');
+  } catch {
+    // ignore
+  }
+
+  db.debtors = [];
+  db.transactions = [];
+  db.parties = [];
+  saveDatabase(db);
+
+  try {
+    await persistFullStateToSheets(db, reqUrl);
     return res.json({
       success: true,
-      message: 'Đã xóa toàn bộ dữ liệu mẫu thành công trên Cloud Firestore và bộ nhớ. Sổ nợ của bạn đã được làm sạch!',
+      message: 'Đã xóa toàn bộ dữ liệu mẫu thành công trên Google Sheets và bộ nhớ!',
       debtors: [],
       transactions: [],
       parties: [],
     });
-  };
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Lỗi xóa dữ liệu trên Google Sheets: ${info.message}`,
+    });
+  }
+};
 
-  app.post('/api/owner/clear-all', handleClearAllSampleData);
-  app.post('/api/owner/clear-sample-data', handleClearAllSampleData);
+app.post('/api/owner/clear-all', handleClearAllSampleData);
+app.post('/api/owner/clear-sample-data', handleClearAllSampleData);
 
-  // Owner: Reset back to sample data (Requires strict password verification)
-  const handleResetSampleData = async (req: express.Request, res: express.Response) => {
-    const { adminPassword, password } = req.body || {};
-    const db = getDatabase();
-    const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
-    const inputPassword = (typeof adminPassword === 'string' ? adminPassword : (typeof password === 'string' ? password : '')).trim();
+const handleResetSampleData = async (req: express.Request, res: express.Response) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { adminPassword, password } = req.body || {};
+  const db = getDatabase();
+  const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
+  const inputPassword = (
+    typeof adminPassword === 'string'
+      ? adminPassword
+      : typeof password === 'string'
+      ? password
+      : ''
+  ).trim();
 
-    // MUST strictly verify the password matches the current owner password
-    if (!inputPassword || inputPassword !== currentOwnerPassword) {
-      return res.status(401).json({
-        success: false,
-        message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!',
-      });
-    }
+  if (!inputPassword || inputPassword !== currentOwnerPassword) {
+    return res.status(401).json({
+      success: false,
+      message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!',
+    });
+  }
 
-    try {
-      createSnapshotBackup(getDatabase(), 'pre_reset_sample');
-    } catch {
-      // ignore
-    }
+  try {
+    createSnapshotBackup(db, 'pre_reset_sample');
+  } catch {
+    // ignore
+  }
 
-    db.debtors = JSON.parse(JSON.stringify(INITIAL_DEBTORS));
-    db.transactions = JSON.parse(JSON.stringify(INITIAL_TRANSACTIONS));
-    db.parties = JSON.parse(JSON.stringify(INITIAL_PARTIES));
-    saveDatabase(db);
+  db.debtors = JSON.parse(JSON.stringify(INITIAL_DEBTORS));
+  db.transactions = JSON.parse(JSON.stringify(INITIAL_TRANSACTIONS));
+  db.parties = JSON.parse(JSON.stringify(INITIAL_PARTIES));
+  saveDatabase(db);
 
-    try {
-      await resetSampleDataInFirestore();
-    } catch (err: any) {
-      console.error('Error resetting sample data in Cloud Firestore:', err?.message);
-    }
-
+  try {
+    await persistFullStateToSheets(db, reqUrl);
     return res.json({
       success: true,
-      message: 'Đã nạp lại toàn bộ dữ liệu mẫu ban đầu vào Cloud Firestore thành công!',
+      message: 'Đã nạp lại toàn bộ dữ liệu mẫu ban đầu vào Google Sheets thành công!',
       debtors: db.debtors,
       transactions: db.transactions,
       parties: db.parties,
     });
-  };
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Lỗi nạp mẫu lên Google Sheets: ${info.message}`,
+    });
+  }
+};
 
-  app.post('/api/owner/reset-sample', handleResetSampleData);
-  app.post('/api/owner/reset-sample-data', handleResetSampleData);
+app.post('/api/owner/reset-sample', handleResetSampleData);
+app.post('/api/owner/reset-sample-data', handleResetSampleData);
 
-  // Owner: Save and Sync ALL Data to Cloud Firestore instantly
-  const handleSyncAllData = async (req: express.Request, res: express.Response) => {
-    try {
-      const clientData = req.body || {};
+const handleSyncAllData = async (req: express.Request, res: express.Response) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  try {
+    const clientData = req.body || {};
+    const db = getDatabase();
+
+    if (Array.isArray(clientData.debtors)) {
+      db.debtors = clientData.debtors;
+    }
+    if (Array.isArray(clientData.transactions)) {
+      db.transactions = clientData.transactions;
+    }
+    if (Array.isArray(clientData.parties)) {
+      db.parties = clientData.parties;
+    }
+    if (clientData.settings && typeof clientData.settings === 'object') {
+      db.settings = { ...db.settings, ...clientData.settings };
+      if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+        saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
+      }
+    }
+
+    saveDatabase(db);
+    await persistFullStateToSheets(db, reqUrl);
+
+    return res.json({
+      success: true,
+      message: `Đã lưu và đồng bộ toàn bộ ${db.debtors.length} người nợ, ${db.transactions.length} giao dịch, ${db.parties.length} đợt chia tiền lên Google Sheets thành công!`,
+      debtors: db.debtors,
+      transactions: db.transactions,
+      parties: db.parties,
+      settings: db.settings,
+      stats: {
+        debtorsCount: db.debtors.length,
+        transactionsCount: db.transactions.length,
+        partiesCount: db.parties.length,
+      },
+      syncedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Lỗi đồng bộ Google Sheets: ${info.message}`,
+    });
+  }
+};
+
+app.post('/api/owner/sync-all', authMiddleware, handleSyncAllData);
+app.post('/api/owner/sync-now', authMiddleware, handleSyncAllData);
+
+app.post('/api/owner/sync/external', authMiddleware, async (req, res) => {
+  const { url, apiKey, mode } = req.body;
+  if (!url) {
+    return res.status(400).json({ success: false, message: 'Thiếu URL máy chủ đồng bộ' });
+  }
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+      headers['x-api-key'] = apiKey;
+    }
+    if (mode === 'PULL') {
+      const remoteRes = await fetch(url, { method: 'GET', headers });
+      if (!remoteRes.ok) {
+        return res.status(remoteRes.status).json({
+          success: false,
+          message: `Máy chủ trả về mã lỗi HTTP ${remoteRes.status}: ${remoteRes.statusText}`,
+        });
+      }
+      const data = await remoteRes.json();
       const db = getDatabase();
-
-      // If client provided data, safely merge
-      if (Array.isArray(clientData.debtors) && clientData.debtors.length > 0) {
-        const debtorMap = new Map<string, Debtor>();
-        db.debtors.forEach((d) => debtorMap.set(d.id, d));
-        clientData.debtors.forEach((d: Debtor) => debtorMap.set(d.id, d));
-        db.debtors = Array.from(debtorMap.values());
+      if (Array.isArray(data.debtors)) db.debtors = data.debtors;
+      if (Array.isArray(data.transactions)) db.transactions = data.transactions;
+      if (Array.isArray(data.parties)) db.parties = data.parties;
+      if (data.settings && typeof data.settings === 'object') {
+        db.settings = { ...db.settings, ...data.settings };
       }
-      if (Array.isArray(clientData.transactions) && clientData.transactions.length > 0) {
-        const txMap = new Map<string, Transaction>();
-        db.transactions.forEach((t) => txMap.set(t.id, t));
-        clientData.transactions.forEach((t: Transaction) => txMap.set(t.id, t));
-        db.transactions = Array.from(txMap.values());
-      }
-      if (Array.isArray(clientData.parties) && clientData.parties.length > 0) {
-        const partyMap = new Map<string, PartySplit>();
-        db.parties.forEach((p) => partyMap.set(p.id, p));
-        clientData.parties.forEach((p: PartySplit) => partyMap.set(p.id, p));
-        db.parties = Array.from(partyMap.values());
-      }
-      if (clientData.settings && typeof clientData.settings === 'object') {
-        db.settings = { ...db.settings, ...clientData.settings };
-      }
-
       saveDatabase(db);
-
-      // Perform guaranteed batch sync to Cloud Firestore
-      const stats = await syncAllDataToFirestore(db);
-      isFirestoreActive = true;
-
       return res.json({
         success: true,
-        message: `Đã lưu và đồng bộ toàn bộ ${stats.debtorsCount} người nợ, ${stats.transactionsCount} giao dịch, ${stats.partiesCount} đợt chia tiền lên Cloud Firestore thành công tức thì!`,
+        message: 'Kéo dữ liệu từ máy chủ đồng bộ thành công!',
         debtors: db.debtors,
         transactions: db.transactions,
         parties: db.parties,
         settings: db.settings,
-        stats,
+      });
+    } else {
+      const db = getDatabase();
+      const payload = {
+        debtors: db.debtors,
+        transactions: db.transactions,
+        parties: db.parties,
+        settings: db.settings,
         syncedAt: new Date().toISOString(),
-      });
-    } catch (err: any) {
-      console.error('Error syncing all data to Cloud Firestore:', err);
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi đồng bộ Cloud Firestore: ${err?.message || 'Không thể đồng bộ dữ liệu'}`,
-      });
-    }
-  };
-
-  app.post('/api/owner/sync-all', authMiddleware, handleSyncAllData);
-  app.post('/api/owner/sync-now', authMiddleware, handleSyncAllData);
-
-  // Owner: Sync with external server/webhook/database
-  app.post('/api/owner/sync/external', authMiddleware, async (req, res) => {
-    const { url, apiKey, mode } = req.body;
-    if (!url) {
-      return res.status(400).json({ success: false, message: 'Thiếu URL máy chủ đồng bộ' });
-    }
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
       };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-        headers['x-api-key'] = apiKey;
-      }
-
-      if (mode === 'PULL') {
-        const remoteRes = await fetch(url, { method: 'GET', headers });
-        if (!remoteRes.ok) {
-          return res.status(remoteRes.status).json({
-            success: false,
-            message: `Máy chủ trả về mã lỗi HTTP ${remoteRes.status}: ${remoteRes.statusText}`,
-          });
-        }
-        const data = await remoteRes.json();
-        const db = getDatabase();
-        if (data.debtors && Array.isArray(data.debtors)) db.debtors = data.debtors;
-        if (data.transactions && Array.isArray(data.transactions)) db.transactions = data.transactions;
-        if (data.parties && Array.isArray(data.parties)) db.parties = data.parties;
-        if (data.settings && typeof data.settings === 'object') {
-          db.settings = { ...db.settings, ...data.settings };
-        }
-        saveDatabase(db);
-        return res.json({
-          success: true,
-          message: 'Kéo dữ liệu từ máy chủ đồng bộ thành công!',
-          debtors: db.debtors,
-          transactions: db.transactions,
-          parties: db.parties,
-          settings: db.settings,
-        });
-      } else {
-        // PUSH or TEST
-        const db = getDatabase();
-        const payload = {
-          debtors: db.debtors,
-          transactions: db.transactions,
-          parties: db.parties,
-          settings: db.settings,
-          syncedAt: new Date().toISOString(),
-        };
-
-        const remoteRes = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        });
-
-        if (!remoteRes.ok) {
-          return res.status(remoteRes.status).json({
-            success: false,
-            message: `Máy chủ trả về mã lỗi HTTP ${remoteRes.status}: ${remoteRes.statusText}`,
-          });
-        }
-
-        const result = await remoteRes.json().catch(() => ({}));
-        return res.json({
-          success: true,
-          message: 'Đẩy dữ liệu sao lưu lên máy chủ thành công!',
-          result,
-          syncedAt: payload.syncedAt,
+      const remoteRes = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (!remoteRes.ok) {
+        return res.status(remoteRes.status).json({
+          success: false,
+          message: `Máy chủ trả về mã lỗi HTTP ${remoteRes.status}: ${remoteRes.statusText}`,
         });
       }
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi kết nối máy chủ: ${err?.message || 'Không thể gửi yêu cầu'}`,
+      const result = await remoteRes.json().catch(() => ({}));
+      return res.json({
+        success: true,
+        message: 'Đẩy dữ liệu sao lưu lên máy chủ thành công!',
+        result,
+        syncedAt: payload.syncedAt,
       });
     }
-  });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: `Lỗi kết nối máy chủ: ${err?.message || 'Không thể gửi yêu cầu'}`,
+    });
+  }
+});
 
-  // --- CLOUD FIRESTORE MANAGEMENT APIS ---
+// --- GOOGLE SHEETS CLOUD DATABASE MANAGEMENT APIS (plus legacy /api/firestore/* aliases) ---
+const handleGetSheetsStatus = async (req: express.Request, res: express.Response) => {
+  try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const testRes = await testSheetsConnection(reqUrl);
+    const currentDb = getDatabase();
+    const isOwner = isAuthorizedOwnerRequest(req);
 
-  // Get live status, latency, connected database ID, and statistics
-  app.get('/api/firestore/status', async (req, res) => {
-    try {
-      const config = getActiveFirestoreConfig();
-      const testRes = await testFirestoreConnection();
-      const currentDb = getDatabase();
-
-      // Kiểm tra quyền Chủ nợ: Tuyệt đối không để lộ Database ID hay số lượng người nợ/giao dịch cho người chưa đăng nhập hoặc con nợ
-      const authHeader = req.headers['authorization'] || req.headers['x-owner-token'];
-      const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/, '').trim() : '';
-      const currentOwnerPassword = (currentDb.settings.ownerPassword || '123456').trim();
-      const adminPasswordHeader = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'].trim() : '';
-
-      const isOwner = (
-        (typeof token === 'string' && token.startsWith(OWNER_TOKEN_PREFIX)) ||
-        token === 'local-owner-session' ||
-        token === currentOwnerPassword ||
-        adminPasswordHeader === currentOwnerPassword
-      );
-
-      // Nếu không phải Chủ nợ, chỉ trả về trạng thái kết nối mạng cơ bản
-      if (!isOwner) {
-        return res.json({
-          success: true,
-          connected: testRes.success,
-          latencyMs: testRes.latencyMs,
-          error: testRes.error || null,
-          lastChecked: new Date().toISOString(),
-        });
-      }
-
-      // Chỉ Chủ nợ mới được phép xem Database ID và số lượng người nợ / giao dịch
-      res.json({
+    if (!isOwner) {
+      return res.json({
         success: true,
+        backend: 'google_sheets',
+        configured: testRes.configured,
         connected: testRes.success,
         latencyMs: testRes.latencyMs,
-        databaseId: testRes.databaseId,
-        defaultDatabaseId: config.defaultDatabaseId,
-        projectId: testRes.projectId,
-        isCustom: testRes.isCustom,
-        stats: testRes.stats || {
-          debtors: currentDb.debtors.length,
-          transactions: currentDb.transactions.length,
-          parties: currentDb.parties.length,
-        },
+        version: testRes.version,
+        needsUpgrade: testRes.needsUpgrade,
         error: testRes.error || null,
         lastChecked: new Date().toISOString(),
       });
-    } catch (err: any) {
-      res.status(500).json({
-        success: false,
-        connected: false,
-        error: err?.message || 'Lỗi kiểm tra trạng thái Firestore',
-      });
-    }
-  });
-
-  // Test connection to proposed database ID / Firebase credentials
-  app.post('/api/firestore/test-connection', async (req, res) => {
-    try {
-      const { databaseId, projectId, apiKey } = req.body;
-      const testRes = await testFirestoreConnection({
-        firestoreDatabaseId: databaseId,
-        projectId,
-        apiKey,
-      });
-      res.json(testRes);
-    } catch (err: any) {
-      res.json({
-        success: false,
-        error: err?.message || 'Không thể kiểm tra kết nối',
-        latencyMs: 0,
-      });
-    }
-  });
-
-  // Switch to another Firestore database ID with optional migration
-  app.post('/api/firestore/change-database', authMiddleware, async (req, res) => {
-    const { databaseId, projectId, apiKey, migrateExistingData } = req.body;
-    if (!databaseId || typeof databaseId !== 'string') {
-      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp Database ID hợp lệ!' });
     }
 
-    const cleanDbId = databaseId.trim();
-    try {
-      // 0. Auto snapshot current data BEFORE any switch to guarantee no data loss
-      const currentData = getDatabase();
-      const backupFile = createSnapshotBackup(currentData, `pre_switch_to_${cleanDbId}`);
-
-      // 1. Test target database first
-      const testTarget = await testFirestoreConnection({
-        firestoreDatabaseId: cleanDbId,
-        projectId,
-        apiKey,
-      });
-
-      if (!testTarget.success) {
-        return res.status(400).json({
-          success: false,
-          message: `Không thể kết nối đến Database "${cleanDbId}": ${testTarget.error || 'Vui lòng kiểm tra lại quyền truy cập hoặc tên Database'}.`,
-        });
-      }
-
-      // 2. If requested, migrate current data to the target database
-      let migratedCount = null;
-      if (migrateExistingData) {
-        const migRes = await migrateDataToDatabase(cleanDbId, currentData);
-        if (!migRes.success) {
-          return res.status(500).json({
-            success: false,
-            message: `Kết nối thành công nhưng sao chép dữ liệu thất bại: ${migRes.message}`,
-          });
-        }
-        migratedCount = migRes.count;
-      }
-
-      // 3. Reconfigure active database
-      await reconfigureFirestore(cleanDbId, { projectId, apiKey });
-
-      // 4. Reload data from new database into memory
-      const freshData = await loadDataFromFirestore();
-      inMemoryDb = freshData;
-      saveDatabaseLocal(freshData);
-      isFirestoreActive = true;
-
-      return res.json({
-        success: true,
-        message: migrateExistingData
-          ? `Đã chuyển sang Database "${cleanDbId}" và sao chép toàn bộ dữ liệu (${migratedCount?.debtors || 0} người nợ, ${migratedCount?.transactions || 0} giao dịch)!`
-          : `Đã kết nối thành công tới Database "${cleanDbId}" (${freshData.debtors.length} người nợ có sẵn trên Cloud). Bản sao lưu dữ liệu trước đó đã được tạo tự động an toàn.`,
-        databaseId: cleanDbId,
-        data: freshData,
-        backupFile,
-      });
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi khi thay đổi database: ${err?.message}`,
-      });
-    }
-  });
-
-  // Reset back to default applet database
-  app.post('/api/firestore/reset-default-database', authMiddleware, async (_req, res) => {
-    try {
-      // Auto snapshot current data first
-      const currentData = getDatabase();
-      const backupFile = createSnapshotBackup(currentData, 'pre_reset_default');
-
-      await resetToDefaultFirestoreConfig();
-      const freshData = await loadDataFromFirestore();
-      inMemoryDb = freshData;
-      saveDatabaseLocal(freshData);
-      isFirestoreActive = true;
-
-      const config = getActiveFirestoreConfig();
-      return res.json({
-        success: true,
-        message: `Đã khôi phục về Database mặc định: "${config.defaultDatabaseId}"`,
-        databaseId: config.defaultDatabaseId,
-        data: freshData,
-        backupFile,
-      });
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi khi khôi phục database: ${err?.message}`,
-      });
-    }
-  });
-
-  // List snapshot backups
-  app.get('/api/firestore/backups', authMiddleware, (_req, res) => {
-    try {
-      const backups = listSnapshotBackups();
-      return res.json({ success: true, backups });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, message: err?.message });
-    }
-  });
-
-  // Manual snapshot backup creation
-  app.post('/api/firestore/create-backup', authMiddleware, (req, res) => {
-    try {
-      const { label } = req.body;
-      const currentData = getDatabase();
-      const filename = createSnapshotBackup(currentData, label || 'manual_backup');
-      return res.json({ success: true, filename, message: 'Đã tạo bản sao lưu snapshot thành công!' });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, message: err?.message });
-    }
-  });
-
-  // Restore from snapshot backup
-  app.post('/api/firestore/restore-backup', authMiddleware, async (req, res) => {
-    const { filename } = req.body;
-    if (!filename) {
-      return res.status(400).json({ success: false, message: 'Thiếu tên tệp sao lưu!' });
-    }
-
-    try {
-      const backupData = restoreSnapshotBackup(filename);
-      if (!backupData) {
-        return res.status(404).json({ success: false, message: 'Không tìm thấy tệp sao lưu hợp lệ!' });
-      }
-
-      // Auto snapshot current state before restoring
-      createSnapshotBackup(getDatabase(), 'pre_restore_snapshot');
-
-      // Bảo vệ mật khẩu quản lý: Tuyệt đối không để snapshot làm mất mật khẩu quản lý hiện tại
-      const currentDb = getDatabase();
-      const currentOwnerPassword = currentDb.settings?.ownerPassword;
-      if (currentOwnerPassword) {
-        backupData.settings = {
-          ...backupData.settings,
-          ownerPassword: currentOwnerPassword,
-        };
-      }
-
-      // Update in memory & local
-      inMemoryDb = backupData;
-      saveDatabaseLocal(backupData);
-
-      // Sync to Cloud Firestore if connected
-      try {
-        await replaceFirestoreData(backupData);
-        isFirestoreActive = true;
-      } catch (cloudErr: any) {
-        console.warn('Could not sync restored backup to Cloud Firestore immediately:', cloudErr?.message);
-      }
-
-      return res.json({
-        success: true,
-        message: `Đã khôi phục thành công từ bản sao lưu: ${backupData.debtors.length} người nợ, ${backupData.transactions.length} giao dịch!`,
-        data: backupData,
-      });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, message: err?.message });
-    }
-  });
-
-  // Upload custom JSON dataset directly to Cloud Firestore (Restore / Import)
-  app.post('/api/firestore/upload-json', authMiddleware, async (req, res) => {
-    let raw = req.body?.data !== undefined ? req.body.data : req.body;
-    const mode = req.body?.mode === 'merge' ? 'merge' : 'replace';
-
-    if (!raw || (typeof raw !== 'object' && !Array.isArray(raw))) {
-      return res.status(400).json({ success: false, message: 'Dữ liệu JSON không hợp lệ!' });
-    }
-
-    // Unwrap nested data envelope if present
-    if (raw.data && (Array.isArray(raw.data.debtors) || Array.isArray(raw.data))) {
-      raw = raw.data;
-    }
-
-    try {
-      const currentDb = getDatabase();
-      let inputDebtors: any[] = [];
-      let inputTransactions: any[] = [];
-      let inputParties: any[] = [];
-      let inputSettings: any = null;
-
-      if (Array.isArray(raw)) {
-        // If the array contains transactions with debtorId & amount, treat as transactions, else debtors
-        if (raw.length > 0 && raw[0].debtorId !== undefined && raw[0].amount !== undefined) {
-          inputTransactions = raw;
-        } else {
-          inputDebtors = raw;
-        }
-      } else {
-        if (Array.isArray(raw.debtors)) inputDebtors = raw.debtors;
-        if (Array.isArray(raw.transactions)) inputTransactions = raw.transactions;
-        if (Array.isArray(raw.parties)) inputParties = raw.parties;
-        if (raw.settings && typeof raw.settings === 'object') inputSettings = raw.settings;
-      }
-
-      // Sanitize debtors
-      const cleanDebtors: Debtor[] = inputDebtors.map((d: any, idx: number) => ({
-        id: String(d.id || `d_${Date.now()}_${idx}`),
-        name: String(d.name || 'Người nợ không tên'),
-        phone: d.phone ? String(d.phone) : undefined,
-        note: d.note ? String(d.note) : '',
-        pin: String(d.pin || Math.floor(100000 + Math.random() * 900000)),
-        createdAt: String(d.createdAt || new Date().toISOString()),
-        updatedAt: String(d.updatedAt || d.createdAt || new Date().toISOString()),
-      }));
-
-      // Sanitize transactions
-      const cleanTransactions: Transaction[] = inputTransactions.map((t: any, idx: number) => {
-        let typeVal: 'ADD' | 'SUB' = 'ADD';
-        if (t.type === 'SUB' || t.type === 'REPAYMENT' || t.type === 'PAYMENT') {
-          typeVal = 'SUB';
-        } else if (t.type === 'ADD' || t.type === 'LOAN' || t.type === 'DEBT') {
-          typeVal = 'ADD';
-        }
-        return {
-          id: String(t.id || `tx_${Date.now()}_${idx}`),
-          debtorId: String(t.debtorId || ''),
-          amount: typeof t.amount === 'number' ? t.amount : Number(t.amount) || 0,
-          type: typeVal,
-          note: String(t.note || t.description || ''),
-          category: (t.category || 'SINGLE') as any,
-          date: String(t.date || new Date().toISOString().split('T')[0]),
-          billImage: t.billImage || t.billImageUrl ? String(t.billImage || t.billImageUrl) : undefined,
-          partyId: t.partyId ? String(t.partyId) : undefined,
-          createdAt: String(t.createdAt || new Date().toISOString()),
-        };
-      });
-
-      // Sanitize parties
-      const cleanParties: PartySplit[] = inputParties.map((p: any, idx: number) => {
-        const participantIds = Array.isArray(p.participantDebtorIds)
-          ? p.participantDebtorIds
-          : Array.isArray(p.participants)
-          ? p.participants.map((item: any) => (typeof item === 'string' ? item : item.debtorId || item.id))
-          : [];
-        const total = typeof p.totalAmount === 'number' ? p.totalAmount : Number(p.totalAmount) || 0;
-        const count = participantIds.length + (p.includeMe !== false ? 1 : 0);
-        const split =
-          typeof p.splitAmountPerPerson === 'number'
-            ? p.splitAmountPerPerson
-            : count > 0
-            ? Math.round(total / count)
-            : total;
-
-        return {
-          id: String(p.id || `p_${Date.now()}_${idx}`),
-          name: String(p.name || p.title || 'Đợt chia tiền'),
-          date: String(p.date || new Date().toISOString().split('T')[0]),
-          totalAmount: total,
-          payerType: (p.payerType === 'DEBTOR' ? 'DEBTOR' : 'ME') as 'ME' | 'DEBTOR',
-          payerDebtorId:
-            p.payerDebtorId || p.paidByDebtorId ? String(p.payerDebtorId || p.paidByDebtorId) : undefined,
-          participantDebtorIds: participantIds.map(String),
-          includeMe: p.includeMe !== false,
-          splitAmountPerPerson: split,
-          billImage: p.billImage || p.billImageUrl ? String(p.billImage || p.billImageUrl) : undefined,
-          createdAt: String(p.createdAt || new Date().toISOString()),
-        };
-      });
-
-      let finalDebtors: Debtor[];
-      let finalTransactions: Transaction[];
-      let finalParties: PartySplit[];
-      let finalSettings: AppSettings;
-
-      if (mode === 'merge') {
-        const debtorMap = new Map<string, Debtor>();
-        currentDb.debtors.forEach((d) => debtorMap.set(d.id, d));
-        cleanDebtors.forEach((d) => debtorMap.set(d.id, d));
-        finalDebtors = Array.from(debtorMap.values());
-
-        const txMap = new Map<string, Transaction>();
-        currentDb.transactions.forEach((t) => txMap.set(t.id, t));
-        cleanTransactions.forEach((t) => txMap.set(t.id, t));
-        finalTransactions = Array.from(txMap.values());
-
-        const partyMap = new Map<string, PartySplit>();
-        currentDb.parties.forEach((p) => partyMap.set(p.id, p));
-        cleanParties.forEach((p) => partyMap.set(p.id, p));
-        finalParties = Array.from(partyMap.values());
-
-        if (inputSettings) {
-          const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...safeInputSettings } = inputSettings;
-          finalSettings = { ...currentDb.settings, ...safeInputSettings, ownerPassword: currentDb.settings.ownerPassword };
-        } else {
-          finalSettings = currentDb.settings;
-        }
-      } else {
-        // Mode replace
-        finalDebtors = cleanDebtors;
-        finalTransactions = cleanTransactions;
-        finalParties = cleanParties;
-        if (inputSettings) {
-          const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...safeInputSettings } = inputSettings;
-          finalSettings = { ...currentDb.settings, ...safeInputSettings, ownerPassword: currentDb.settings.ownerPassword };
-        } else {
-          finalSettings = currentDb.settings;
-        }
-      }
-
-      // Automatic hygiene: Filter out any orphan transactions before saving to Cloud Firestore
-      const validDebtorIds = new Set(finalDebtors.map((d) => d.id));
-      finalTransactions = finalTransactions.filter((t) => validDebtorIds.has(t.debtorId));
-
-      const newState: DatabaseSchema = {
-        debtors: finalDebtors,
-        transactions: finalTransactions,
-        parties: finalParties,
-        settings: finalSettings,
-      };
-
-      // Guaranteed batch replace on Cloud Firestore
-      await replaceFirestoreData(newState);
-      inMemoryDb = newState;
-      saveDatabaseLocal(newState);
-      isFirestoreActive = true;
-
-      return res.json({
-        success: true,
-        message: `Khôi phục thành công ${finalDebtors.length} người nợ, ${finalTransactions.length} giao dịch, ${finalParties.length} đợt chia tiền lên Cloud Firestore!`,
-        data: newState,
-        stats: {
-          debtorsCount: finalDebtors.length,
-          transactionsCount: finalTransactions.length,
-          partiesCount: finalParties.length,
-        },
-      });
-    } catch (err: any) {
-      console.error('Error during JSON restore upload:', err);
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi khi khôi phục dữ liệu từ tệp JSON: ${err?.message || 'Không thể ghi vào cơ sở dữ liệu'}`,
-      });
-    }
-  });
-
-  // Force Push or Force Pull
-  app.post('/api/firestore/force-sync', authMiddleware, async (req, res) => {
-    const { direction } = req.body;
-    try {
-      if (direction === 'PUSH') {
-        const current = getDatabase();
-        await replaceFirestoreData(current);
-        isFirestoreActive = true;
-        return res.json({
-          success: true,
-          message: 'Đã ghi đè toàn bộ dữ liệu từ máy lên Cloud Firestore thành công!',
-          data: current,
-        });
-      } else {
-        const fresh = await loadDataFromFirestore();
-        inMemoryDb = fresh;
-        saveDatabaseLocal(fresh);
-        isFirestoreActive = true;
-        return res.json({
-          success: true,
-          message: 'Đã tải toàn bộ dữ liệu mới nhất từ Cloud Firestore về máy!',
-          data: fresh,
-        });
-      }
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        message: `Lỗi đồng bộ: ${err?.message}`,
-      });
-    }
-  });
-
-  // --- CROSS-DEVICE AUDIT LOG BRIDGE (0 FIRESTORE QUOTA -> GOOGLE SHEETS TAB 4) ---
-  let serverAuditLogs: AuditLog[] = [];
-  let pendingAppsScriptLogs: AuditLog[] = [];
-  let appsScriptFlushTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function sanitizeAuditLogInput(raw: any): AuditLog | null {
-    if (!raw || typeof raw !== 'object') return null;
-    const id = typeof raw.id === 'string' ? raw.id.trim().slice(0, 120) : '';
-    if (!id || id.startsWith('log-init-')) return null;
-    const action = typeof raw.action === 'string' ? raw.action.trim().slice(0, 64) : '';
-    const title = typeof raw.title === 'string' ? raw.title.slice(0, 300) : '';
-    if (!action || !title) return null;
-
-    const timestamp =
-      typeof raw.timestamp === 'string' && raw.timestamp.trim()
-        ? raw.timestamp.trim().slice(0, 64)
-        : new Date().toISOString();
-
-    return {
-      id,
-      timestamp,
-      action: action as AuditLog['action'],
-      actor: typeof raw.actor === 'string' ? raw.actor.slice(0, 160) : 'Người dùng',
-      title,
-      description: typeof raw.description === 'string' ? raw.description.slice(0, 2000) : '',
-      ...(typeof raw.debtorId === 'string' ? { debtorId: raw.debtorId.slice(0, 120) } : {}),
-      ...(typeof raw.debtorName === 'string' ? { debtorName: raw.debtorName.slice(0, 160) } : {}),
-      ...(raw.amount !== undefined && !Number.isNaN(Number(raw.amount)) ? { amount: Number(raw.amount) } : {}),
-      ...(raw.beforeState !== undefined ? { beforeState: raw.beforeState } : {}),
-      ...(raw.afterState !== undefined ? { afterState: raw.afterState } : {}),
-      ...(Array.isArray(raw.changes) ? { changes: raw.changes.slice(0, 30) } : {}),
-      ...(raw.metadata && typeof raw.metadata === 'object' ? { metadata: raw.metadata } : {}),
-    };
-  }
-
-  function mergeIntoServerAuditLogs(incoming: AuditLog[]): AuditLog[] {
-    const map = new Map<string, AuditLog>();
-    for (const item of serverAuditLogs) {
-      if (item?.id) map.set(item.id, item);
-    }
-    const newlyAdded: AuditLog[] = [];
-    for (const item of incoming) {
-      if (item?.id && !map.has(item.id)) {
-        newlyAdded.push(item);
-      }
-      if (item?.id) {
-        map.set(item.id, item);
-      }
-    }
-    serverAuditLogs = Array.from(map.values())
-      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
-      .slice(0, 500);
-    return newlyAdded;
-  }
-
-  async function flushPendingLogsToAppsScript() {
-    if (pendingAppsScriptLogs.length === 0) return;
-    const db = getDatabase();
-    const scriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
-    if (!scriptUrl || !scriptUrl.startsWith('https://script.google.com/')) {
-      pendingAppsScriptLogs = [];
-      return;
-    }
-
-    const batch = pendingAppsScriptLogs.splice(0, 100);
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
-      await fetch(scriptUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-        },
-        body: JSON.stringify({
-          action: 'APPEND_LOGS',
-          ownerName: db.settings?.ownerName || 'Chủ Sổ',
-          timestamp: new Date().toISOString(),
-          auditLogs: batch,
-        }),
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-    } catch (err: any) {
-      console.warn('Apps Script APPEND_LOGS bridge notice:', err?.message || err);
-    }
-
-    if (pendingAppsScriptLogs.length > 0) {
-      appsScriptFlushTimer = setTimeout(() => {
-        appsScriptFlushTimer = null;
-        flushPendingLogsToAppsScript();
-      }, 1000);
-    }
-  }
-
-  function queueLogsForAppsScript(logs: AuditLog[]) {
-    if (logs.length === 0) return;
-    const db = getDatabase();
-    const scriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
-    if (!scriptUrl || !scriptUrl.startsWith('https://script.google.com/')) {
-      return;
-    }
-    const existingIds = new Set(pendingAppsScriptLogs.map((l) => l.id));
-    for (const log of logs) {
-      if (!existingIds.has(log.id)) {
-        pendingAppsScriptLogs.push(log);
-        existingIds.add(log.id);
-      }
-    }
-    if (pendingAppsScriptLogs.length > 500) {
-      pendingAppsScriptLogs = pendingAppsScriptLogs.slice(-500);
-    }
-    if (!appsScriptFlushTimer) {
-      appsScriptFlushTimer = setTimeout(() => {
-        appsScriptFlushTimer = null;
-        flushPendingLogsToAppsScript();
-      }, 900);
-    }
-  }
-
-  // Receive audit logs from ANY device (Guest or Admin) and forward to Google Sheets Tab 4 (0 Firestore quota)
-  app.post('/api/audit-logs/push', (req, res) => {
-    try {
-      const rawList = Array.isArray(req.body?.logs)
-        ? req.body.logs
-        : req.body?.log
-        ? [req.body.log]
-        : [];
-
-      const validLogs: AuditLog[] = [];
-      for (const raw of rawList.slice(0, 50)) {
-        const clean = sanitizeAuditLogInput(raw);
-        if (clean) validLogs.push(clean);
-      }
-
-      if (validLogs.length === 0) {
-        return res.json({ success: true, accepted: 0, forwardedToSheets: false });
-      }
-
-      const newlyAdded = mergeIntoServerAuditLogs(validLogs);
-      queueLogsForAppsScript(newlyAdded.length > 0 ? newlyAdded : validLogs);
-
-      const db = getDatabase();
-      const hasUrl = Boolean(
-        db.settings?.googleAppsScriptUrl &&
-        db.settings.googleAppsScriptUrl.trim().startsWith('https://script.google.com/')
-      );
-
-      return res.json({
-        success: true,
-        accepted: validLogs.length,
-        forwardedToSheets: hasUrl,
-      });
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        message: err?.message || 'Lỗi ghi nhận nhật ký',
-      });
-    }
-  });
-
-  // Owner: Fetch combined audit logs from Google Sheets Tab 4 + Server memory buffer
-  app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
-    const db = getDatabase();
-
-    // Fallback header from authenticated Admin in case settings were saved directly to Firestore
-    const headerScriptUrl =
-      typeof req.headers['x-apps-script-url'] === 'string'
-        ? req.headers['x-apps-script-url'].trim()
-        : '';
-    if (!db.settings?.googleAppsScriptUrl && headerScriptUrl.startsWith('https://script.google.com/')) {
-      db.settings = { ...db.settings, googleAppsScriptUrl: headerScriptUrl };
-    }
-
-    const scriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
-    if (!scriptUrl || !scriptUrl.startsWith('https://script.google.com/')) {
-      return res.json({
-        success: true,
-        logs: serverAuditLogs.slice(0, limit),
-        source: 'server_memory',
-        hasAppsScriptUrl: false,
-        needsAppsScriptUpgrade: false,
-      });
-    }
-
-    try {
-      const separator = scriptUrl.includes('?') ? '&' : '?';
-      const fetchUrl = `${scriptUrl}${separator}action=GET_LOGS&limit=${limit}`;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
-
-      const response = await fetch(fetchUrl, {
-        method: 'GET',
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-
-      const text = await response.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = null;
-      }
-
-      if (data && data.success === true && Array.isArray(data.logs)) {
-        const sanitizedRemote: AuditLog[] = [];
-        for (const item of data.logs) {
-          const clean = sanitizeAuditLogInput(item);
-          if (clean) sanitizedRemote.push(clean);
-        }
-        mergeIntoServerAuditLogs(sanitizedRemote);
-        return res.json({
-          success: true,
-          logs: serverAuditLogs.slice(0, limit),
-          source: 'google_sheets',
-          hasAppsScriptUrl: true,
-          needsAppsScriptUpgrade: false,
-          totalSheetRows: data.totalRows ?? sanitizedRemote.length,
-        });
-      }
-
-      // Old Apps Script template returns { status: "ok", message: ... } without logs array
-      const isOldScript = Boolean(data && data.status === 'ok' && !Array.isArray(data.logs));
-      return res.json({
-        success: true,
-        logs: serverAuditLogs.slice(0, limit),
-        source: 'server_memory',
-        hasAppsScriptUrl: true,
-        needsAppsScriptUpgrade: isOldScript,
-      });
-    } catch (err: any) {
-      return res.json({
-        success: true,
-        logs: serverAuditLogs.slice(0, limit),
-        source: 'server_memory',
-        hasAppsScriptUrl: true,
-        needsAppsScriptUpgrade: false,
-        sheetsError: err?.message || 'Không thể kết nối Google Apps Script',
-      });
-    }
-  });
-
-  // --- GUEST APIS (STRICT PRIVACY: ONLY PIN, NO LIST OF DEBTORS) ---
-
-  // Guest: Lookup by PIN/Pass only!
-  app.post('/api/guest/lookup', (req, res) => {
-    const { pin } = req.body;
-    if (!pin || typeof pin !== 'string') {
-      return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu (pass) tra cứu.' });
-    }
-
-    const trimmedPin = pin.trim().toLowerCase();
-    const db = getDatabase();
-    const targetDebtor = db.debtors.find((d) => d.pin.trim().toLowerCase() === trimmedPin);
-
-    if (!targetDebtor) {
-      return res.status(404).json({
-        success: false,
-        message: 'Mật khẩu (pass) không tồn tại hoặc không chính xác. Vui lòng liên hệ chủ sổ.',
-      });
-    }
-
-    // Filter transactions ONLY for this specific debtor and enrich with split-bill party metadata if needed
-    const debtorTransactions = db.transactions
-      .filter((tx) => tx.debtorId === targetDebtor.id)
-      .map((tx) => {
-        if (tx.partyId || tx.category === 'PARTY_SPLIT') {
-          const party = (db.parties || []).find((p) => p.id === tx.partyId);
-          if (party) {
-            const participantNames: string[] = [];
-            if (party.includeMe) participantNames.push(db.settings.ownerName || 'Tôi (Chủ sổ)');
-            (party.participantDebtorIds || []).forEach((id) => {
-              const d = db.debtors.find((deb) => deb.id === id);
-              if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
-            });
-            const payerName = party.payerType === 'ME'
-              ? (db.settings.ownerName || 'Tôi (Chủ sổ)')
-              : (db.debtors.find((d) => d.id === party.payerDebtorId)?.name || 'Người này');
-
-            return {
-              ...tx,
-              partyTotalAmount: tx.partyTotalAmount || party.totalAmount,
-              partySplitAmount: tx.partySplitAmount || party.splitAmountPerPerson,
-              partyTotalPeople: tx.partyTotalPeople || party.totalPeopleCount,
-              partyParticipants: (tx.partyParticipants && tx.partyParticipants.length > 0) ? tx.partyParticipants : participantNames,
-              partyPayerName: tx.partyPayerName || payerName,
-              partyName: tx.partyName || party.name,
-              customNote: tx.customNote || party.note,
-              billImage: tx.billImage || party.billImage,
-            };
-          }
-        }
-        return tx;
-      });
-
-    // Return ONLY this debtor's data and necessary VietQR bank info
-    // Never send other debtors' names, counts, or total receivable to the guest!
-    res.json({
+    return res.json({
       success: true,
-      debtor: {
-        id: targetDebtor.id,
-        name: targetDebtor.name,
-        phone: targetDebtor.phone,
-        pin: targetDebtor.pin,
-        note: targetDebtor.note,
+      backend: 'google_sheets',
+      configured: testRes.configured,
+      connected: testRes.success,
+      latencyMs: testRes.latencyMs,
+      version: testRes.version,
+      supportsFullDb: testRes.supportsFullDb,
+      supportsLogSync: testRes.supportsLogSync,
+      supportsDriveUpload: testRes.supportsDriveUpload,
+      needsUpgrade: testRes.needsUpgrade,
+      source: testRes.source,
+      googleSheetUrl: testRes.googleSheetUrl || currentDb.settings?.googleSheetUrl,
+      databaseId: testRes.configured ? `Google Sheets (Apps Script v${testRes.version || 3})` : 'Chưa cấu hình',
+      stats: {
+        debtors: currentDb.debtors.length,
+        transactions: currentDb.transactions.length,
+        parties: currentDb.parties.length,
       },
-      transactions: debtorTransactions,
-      settings: {
-        ownerName: db.settings.ownerName,
-        ownerPhone: db.settings.ownerPhone || '',
-        bankId: db.settings.bankId,
-        bankName: db.settings.bankName,
-        accountNumber: db.settings.accountNumber,
-        accountName: db.settings.accountName,
-        defaultMemoPrefix: db.settings.defaultMemoPrefix,
-        appTitle: db.settings.appTitle,
-        appSubtitle: db.settings.appSubtitle,
-        guestAnnouncement: db.settings.guestAnnouncement,
-        settledThankYouNote: db.settings.settledThankYouNote,
-        defaultQrMode: db.settings.defaultQrMode || 'MANUAL_AMOUNT',
-        vietQrTemplate: db.settings.vietQrTemplate || 'compact2',
-        lookupInstructionText: db.settings.lookupInstructionText,
-        themeColor: db.settings.themeColor,
-        currencySuffix: db.settings.currencySuffix,
-      },
+      error: testRes.error || null,
+      lastChecked: new Date().toISOString(),
     });
-  });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      configured: false,
+      connected: false,
+      error: err?.message || 'Lỗi kiểm tra trạng thái Google Sheets',
+    });
+  }
+};
 
-  // Guest: Report self payment with bill
-  app.post('/api/guest/report-payment', async (req, res) => {
-    const { pin, amount, note, billImage } = req.body;
-    if (!pin || !amount) {
-      return res.status(400).json({ success: false, message: 'Thiếu thông tin thanh toán' });
-    }
+app.get(['/api/sheets/status', '/api/firestore/status'], handleGetSheetsStatus);
 
-    const trimmedPin = String(pin).trim();
-    const db = getDatabase();
-    const targetDebtor = db.debtors.find((d) => d.pin.trim() === trimmedPin);
+const handleTestSheetsConnection = async (req: express.Request, res: express.Response) => {
+  try {
+    const customUrl = typeof req.body?.appsScriptUrl === 'string' ? req.body.appsScriptUrl.trim() : undefined;
+    const testRes = await testSheetsConnection(customUrl || resolveRequestScriptUrl(req));
+    return res.json(testRes);
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      configured: false,
+      latencyMs: 0,
+      version: 0,
+      error: err?.message || 'Không thể kiểm tra kết nối Google Sheets',
+    });
+  }
+};
 
-    if (!targetDebtor) {
-      return res.status(404).json({ success: false, message: 'Mật khẩu tra cứu không hợp lệ' });
-    }
+app.post(['/api/sheets/test-connection', '/api/firestore/test-connection'], handleTestSheetsConnection);
 
-    const newTx: Transaction = {
-      id: `tx-report-${Date.now()}`,
-      debtorId: targetDebtor.id,
-      type: 'SUB',
-      amount: Number(amount),
-      date: new Date().toISOString().split('T')[0],
-      note: note ? note.trim() : 'Chuyển khoản thanh toán',
-      category: 'PAYMENT_SETTLED',
-      ...(billImage ? { billImage } : {}),
-      createdAt: new Date().toISOString(),
-    };
+app.post('/api/sheets/configure', async (req, res) => {
+  const existingCfg = getActiveSheetsConfig();
+  if (existingCfg.appsScriptUrl && !isAuthorizedOwnerRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      message: 'Cần đăng nhập chủ sổ để thay đổi đường dẫn Google Apps Script.',
+    });
+  }
 
-    db.transactions.unshift(newTx);
-    saveDatabase(db);
-    try {
-      await saveTransactionToFirestore(newTx);
-      isFirestoreActive = true;
-    } catch (err: any) {
-      console.error('Error saving payment report to Cloud Firestore:', err?.message);
-    }
+  const rawUrl = String(req.body?.appsScriptUrl || '').trim();
+  const rawSheetUrl = typeof req.body?.googleSheetUrl === 'string' ? req.body.googleSheetUrl.trim() : undefined;
+  if (!rawUrl || !rawUrl.startsWith('https://script.google.com/')) {
+    return res.status(400).json({
+      success: false,
+      message: 'Đường link Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
+    });
+  }
 
-    const updatedDebtorTxs = db.transactions.filter((tx) => tx.debtorId === targetDebtor.id);
+  const testRes = await testSheetsConnection(rawUrl);
+  if (!testRes.success) {
+    return res.status(400).json({
+      success: false,
+      message: `Không thể kết nối đến Apps Script: ${testRes.error || 'Kiểm tra lại quyền Anyone khi Deploy'}`,
+    });
+  }
 
-    res.json({
+  saveSheetsConfig(rawUrl, rawSheetUrl);
+  const db = getDatabase();
+  db.settings = {
+    ...db.settings,
+    googleAppsScriptUrl: rawUrl,
+    ...(rawSheetUrl ? { googleSheetUrl: rawSheetUrl } : {}),
+    autoSyncGoogleSheets: true,
+  };
+  saveDatabase(db);
+
+  if (testRes.needsUpgrade) {
+    needsScriptUpgrade = true;
+    lastSheetsErrorCode = 'SHEETS_LEGACY_SCRIPT';
+    lastSheetsError = 'Google Apps Script hiện tại đang dùng mã cũ (v1/v2). Hãy cập nhật mã v3 trong Code.gs và Deploy phiên bản mới.';
+    return res.json({
       success: true,
-      transaction: newTx,
-      transactions: updatedDebtorTxs,
+      configured: true,
+      connected: true,
+      needsUpgrade: true,
+      version: testRes.version,
+      message: lastSheetsError,
     });
+  }
+
+  // Try hydrating existing data & settings from this Sheet
+  await ensureSheetsSettingsSync(true, rawUrl);
+  return res.json({
+    success: true,
+    configured: true,
+    connected: true,
+    needsUpgrade: false,
+    version: testRes.version,
+    message: 'Đã kết nối Google Sheets Cloud Database thành công!',
   });
+});
 
-  // --- DYNAMIC PWA WEB MANIFEST (Tự động đồng bộ theo Tên Ứng Dụng trong Cài Đặt) ---
-  app.get(['/site.webmanifest', '/manifest.webmanifest'], async (_req, res) => {
-    try {
-      if (!isFirestoreActive) {
-        try {
-          await ensureFirestoreSync();
-        } catch {
-          // ignore
-        }
-      }
-      const db = getDatabase();
-      const rawTitle = db.settings?.appTitle?.trim();
-      const appTitle = rawTitle && rawTitle.length > 0 ? rawTitle : 'Sổ Ghi Nợ';
-      const appSubtitle = db.settings?.appSubtitle?.trim() || 'Ứng dụng quản lý tài chính, chia tiền và sao kê';
-      const shortName = appTitle.length <= 14 ? appTitle : appTitle.slice(0, 14);
+app.get(['/api/sheets/backups', '/api/firestore/backups'], authMiddleware, (_req, res) => {
+  try {
+    return res.json({ success: true, backups: listSnapshotBackups() });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
 
-      const dynamicManifest = {
-        id: '/',
-        name: appTitle,
-        short_name: shortName,
-        description: appSubtitle,
-        start_url: '/',
-        scope: '/',
-        display: 'standalone',
-        orientation: 'portrait',
-        background_color: '#f8fafc',
-        theme_color: '#059669',
-        icons: [
-          {
-            src: '/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-          {
-            src: '/favicon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-          },
-        ],
-      };
+app.post(['/api/sheets/create-backup', '/api/firestore/create-backup'], authMiddleware, (req, res) => {
+  try {
+    const filename = createSnapshotBackup(getDatabase(), req.body?.label || 'manual_backup');
+    return res.json({ success: true, filename, message: 'Đã tạo bản sao lưu snapshot thành công!' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
 
-      res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.json(dynamicManifest);
-    } catch {
-      res.sendFile(path.resolve('./public/site.webmanifest'));
+app.post(['/api/sheets/restore-backup', '/api/firestore/restore-backup'], authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const filename = req.body?.filename;
+  if (!filename) {
+    return res.status(400).json({ success: false, message: 'Thiếu tên tệp sao lưu!' });
+  }
+  try {
+    const backupData = restoreSnapshotBackup(filename);
+    if (!backupData) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy tệp sao lưu hợp lệ!' });
     }
-  });
+    const currentDb = getDatabase();
+    createSnapshotBackup(currentDb, 'pre_restore_snapshot');
+    if (currentDb.settings?.ownerPassword) {
+      backupData.settings = { ...backupData.settings, ownerPassword: currentDb.settings.ownerPassword };
+    }
+    inMemoryDb = backupData;
+    await persistFullStateToSheets(backupData, reqUrl);
+    return res.json({
+      success: true,
+      message: `Đã khôi phục thành công từ bản sao lưu: ${backupData.debtors.length} người nợ, ${backupData.transactions.length} giao dịch!`,
+      data: backupData,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
 
-  // --- VITE MIDDLEWARE / STATIC ASSETS & LISTEN ---
-  async function startStandaloneServer() {
-    if (process.env.NODE_ENV !== 'production') {
-      const { createServer: createViteServer } = await import('vite');
-      const vite = await createViteServer({
-        server: {
-          middlewareMode: true,
-          hmr: false,
-          ws: false,
-        },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
+app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  let raw = req.body?.data !== undefined ? req.body.data : req.body;
+  const mode = req.body?.mode === 'merge' ? 'merge' : 'replace';
+
+  if (!raw || (typeof raw !== 'object' && !Array.isArray(raw))) {
+    return res.status(400).json({ success: false, message: 'Dữ liệu JSON không hợp lệ!' });
+  }
+  if (raw.data && (Array.isArray(raw.data.debtors) || Array.isArray(raw.data))) {
+    raw = raw.data;
+  }
+
+  try {
+    const currentDb = getDatabase();
+    let inputDebtors: any[] = [];
+    let inputTransactions: any[] = [];
+    let inputParties: any[] = [];
+    let inputSettings: any = null;
+
+    if (Array.isArray(raw)) {
+      if (raw.length > 0 && raw[0].debtorId !== undefined && raw[0].amount !== undefined) inputTransactions = raw;
+      else inputDebtors = raw;
     } else {
-      const distPath = path.join(process.cwd(), 'dist');
-      app.use(express.static(distPath));
-      app.get('*', (_req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
+      if (Array.isArray(raw.debtors)) inputDebtors = raw.debtors;
+      if (Array.isArray(raw.transactions)) inputTransactions = raw.transactions;
+      if (Array.isArray(raw.parties)) inputParties = raw.parties;
+      if (raw.settings && typeof raw.settings === 'object') inputSettings = raw.settings;
+    }
+
+    const cleanDebtors: Debtor[] = inputDebtors.map((d: any, idx: number) => ({
+      id: String(d.id || `d_${Date.now()}_${idx}`),
+      name: String(d.name || 'Người nợ không tên'),
+      phone: d.phone ? String(d.phone) : undefined,
+      note: d.note ? String(d.note) : '',
+      pin: String(d.pin || Math.floor(100000 + Math.random() * 900000)),
+      createdAt: String(d.createdAt || new Date().toISOString()),
+      updatedAt: String(d.updatedAt || d.createdAt || new Date().toISOString()),
+    }));
+
+    const cleanTransactions: Transaction[] = inputTransactions.map((t: any, idx: number) => {
+      let typeVal: 'ADD' | 'SUB' = 'ADD';
+      if (t.type === 'SUB' || t.type === 'REPAYMENT' || t.type === 'PAYMENT') typeVal = 'SUB';
+      return {
+        id: String(t.id || `tx_${Date.now()}_${idx}`),
+        debtorId: String(t.debtorId || ''),
+        amount: typeof t.amount === 'number' ? t.amount : Number(t.amount) || 0,
+        type: typeVal,
+        note: String(t.note || t.description || ''),
+        category: (t.category || 'SINGLE') as any,
+        date: String(t.date || new Date().toISOString().split('T')[0]),
+        billImage: t.billImage || t.billImageUrl ? String(t.billImage || t.billImageUrl) : undefined,
+        partyId: t.partyId ? String(t.partyId) : undefined,
+        createdAt: String(t.createdAt || new Date().toISOString()),
+      };
+    });
+
+    const cleanParties: PartySplit[] = inputParties.map((p: any, idx: number) => {
+      const participantIds = Array.isArray(p.participantDebtorIds)
+        ? p.participantDebtorIds
+        : Array.isArray(p.participants)
+        ? p.participants.map((item: any) => (typeof item === 'string' ? item : item.debtorId || item.id))
+        : [];
+      const total = typeof p.totalAmount === 'number' ? p.totalAmount : Number(p.totalAmount) || 0;
+      const count = participantIds.length + (p.includeMe !== false ? 1 : 0);
+      const split =
+        typeof p.splitAmountPerPerson === 'number'
+          ? p.splitAmountPerPerson
+          : count > 0
+          ? Math.round(total / count)
+          : total;
+
+      return {
+        id: String(p.id || `p_${Date.now()}_${idx}`),
+        name: String(p.name || p.title || 'Đợt chia tiền'),
+        date: String(p.date || new Date().toISOString().split('T')[0]),
+        totalAmount: total,
+        payerType: (p.payerType === 'DEBTOR' ? 'DEBTOR' : 'ME') as 'ME' | 'DEBTOR',
+        payerDebtorId:
+          p.payerDebtorId || p.paidByDebtorId ? String(p.payerDebtorId || p.paidByDebtorId) : undefined,
+        participantDebtorIds: participantIds.map(String),
+        includeMe: p.includeMe !== false,
+        splitAmountPerPerson: split,
+        billImage: p.billImage || p.billImageUrl ? String(p.billImage || p.billImageUrl) : undefined,
+        createdAt: String(p.createdAt || new Date().toISOString()),
+      };
+    });
+
+    let finalDebtors: Debtor[];
+    let finalTransactions: Transaction[];
+    let finalParties: PartySplit[];
+    let finalSettings: AppSettings;
+
+    if (mode === 'merge') {
+      const debtorMap = new Map<string, Debtor>();
+      currentDb.debtors.forEach((d) => debtorMap.set(d.id, d));
+      cleanDebtors.forEach((d) => debtorMap.set(d.id, d));
+      finalDebtors = Array.from(debtorMap.values());
+
+      const txMap = new Map<string, Transaction>();
+      currentDb.transactions.forEach((t) => txMap.set(t.id, t));
+      cleanTransactions.forEach((t) => txMap.set(t.id, t));
+      finalTransactions = Array.from(txMap.values());
+
+      const partyMap = new Map<string, PartySplit>();
+      currentDb.parties.forEach((p) => partyMap.set(p.id, p));
+      cleanParties.forEach((p) => partyMap.set(p.id, p));
+      finalParties = Array.from(partyMap.values());
+    } else {
+      finalDebtors = cleanDebtors;
+      finalTransactions = cleanTransactions;
+      finalParties = cleanParties;
+    }
+
+    if (inputSettings) {
+      const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...safeInputSettings } = inputSettings;
+      finalSettings = { ...currentDb.settings, ...safeInputSettings, ownerPassword: currentDb.settings.ownerPassword };
+    } else {
+      finalSettings = currentDb.settings;
+    }
+
+    const validDebtorIds = new Set(finalDebtors.map((d) => d.id));
+    finalTransactions = finalTransactions.filter((t) => validDebtorIds.has(t.debtorId));
+
+    const newState: SheetsDatabaseSchema = {
+      debtors: finalDebtors,
+      transactions: finalTransactions,
+      parties: finalParties,
+      settings: finalSettings,
+    };
+
+    await persistFullStateToSheets(newState, reqUrl);
+
+    return res.json({
+      success: true,
+      message: `Khôi phục thành công ${finalDebtors.length} người nợ, ${finalTransactions.length} giao dịch, ${finalParties.length} đợt chia tiền lên Google Sheets!`,
+      data: newState,
+      stats: {
+        debtorsCount: finalDebtors.length,
+        transactionsCount: finalTransactions.length,
+        partiesCount: finalParties.length,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: `Lỗi khôi phục dữ liệu JSON lên Google Sheets: ${err?.message}`,
+    });
+  }
+});
+
+app.post(['/api/sheets/force-sync', '/api/firestore/force-sync'], authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { direction } = req.body;
+  try {
+    if (direction === 'PUSH') {
+      const current = getDatabase();
+      await persistFullStateToSheets(current, reqUrl);
+      return res.json({
+        success: true,
+        message: 'Đã ghi đè toàn bộ dữ liệu từ máy lên Google Sheets thành công!',
+        data: current,
+      });
+    } else {
+      const fresh = await loadAllDataFromSheets(reqUrl);
+      inMemoryDb = fresh;
+      isSheetsDataLoaded = true;
+      isSheetsSettingsLoaded = true;
+      lastFullSyncAt = Date.now();
+      lastSettingsSyncAt = Date.now();
+      clearSheetsError();
+      return res.json({
+        success: true,
+        message: 'Đã tải toàn bộ dữ liệu mới nhất từ Google Sheets về máy!',
+        data: fresh,
+      });
+    }
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Lỗi đồng bộ Google Sheets: ${info.message}`,
+    });
+  }
+});
+
+// --- CROSS-DEVICE AUDIT LOG BRIDGE (TAB 4 APPEND-ONLY) ---
+let serverAuditLogs: AuditLog[] = [];
+let pendingAppsScriptLogs: AuditLog[] = [];
+let appsScriptFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function sanitizeAuditLogInput(raw: any): AuditLog | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.trim().slice(0, 120) : '';
+  if (!id || id.startsWith('log-init-')) return null;
+  const action = typeof raw.action === 'string' ? raw.action.trim().slice(0, 64) : '';
+  const title = typeof raw.title === 'string' ? raw.title.slice(0, 300) : '';
+  if (!action || !title) return null;
+
+  const timestamp =
+    typeof raw.timestamp === 'string' && raw.timestamp.trim()
+      ? raw.timestamp.trim().slice(0, 64)
+      : new Date().toISOString();
+
+  return {
+    id,
+    timestamp,
+    action: action as AuditLog['action'],
+    actor: typeof raw.actor === 'string' ? raw.actor.slice(0, 160) : 'Người dùng',
+    title,
+    description: typeof raw.description === 'string' ? raw.description.slice(0, 2000) : '',
+    ...(typeof raw.debtorId === 'string' ? { debtorId: raw.debtorId.slice(0, 120) } : {}),
+    ...(typeof raw.debtorName === 'string' ? { debtorName: raw.debtorName.slice(0, 160) } : {}),
+    ...(raw.amount !== undefined && !Number.isNaN(Number(raw.amount)) ? { amount: Number(raw.amount) } : {}),
+    ...(raw.beforeState !== undefined ? { beforeState: raw.beforeState } : {}),
+    ...(raw.afterState !== undefined ? { afterState: raw.afterState } : {}),
+    ...(Array.isArray(raw.changes) ? { changes: raw.changes.slice(0, 30) } : {}),
+    ...(raw.metadata && typeof raw.metadata === 'object' ? { metadata: raw.metadata } : {}),
+  };
+}
+
+function mergeIntoServerAuditLogs(incoming: AuditLog[]): AuditLog[] {
+  const map = new Map<string, AuditLog>();
+  for (const item of serverAuditLogs) {
+    if (item?.id) map.set(item.id, item);
+  }
+  const newlyAdded: AuditLog[] = [];
+  for (const item of incoming) {
+    if (item?.id && !map.has(item.id)) newlyAdded.push(item);
+    if (item?.id) map.set(item.id, item);
+  }
+  serverAuditLogs = Array.from(map.values())
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+    .slice(0, 500);
+  return newlyAdded;
+}
+
+function resolveLogScriptUrl(overrideUrl?: string): string {
+  const cfg = getActiveSheetsConfig(overrideUrl);
+  if (cfg.appsScriptUrl) return cfg.appsScriptUrl;
+  const db = getDatabase();
+  const sUrl = (db.settings?.googleAppsScriptUrl || '').trim();
+  return sUrl.startsWith('https://script.google.com/') ? sUrl : '';
+}
+
+async function flushPendingLogsToAppsScript(overrideUrl?: string) {
+  if (pendingAppsScriptLogs.length === 0) return;
+  const scriptUrl = resolveLogScriptUrl(overrideUrl);
+  if (!scriptUrl) {
+    pendingAppsScriptLogs = [];
+    return;
+  }
+
+  const db = getDatabase();
+  const batch = pendingAppsScriptLogs.splice(0, 100);
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'APPEND_LOGS',
+        ownerName: db.settings?.ownerName || 'Chủ Sổ',
+        timestamp: new Date().toISOString(),
+        auditLogs: batch,
+      }),
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+  } catch (err: any) {
+    console.warn('Apps Script APPEND_LOGS bridge notice:', err?.message || err);
+  }
+
+  if (!IS_VERCEL && pendingAppsScriptLogs.length > 0) {
+    appsScriptFlushTimer = setTimeout(() => {
+      appsScriptFlushTimer = null;
+      flushPendingLogsToAppsScript(overrideUrl);
+    }, 1000);
+  }
+}
+
+function queueLogsForAppsScript(logs: AuditLog[], overrideUrl?: string) {
+  if (logs.length === 0) return;
+  const scriptUrl = resolveLogScriptUrl(overrideUrl);
+  if (!scriptUrl) return;
+
+  const existingIds = new Set(pendingAppsScriptLogs.map((l) => l.id));
+  for (const log of logs) {
+    if (!existingIds.has(log.id)) {
+      pendingAppsScriptLogs.push(log);
+      existingIds.add(log.id);
+    }
+  }
+  if (pendingAppsScriptLogs.length > 500) {
+    pendingAppsScriptLogs = pendingAppsScriptLogs.slice(-500);
+  }
+  if (!IS_VERCEL && !appsScriptFlushTimer) {
+    appsScriptFlushTimer = setTimeout(() => {
+      appsScriptFlushTimer = null;
+      flushPendingLogsToAppsScript(overrideUrl);
+    }, 900);
+  }
+}
+
+app.post('/api/audit-logs/push', async (req, res) => {
+  try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const rawList = Array.isArray(req.body?.logs)
+      ? req.body.logs
+      : req.body?.log
+      ? [req.body.log]
+      : [];
+
+    const validLogs: AuditLog[] = [];
+    for (const raw of rawList.slice(0, 50)) {
+      const clean = sanitizeAuditLogInput(raw);
+      if (clean) validLogs.push(clean);
+    }
+
+    if (validLogs.length === 0) {
+      return res.json({ success: true, accepted: 0, forwardedToSheets: false });
+    }
+
+    const newlyAdded = mergeIntoServerAuditLogs(validLogs);
+    const scriptUrl = resolveLogScriptUrl(reqUrl);
+    queueLogsForAppsScript(newlyAdded.length > 0 ? newlyAdded : validLogs, scriptUrl);
+
+    if (IS_VERCEL && pendingAppsScriptLogs.length > 0) {
+      await Promise.race([
+        flushPendingLogsToAppsScript(scriptUrl),
+        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+      ]);
+    }
+
+    return res.json({
+      success: true,
+      accepted: validLogs.length,
+      forwardedToSheets: Boolean(scriptUrl),
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Lỗi ghi nhận nhật ký',
+    });
+  }
+});
+
+app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
+  const scriptUrl = resolveLogScriptUrl(reqUrl);
+
+  if (!scriptUrl) {
+    return res.json({
+      success: true,
+      logs: serverAuditLogs.slice(0, limit),
+      source: 'server_memory',
+      hasAppsScriptUrl: false,
+      needsAppsScriptUpgrade: false,
+    });
+  }
+
+  try {
+    const separator = scriptUrl.includes('?') ? '&' : '?';
+    const fetchUrl = `${scriptUrl}${separator}action=GET_LOGS&limit=${limit}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+
+    const response = await fetch(fetchUrl, { method: 'GET', redirect: 'follow', signal: controller.signal });
+    clearTimeout(timer);
+
+    const text = await response.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+
+    if (data && data.success === true && Array.isArray(data.logs)) {
+      const sanitizedRemote: AuditLog[] = [];
+      for (const item of data.logs) {
+        const clean = sanitizeAuditLogInput(item);
+        if (clean) sanitizedRemote.push(clean);
+      }
+      mergeIntoServerAuditLogs(sanitizedRemote);
+      return res.json({
+        success: true,
+        logs: serverAuditLogs.slice(0, limit),
+        source: 'google_sheets',
+        hasAppsScriptUrl: true,
+        needsAppsScriptUpgrade: false,
+        totalSheetRows: data.totalRows ?? sanitizedRemote.length,
       });
     }
 
-    // Bind and listen only in non-serverless container environments
-    if (!IS_VERCEL) {
-      app.listen(PORT, HOST, () => {
-        console.log(`Server running on http://${HOST}:${PORT}`);
+    const isOldScript = Boolean(data && data.status === 'ok' && !Array.isArray(data.logs));
+    return res.json({
+      success: true,
+      logs: serverAuditLogs.slice(0, limit),
+      source: 'server_memory',
+      hasAppsScriptUrl: true,
+      needsAppsScriptUpgrade: isOldScript,
+    });
+  } catch (err: any) {
+    return res.json({
+      success: true,
+      logs: serverAuditLogs.slice(0, limit),
+      source: 'server_memory',
+      hasAppsScriptUrl: true,
+      needsAppsScriptUpgrade: false,
+      sheetsError: err?.message || 'Không thể kết nối Google Apps Script',
+    });
+  }
+});
+
+// --- GUEST APIS (STRICT PRIVACY) ---
+app.post('/api/guest/lookup', async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { pin } = req.body;
+  if (!pin || typeof pin !== 'string') {
+    return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu (pass) tra cứu.' });
+  }
+
+  const cfg = getActiveSheetsConfig(reqUrl);
+  if (!cfg.appsScriptUrl) {
+    return res.status(503).json({
+      success: false,
+      code: 'SHEETS_NOT_CONFIGURED',
+      message: 'Ứng dụng chưa được kết nối cơ sở dữ liệu Google Sheets. Vui lòng liên hệ chủ sổ.',
+    });
+  }
+
+  const cleanPin = pin.trim();
+  const trimmedPin = cleanPin.toLowerCase();
+
+  let targetDebtor: Debtor | undefined;
+  let sourceTransactions: Transaction[] = [];
+  let sourceParties: PartySplit[] = [];
+  let sourceDebtorsMap: Array<{ id: string; name: string }> = [];
+  let sourceSettings: AppSettings = DEFAULT_SETTINGS;
+
+  if (isSheetsDataLoaded && inMemoryDb && Date.now() - lastFullSyncAt < 8000) {
+    targetDebtor = inMemoryDb.debtors.find((d) => d.pin.trim().toLowerCase() === trimmedPin);
+    sourceTransactions = inMemoryDb.transactions;
+    sourceParties = inMemoryDb.parties || [];
+    sourceDebtorsMap = inMemoryDb.debtors.map((d) => ({ id: d.id, name: d.name }));
+    sourceSettings = inMemoryDb.settings || DEFAULT_SETTINGS;
+  } else {
+    try {
+      const lookupRes = await lookupGuestInSheets(cleanPin, cfg.appsScriptUrl);
+      isSheetsSettingsLoaded = true;
+      lastSettingsSyncAt = Date.now();
+      clearSheetsError();
+      targetDebtor = lookupRes.debtor || undefined;
+      sourceTransactions = lookupRes.transactions;
+      sourceParties = lookupRes.parties;
+      sourceDebtorsMap = lookupRes.debtorsMapSource;
+      sourceSettings = lookupRes.settings;
+    } catch (err: any) {
+      const info = recordSheetsError(err);
+      return res.status(503).json({
+        success: false,
+        code: info.code,
+        needsScriptUpgrade: info.needsUpgrade,
+        sheetsError: info.message,
+        message: info.message,
       });
     }
   }
 
-  // Only launch standalone listener if not running in Vercel serverless environment
-  if (!IS_VERCEL) {
-    startStandaloneServer();
+  if (!targetDebtor) {
+    return res.status(404).json({
+      success: false,
+      code: 'INVALID_CREDENTIALS',
+      message: 'Mật khẩu (pass) không tồn tại hoặc không chính xác. Vui lòng liên hệ chủ sổ.',
+    });
   }
 
-  export default app;
-  export { app };
+  const debtorTransactions = sourceTransactions
+    .filter((tx) => tx.debtorId === targetDebtor!.id)
+    .map((tx) => {
+      if (tx.partyId || tx.category === 'PARTY_SPLIT') {
+        const party = sourceParties.find((p) => p.id === tx.partyId);
+        if (party) {
+          const participantNames: string[] = [];
+          if (party.includeMe) participantNames.push(sourceSettings.ownerName || 'Tôi (Chủ sổ)');
+          (party.participantDebtorIds || []).forEach((id) => {
+            const d = sourceDebtorsMap.find((deb) => deb.id === id);
+            if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
+          });
+          const payerName =
+            party.payerType === 'ME'
+              ? sourceSettings.ownerName || 'Tôi (Chủ sổ)'
+              : sourceDebtorsMap.find((d) => d.id === party.payerDebtorId)?.name || 'Người này';
+
+          return {
+            ...tx,
+            partyTotalAmount: tx.partyTotalAmount || party.totalAmount,
+            partySplitAmount: tx.partySplitAmount || party.splitAmountPerPerson,
+            partyTotalPeople: tx.partyTotalPeople || party.totalPeopleCount,
+            partyParticipants:
+              tx.partyParticipants && tx.partyParticipants.length > 0
+                ? tx.partyParticipants
+                : participantNames,
+            partyPayerName: tx.partyPayerName || payerName,
+            partyName: tx.partyName || party.name,
+            customNote: tx.customNote || party.note,
+            billImage: tx.billImage || party.billImage,
+          };
+        }
+      }
+      return tx;
+    });
+
+  return res.json({
+    success: true,
+    debtor: {
+      id: targetDebtor.id,
+      name: targetDebtor.name,
+      phone: targetDebtor.phone,
+      pin: targetDebtor.pin,
+      note: targetDebtor.note,
+    },
+    transactions: debtorTransactions,
+    settings: {
+      ownerName: sourceSettings.ownerName,
+      ownerPhone: sourceSettings.ownerPhone || '',
+      bankId: sourceSettings.bankId,
+      bankName: sourceSettings.bankName,
+      accountNumber: sourceSettings.accountNumber,
+      accountName: sourceSettings.accountName,
+      defaultMemoPrefix: sourceSettings.defaultMemoPrefix,
+      appTitle: sourceSettings.appTitle,
+      appSubtitle: sourceSettings.appSubtitle,
+      guestAnnouncement: sourceSettings.guestAnnouncement,
+      settledThankYouNote: sourceSettings.settledThankYouNote,
+      defaultQrMode: sourceSettings.defaultQrMode || 'MANUAL_AMOUNT',
+      vietQrTemplate: sourceSettings.vietQrTemplate || 'compact2',
+      lookupInstructionText: sourceSettings.lookupInstructionText,
+      themeColor: sourceSettings.themeColor,
+      currencySuffix: sourceSettings.currencySuffix,
+    },
+  });
+});
+
+app.post('/api/guest/report-payment', async (req, res) => {
+  const reqUrl = resolveRequestScriptUrl(req);
+  const { pin, amount, note, billImage } = req.body;
+  if (!pin || !amount) {
+    return res.status(400).json({ success: false, message: 'Thiếu thông tin thanh toán' });
+  }
+
+  const trimmedPin = String(pin).trim();
+  const processedBillImage = billImage
+    ? await processAndOffloadBillImage(billImage, undefined, reqUrl)
+    : undefined;
+
+  const newTx: Transaction = {
+    id: `tx-report-${Date.now()}`,
+    debtorId: '',
+    type: 'SUB',
+    amount: Number(amount),
+    date: new Date().toISOString().split('T')[0],
+    note: note ? note.trim() : 'Chuyển khoản thanh toán',
+    category: 'PAYMENT_SETTLED',
+    ...(processedBillImage ? { billImage: processedBillImage } : {}),
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    const result = await guestReportPaymentToSheets(trimmedPin, newTx, reqUrl);
+    if (isSheetsDataLoaded && inMemoryDb) {
+      inMemoryDb.transactions = [result.transaction, ...inMemoryDb.transactions];
+      lastFullSyncAt = Date.now();
+    }
+    return res.json({
+      success: true,
+      transaction: result.transaction,
+      transactions: result.transactions,
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: `Không thể gửi báo thanh toán lên Google Sheets: ${info.message}`,
+    });
+  }
+});
+
+// --- DYNAMIC PWA WEB MANIFEST ---
+app.get(['/site.webmanifest', '/manifest.webmanifest'], async (req, res) => {
+  try {
+    await ensureSheetsSettingsSync(false, resolveRequestScriptUrl(req));
+    const db = getDatabase();
+    const rawTitle = db.settings?.appTitle?.trim();
+    const appTitle = rawTitle && rawTitle.length > 0 ? rawTitle : 'Sổ Ghi Nợ';
+    const appSubtitle = db.settings?.appSubtitle?.trim() || 'Ứng dụng quản lý tài chính, chia tiền và sao kê';
+    const shortName = appTitle.length <= 14 ? appTitle : appTitle.slice(0, 14);
+
+    const dynamicManifest = {
+      id: '/',
+      name: appTitle,
+      short_name: shortName,
+      description: appSubtitle,
+      start_url: '/',
+      scope: '/',
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#f8fafc',
+      theme_color: '#059669',
+      icons: [
+        { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' },
+      ],
+    };
+
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json(dynamicManifest);
+  } catch {
+    res.sendFile(path.resolve('./public/site.webmanifest'));
+  }
+});
+
+// --- VITE MIDDLEWARE / STATIC ASSETS & LISTEN ---
+async function startStandaloneServer() {
+  if (IS_VERCEL) return;
+  if (process.env.NODE_ENV !== 'production') {
+    const viteModuleName = 'vite';
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ viteModuleName);
+    const vite = await createViteServer({
+      server: { middlewareMode: true, hmr: false, ws: false },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
+  });
+}
+
+if (!IS_VERCEL) {
+  startStandaloneServer();
+}
+
+export default app;
+export { app };

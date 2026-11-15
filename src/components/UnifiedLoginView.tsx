@@ -21,10 +21,14 @@ import {
   Fingerprint,
   X,
   Info,
+  FileSpreadsheet,
+  Link2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
-import { loginOwner, apiGuestLookup } from '../utils/api';
-import { loadDebtors, loadTransactions, loadSettings, saveSettings, recordAuditLog } from '../utils/storage';
+import { loginOwner, apiGuestLookup, apiConfigureSheets } from '../utils/api';
+import { loadDebtors, loadTransactions, loadSettings, recordAuditLog } from '../utils/storage';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
   isBiometricsAvailable,
@@ -34,12 +38,22 @@ import {
 
 interface UnifiedLoginViewProps {
   settings: AppSettings;
+  cloudStatus?: {
+    configured?: boolean;
+    connected?: boolean;
+    needsUpgrade?: boolean;
+    error: string | null;
+    errorCode?: string | null;
+  };
+  onRefreshCloudStatus?: () => void;
   onLoginOwnerSuccess: () => void;
   onLoginGuestSuccess: (debtor: Debtor, transactions: Transaction[], settings: AppSettings) => void;
 }
 
 export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   settings,
+  cloudStatus,
+  onRefreshCloudStatus,
   onLoginOwnerSuccess,
   onLoginGuestSuccess,
 }) => {
@@ -56,26 +70,21 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [isBiometricEnrolled, setIsBiometricEnrolled] = useState(false);
   const [isBiometricLoading, setIsBiometricLoading] = useState(false);
 
+  // Thiết lập nhanh Google Apps Script URL khi lần đầu triển khai
+  const [showSheetsSetup, setShowSheetsSetup] = useState(false);
+  const [scriptUrlInput, setScriptUrlInput] = useState(settings.googleAppsScriptUrl || '');
+  const [isConfiguringSheets, setIsConfiguringSheets] = useState(false);
+  const [sheetsSetupFeedback, setSheetsSetupFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
   useEffect(() => {
     isBiometricsAvailable().then((avail) => {
       setCanUseBiometrics(avail);
       setIsBiometricEnrolled(isBiometricsEnrolled());
     });
   }, []);
-
-  // If in an InPrivate window and public settings are default, hydrate immediately
-  useEffect(() => {
-    if (!settings.isInitialized || settings.ownerName === 'Chủ Tài Khoản (Tôi)') {
-      fetch('/api/settings')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (data?.success && data.settings) {
-            saveSettings(data.settings);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [settings.isInitialized, settings.ownerName]);
 
   const displayPhone = (settings.ownerPhone || '').trim();
 
@@ -184,79 +193,131 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           return;
         }
 
-        // 3. Dự phòng tra cứu danh bạ bộ nhớ cục bộ (offline cache)
+        const rawErrCode =
+          (guestRes as any)?.errorCode === 'SHEETS_NOT_CONFIGURED' ||
+          ownerRes.errorCode === 'SHEETS_NOT_CONFIGURED'
+            ? 'SHEETS_NOT_CONFIGURED'
+            : (guestRes as any)?.errorCode === 'SHEETS_LEGACY_SCRIPT' ||
+              ownerRes.errorCode === 'SHEETS_LEGACY_SCRIPT'
+            ? 'SHEETS_LEGACY_SCRIPT'
+            : (guestRes as any)?.errorCode === 'SHEETS_UNAVAILABLE' ||
+              ownerRes.errorCode === 'SHEETS_UNAVAILABLE'
+            ? 'SHEETS_UNAVAILABLE'
+            : undefined;
+
+        // 3. Dự phòng tra cứu bộ nhớ cục bộ CHỈ KHI không bị lỗi cấu hình/kết nối Google Sheets từ máy chủ
         const localSettings = loadSettings();
-        const localOwnerPass = (localSettings?.ownerPassword || '').trim();
-        const localOwnerPhone = (localSettings?.ownerPhone || '').trim();
-        const cleanLower = clean.toLowerCase();
-        const cleanPhone = clean.replace(/[\s.-]+/g, '');
-        const localPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
-
-        const isPhoneMatch = Boolean(localPhone && cleanPhone === localPhone);
-        if (
-          (localOwnerPass && (clean === localOwnerPass || cleanLower === localOwnerPass.toLowerCase())) ||
-          isPhoneMatch
-        ) {
-          const authMethod =
-            methodHint === 'FACE_ID'
-              ? 'FaceID / Sinh trắc học'
-              : isPhoneMatch
-              ? 'Số điện thoại chủ sổ'
-              : 'Mật khẩu quản trị';
-          recordAuditLog({
-            action: methodHint === 'FACE_ID' ? 'BIOMETRIC_AUTH' : 'LOGIN_SUCCESS',
-            actor: `Chủ Sổ (${localSettings?.ownerName || 'Admin'})`,
-            title: methodHint === 'FACE_ID' ? 'Đăng nhập FaceID (Offline Cache)' : 'Đăng nhập quản trị (Offline Cache)',
-            description: `Chủ sổ đã đăng nhập thành công qua ${authMethod} từ bộ nhớ cục bộ.`,
-            beforeState: 'Chưa đăng nhập',
-            afterState: `Đã mở khóa phiên quản trị (${authMethod})`,
-            changes: [{ fieldLabel: 'Phương thức', before: 'Khóa', after: authMethod }],
-            metadata: { authChannel: 'Local Cache', loginMethod: authMethod },
-          });
-          handleOwnerSuccess();
-          return;
-        }
-
         const localDebtors = loadDebtors();
-        const localFound = localDebtors.find(
-          (d) => d.pin.trim().toLowerCase() === cleanLower
-        );
-        if (localFound) {
-          const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
-          const addTotal = localTxs.filter((t) => t.type === 'ADD').reduce((a, t) => a + t.amount, 0);
-          const subTotal = localTxs.filter((t) => t.type === 'SUB').reduce((a, t) => a + t.amount, 0);
-          const balance = addTotal - subTotal;
-          const balanceStr = new Intl.NumberFormat('vi-VN').format(balance);
+        const hasLocalCache = Boolean(localSettings?.isInitialized || localDebtors.length > 0);
+        const cleanLower = clean.toLowerCase();
+
+        if (!rawErrCode && hasLocalCache) {
+          const localOwnerPass = (localSettings?.ownerPassword || '').trim();
+          const localOwnerPhone = (localSettings?.ownerPhone || '').trim();
+          const cleanPhone = clean.replace(/[\s.-]+/g, '');
+          const localPhone = localOwnerPhone.replace(/[\s.-]+/g, '');
+
+          const isPhoneMatch = Boolean(localPhone && cleanPhone === localPhone);
+          if (
+            (localOwnerPass && (clean === localOwnerPass || cleanLower === localOwnerPass.toLowerCase())) ||
+            isPhoneMatch
+          ) {
+            const authMethod =
+              methodHint === 'FACE_ID'
+                ? 'FaceID / Sinh trắc học'
+                : isPhoneMatch
+                ? 'Số điện thoại chủ sổ'
+                : 'Mật khẩu quản trị';
+            recordAuditLog({
+              action: methodHint === 'FACE_ID' ? 'BIOMETRIC_AUTH' : 'LOGIN_SUCCESS',
+              actor: `Chủ Sổ (${localSettings?.ownerName || 'Admin'})`,
+              title: methodHint === 'FACE_ID' ? 'Đăng nhập FaceID (Offline Cache)' : 'Đăng nhập quản trị (Offline Cache)',
+              description: `Chủ sổ đã đăng nhập thành công qua ${authMethod} từ bộ nhớ cục bộ.`,
+              beforeState: 'Chưa đăng nhập',
+              afterState: `Đã mở khóa phiên quản trị (${authMethod})`,
+              changes: [{ fieldLabel: 'Phương thức', before: 'Khóa', after: authMethod }],
+              metadata: { authChannel: 'Local Cache', loginMethod: authMethod },
+            });
+            handleOwnerSuccess();
+            return;
+          }
+
+          const localFound = localDebtors.find(
+            (d) => d.pin.trim().toLowerCase() === cleanLower
+          );
+          if (localFound) {
+            const localTxs = loadTransactions().filter((t) => t.debtorId === localFound.id);
+            const addTotal = localTxs.filter((t) => t.type === 'ADD').reduce((a, t) => a + t.amount, 0);
+            const subTotal = localTxs.filter((t) => t.type === 'SUB').reduce((a, t) => a + t.amount, 0);
+            const balance = addTotal - subTotal;
+            const balanceStr = new Intl.NumberFormat('vi-VN').format(balance);
+            recordAuditLog({
+              action: 'GUEST_LOOKUP',
+              actor: `Khách: ${localFound.name}`,
+              title: `Khách tra cứu sổ nợ: ${localFound.name}`,
+              description: `Khách "${localFound.name}" đã nhập mã tra cứu (PIN: ${localFound.pin}) để xem bảng đối soát công nợ (Offline Cache). Dư nợ hiện thời: ${balanceStr} VNĐ (${localTxs.length} giao dịch).`,
+              debtorId: localFound.id,
+              debtorName: localFound.name,
+              amount: balance,
+              beforeState: 'Trạng thái khách: Chưa đăng nhập tra cứu',
+              afterState: `Đã nhập đúng mã PIN: ${localFound.pin}, đối soát số dư ${balanceStr} VNĐ (${localTxs.length} giao dịch)`,
+              changes: [
+                { fieldLabel: 'Mã PIN tra cứu', before: 'Chưa nhập', after: `Khớp PIN (${localFound.pin})` },
+                { fieldLabel: 'Nguồn dữ liệu', before: '-', after: 'Bộ nhớ cục bộ (Offline)' },
+                { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} VNĐ (${localTxs.length} giao dịch)` },
+              ],
+              metadata: {
+                pin: localFound.pin,
+                source: 'Offline Cache',
+                balance,
+                totalAdd: addTotal,
+                totalSub: subTotal,
+                txCount: localTxs.length,
+              },
+            });
+            setPasscode('');
+            onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
+            return;
+          }
+        }
+
+        // 4. Nếu lỗi do chưa cấu hình hoặc mất kết nối Google Sheets, thông báo rõ nguyên nhân (không báo sai mật khẩu!)
+        if (rawErrCode) {
+          const isNotConfigured = rawErrCode === 'SHEETS_NOT_CONFIGURED';
+          const isLegacyScript = rawErrCode === 'SHEETS_LEGACY_SCRIPT';
+          const cloudMsg = isNotConfigured
+            ? 'Chưa kết nối Google Sheets (Apps Script URL). Quản trị viên vui lòng dán link Apps Script v3 ở phần thiết lập bên trên hoặc cài đặt biến GOOGLE_APPS_SCRIPT_URL trên Vercel.'
+            : isLegacyScript
+            ? 'Google Apps Script đang sử dụng phiên bản cũ (v1/v2). Vui lòng cập nhật mã Apps Script v3 (5 Tab) và triển khai phiên bản mới.'
+            : ownerRes.message ||
+              guestRes.message ||
+              'Không thể kết nối đến cơ sở dữ liệu Google Sheets để kiểm tra mật khẩu. Vui lòng thử lại sau.';
+
+          if (isNotConfigured) {
+            setShowSheetsSetup(true);
+          }
+
           recordAuditLog({
-            action: 'GUEST_LOOKUP',
-            actor: `Khách: ${localFound.name}`,
-            title: `Khách tra cứu sổ nợ: ${localFound.name}`,
-            description: `Khách "${localFound.name}" đã nhập mã tra cứu (PIN: ${localFound.pin}) để xem bảng đối soát công nợ (Offline Cache). Dư nợ hiện thời: ${balanceStr} VNĐ (${localTxs.length} giao dịch).`,
-            debtorId: localFound.id,
-            debtorName: localFound.name,
-            amount: balance,
-            beforeState: 'Trạng thái khách: Chưa đăng nhập tra cứu',
-            afterState: `Đã nhập đúng mã PIN: ${localFound.pin}, đối soát số dư ${balanceStr} VNĐ (${localTxs.length} giao dịch)`,
-            changes: [
-              { fieldLabel: 'Mã PIN tra cứu', before: 'Chưa nhập', after: `Khớp PIN (${localFound.pin})` },
-              { fieldLabel: 'Nguồn dữ liệu', before: '-', after: 'Bộ nhớ cục bộ (Offline)' },
-              { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} VNĐ (${localTxs.length} giao dịch)` },
-            ],
-            metadata: {
-              pin: localFound.pin,
-              source: 'Offline Cache',
-              balance,
-              totalAdd: addTotal,
-              totalSub: subTotal,
-              txCount: localTxs.length,
-            },
+            action: 'OPERATION_FAILED',
+            actor: 'Hệ thống Google Sheets',
+            title: isNotConfigured
+              ? 'Chưa cấu hình URL Google Apps Script'
+              : isLegacyScript
+              ? 'Apps Script cần nâng cấp lên v3'
+              : 'Mất kết nối Google Sheets khi xác thực',
+            description: cloudMsg,
+            beforeState: 'Gửi yêu cầu xác thực',
+            afterState: rawErrCode,
+            changes: [{ fieldLabel: 'Trạng thái Google Sheets', before: 'Đang kiểm tra', after: rawErrCode }],
+            metadata: { errorCode: rawErrCode },
           });
-          setPasscode('');
-          onLoginGuestSuccess(localFound, localTxs, localSettings || settings);
+          setError(cloudMsg);
+          setIsShaking(true);
+          setTimeout(() => setIsShaking(false), 500);
           return;
         }
 
-        // 4. Nếu không khớp
+        // 5. Nếu CSDL kết nối bình thường nhưng mã không khớp
         const masked = clean.length > 2 ? `${clean.slice(0, 1)}***${clean.slice(-1)}` : '***';
         recordAuditLog({
           action: 'LOOKUP_FAILED',
@@ -301,6 +362,43 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setError('');
   };
 
+  const handleConfigureSheetsQuick = async () => {
+    const trimmed = scriptUrlInput.trim();
+    if (!trimmed.startsWith('https://script.google.com/')) {
+      setSheetsSetupFeedback({
+        type: 'error',
+        message: 'URL phải bắt đầu bằng https://script.google.com/macros/s/...',
+      });
+      return;
+    }
+    setIsConfiguringSheets(true);
+    setSheetsSetupFeedback(null);
+    try {
+      const res = await apiConfigureSheets(trimmed);
+      if (res.success) {
+        setSheetsSetupFeedback({
+          type: 'success',
+          message: 'Kết nối Google Sheets v3 thành công! Bạn có thể đăng nhập ngay bây giờ.',
+        });
+        setError('');
+        setShowSheetsSetup(false);
+        onRefreshCloudStatus?.();
+      } else {
+        setSheetsSetupFeedback({
+          type: 'error',
+          message: res.message || 'Không thể kết nối URL Apps Script này. Kiểm tra quyền Anyone và phiên bản v3.',
+        });
+      }
+    } catch (err: any) {
+      setSheetsSetupFeedback({
+        type: 'error',
+        message: err?.message || 'Lỗi kết nối máy chủ khi kiểm tra URL Google Sheets.',
+      });
+    } finally {
+      setIsConfiguringSheets(false);
+    }
+  };
+
   return (
     <div className="relative min-h-[82vh] flex flex-col items-center justify-center p-3 sm:p-5 w-full select-none">
       {/* 🌌 Ambient Glow nhẹ nhàng phía sau */}
@@ -340,6 +438,78 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
         {/* 2. Form Nhập Mật Khẩu */}
         <form onSubmit={handleFormSubmit} autoComplete="off" data-lpignore="true" data-1p-ignore="true" className="p-5 sm:p-6 space-y-4">
+          {(cloudStatus?.configured === false || cloudStatus?.error) && (
+            <div className="p-3 sm:p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-2.5">
+              <div className="flex items-start gap-2.5 leading-relaxed">
+                <FileSpreadsheet className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-1">
+                  <p className="font-bold">
+                    {cloudStatus?.configured === false
+                      ? 'Chưa kết nối cơ sở dữ liệu Google Sheets'
+                      : cloudStatus?.needsUpgrade
+                      ? 'Google Apps Script cần nâng cấp lên v3'
+                      : 'Không thể kết nối tới Google Sheets'}
+                  </p>
+                  <p className="text-[11.5px] text-amber-800/90 leading-snug">
+                    {cloudStatus?.configured === false
+                      ? 'Hệ thống hiện dùng Google Sheets (Apps Script v3) làm cơ sở dữ liệu duy nhất. Dán URL Web App Apps Script để kết nối ngay, hoặc cài đặt biến GOOGLE_APPS_SCRIPT_URL trên Vercel để mọi thiết bị tự động kết nối.'
+                      : cloudStatus?.error ||
+                        'Không thể tải dữ liệu từ Google Apps Script Web App. Vui lòng kiểm tra lại cấu hình hoặc kết nối mạng.'}
+                  </p>
+                </div>
+              </div>
+
+              {cloudStatus?.configured === false && (
+                <div className="pt-1 border-t border-amber-200/70">
+                  <button
+                    type="button"
+                    onClick={() => setShowSheetsSetup((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-[11.5px] font-bold text-emerald-800 hover:text-emerald-950 cursor-pointer"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>{showSheetsSetup ? 'Ẩn cấu hình Google Sheets nhanh' : 'Kết nối URL Google Apps Script ngay'}</span>
+                    {showSheetsSetup ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {showSheetsSetup && (
+                    <div className="mt-2.5 space-y-2">
+                      <input
+                        type="url"
+                        value={scriptUrlInput}
+                        onChange={(e) => setScriptUrlInput(e.target.value)}
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                        className="w-full px-3 py-2 text-xs font-mono bg-white border border-amber-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleConfigureSheetsQuick}
+                        disabled={isConfiguringSheets || !scriptUrlInput.trim()}
+                        className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        {isConfiguringSheets ? 'Đang kiểm tra & kết nối...' : 'Lưu & Kết nối Google Sheets'}
+                      </button>
+                      <p className="text-[10.5px] text-amber-800/80 leading-snug">
+                        Mẹo: Để tất cả điện thoại khác tự động kết nối mà không cần dán lại link, hãy thêm biến <code className="font-mono font-bold">GOOGLE_APPS_SCRIPT_URL</code> trong Vercel Environment Variables và Redeploy.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {sheetsSetupFeedback && (
+                <div
+                  className={`p-2 rounded-lg text-[11px] font-semibold ${
+                    sheetsSetupFeedback.type === 'success'
+                      ? 'bg-emerald-100 text-emerald-900'
+                      : 'bg-rose-100 text-rose-800'
+                  }`}
+                >
+                  {sheetsSetupFeedback.message}
+                </div>
+              )}
+            </div>
+          )}
+
           <AnimatePresence>
             {error && (
               <motion.div

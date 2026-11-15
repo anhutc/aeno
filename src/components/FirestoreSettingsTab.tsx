@@ -13,12 +13,16 @@ import {
   Download,
   Archive,
   Upload,
+  Link2,
+  Copy,
+  Check,
+  RefreshCw,
 } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
 import {
-  apiGetFirestoreStatus,
-  apiTestFirestoreConnection,
-  apiChangeFirestoreDatabase,
+  apiGetSheetsStatus,
+  apiTestSheetsConnection,
+  apiConfigureSheets,
   apiGetFirestoreBackups,
   apiCreateFirestoreBackup,
   apiRestoreFirestoreBackup,
@@ -26,8 +30,6 @@ import {
   BackupItem,
   FirestoreStatusInfo,
 } from '../utils/api';
-import { pingClientFirestore, reconfigureClientFirestore, getClientFirebaseConfig } from '../firebase';
-import { BUILTIN_FIREBASE_CONFIG } from '../firebaseConfig';
 import { GoogleSheetsSyncSection } from './GoogleSheetsSyncSection';
 import { recordAuditLog } from '../utils/storage';
 
@@ -37,7 +39,7 @@ export interface FirestoreSettingsTabProps {
   settings: AppSettings;
   parties?: PartySplit[];
   onDataReload: () => void;
-  showToast: (msg: string, type?: 'success' | 'error') => void;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
   onSwitchToSecurityTab?: () => void;
   onSaveSettings?: (newSettings: AppSettings) => void;
   onImportJsonFile?: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -51,7 +53,6 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   parties = [],
   onDataReload,
   showToast,
-  onSwitchToSecurityTab,
   onSaveSettings,
   onImportJsonFile,
   onOpenClearAllModal,
@@ -59,23 +60,22 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   // Live Status State
   const [status, setStatus] = useState<FirestoreStatusInfo | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
-  const [clientPing, setClientPing] = useState<{ success: boolean; latencyMs: number } | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(() => new Date());
 
   // Modals
   const [isCloudSourceModalOpen, setIsCloudSourceModalOpen] = useState(false);
 
-  // Database Switcher State (inside CloudSourceModal)
-  const [selectedDbMode, setSelectedDbMode] = useState<'APPLET' | 'DEFAULT' | 'CUSTOM'>('APPLET');
-  const [customDatabaseId, setCustomDatabaseId] = useState('');
-  const [migrateDataOnSwitch, setMigrateDataOnSwitch] = useState(true);
-  const [isTestingTargetDb, setIsTestingTargetDb] = useState(false);
+  // Google Sheets & Vercel Env Setup State (inside CloudSourceModal)
+  const [modalScriptUrl, setModalScriptUrl] = useState(settings.googleAppsScriptUrl || '');
+  const [modalSheetUrl, setModalSheetUrl] = useState(settings.googleSheetUrl || '');
+  const [isTestingTargetSheets, setIsTestingTargetSheets] = useState(false);
   const [testTargetFeedback, setTestTargetFeedback] = useState<{
     success: boolean;
     latencyMs?: number;
     message: string;
   } | null>(null);
-  const [isApplyingDb, setIsApplyingDb] = useState(false);
+  const [isApplyingSheets, setIsApplyingSheets] = useState(false);
+  const [copiedVercelEnv, setCopiedVercelEnv] = useState(false);
 
   // Snapshot Backups State (inside CloudSourceModal)
   const [backups, setBackups] = useState<BackupItem[]>([]);
@@ -84,7 +84,15 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
   const [restoringFilename, setRestoringFilename] = useState<string | null>(null);
 
   // Active sub-tab inside CloudSourceModal
-  const [sourceModalTab, setSourceModalTab] = useState<'DATABASE' | 'BOT_API' | 'DEPLOY' | 'SNAPSHOTS'>('DATABASE');
+  const [sourceModalTab, setSourceModalTab] = useState<'DATABASE' | 'BOT_API' | 'SNAPSHOTS'>('DATABASE');
+
+  useEffect(() => {
+    setModalScriptUrl(settings.googleAppsScriptUrl || '');
+  }, [settings.googleAppsScriptUrl]);
+
+  useEffect(() => {
+    setModalSheetUrl(settings.googleSheetUrl || '');
+  }, [settings.googleSheetUrl]);
 
   // Fetch backups list
   const fetchBackups = useCallback(async () => {
@@ -101,29 +109,14 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     }
   }, []);
 
-  // Initial fetch and ping
+  // Initial fetch and status check
   const checkStatus = useCallback(async () => {
     setIsCheckingStatus(true);
     try {
-      const [serverStatus, browserPing] = await Promise.all([
-        apiGetFirestoreStatus(),
-        pingClientFirestore(),
-      ]);
+      const serverStatus = await apiGetSheetsStatus();
       setStatus(serverStatus);
-      setClientPing(browserPing);
-
-      if (serverStatus.databaseId) {
-        if (serverStatus.databaseId === serverStatus.defaultDatabaseId) {
-          setSelectedDbMode('APPLET');
-        } else if (serverStatus.databaseId === '(default)') {
-          setSelectedDbMode('DEFAULT');
-        } else {
-          setSelectedDbMode('CUSTOM');
-          setCustomDatabaseId(serverStatus.databaseId);
-        }
-      }
     } catch (err: any) {
-      console.warn('Lỗi kiểm tra trạng thái Firestore:', err?.message);
+      console.warn('Lỗi kiểm tra trạng thái Google Sheets:', err?.message);
     } finally {
       setIsCheckingStatus(false);
     }
@@ -139,44 +132,55 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     setIsCheckingStatus(true);
     const t0 = performance.now();
     try {
-      const [serverStatus, browserPing] = await Promise.all([
-        apiGetFirestoreStatus(),
-        pingClientFirestore(),
+      const [serverStatus, testRes] = await Promise.all([
+        apiGetSheetsStatus(),
+        apiTestSheetsConnection(),
       ]);
       const dt = Math.round(performance.now() - t0);
-      setStatus(serverStatus);
-      setClientPing(browserPing);
+      setStatus({
+        ...serverStatus,
+        connected: Boolean(testRes.success),
+        latencyMs: testRes.latencyMs || dt,
+        version: testRes.version ?? serverStatus.version,
+        needsUpgrade: Boolean(testRes.needsUpgrade),
+        error: testRes.error || serverStatus.error,
+      });
       setLastSyncTime(new Date());
       recordAuditLog({
-        action: 'CLOUD_SYNC',
+        action: testRes.success ? 'CLOUD_SYNC' : 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
-        title: 'Kiểm tra kết nối (Ping) Cloud Firestore',
-        description: `Kiểm tra trạng thái kết nối Cloud Firestore (${serverStatus.databaseId}): ${serverStatus.connected ? 'Online' : 'Offline'}, độ trễ tổng ${dt} ms (Trực tiếp: ${browserPing.latencyMs} ms).`,
-        beforeState: `Database: ${serverStatus.databaseId}`,
-        afterState: `${serverStatus.connected ? 'Online' : 'Offline'} (${dt} ms)`,
+        title: 'Kiểm tra kết nối (Ping) Google Sheets Cloud',
+        description: testRes.success
+          ? `Kiểm tra kết nối Google Sheets (Apps Script v${testRes.version || 3}): Online, độ trễ ${testRes.latencyMs || dt} ms.`
+          : `Kiểm tra kết nối Google Sheets thất bại: ${testRes.error || 'Chưa cấu hình hoặc mất kết nối'}`,
+        beforeState: 'Kiểm tra Google Sheets Cloud',
+        afterState: testRes.success ? `Online (${testRes.latencyMs || dt} ms)` : 'Offline / Lỗi kết nối',
         changes: [
-          { fieldLabel: 'Database ID', before: '-', after: serverStatus.databaseId },
-          { fieldLabel: 'Độ trễ phản hồi', before: '-', after: `${dt} ms (Client SDK: ${browserPing.latencyMs} ms)` },
-          { fieldLabel: 'Trạng thái', before: '-', after: serverStatus.connected ? 'Hoạt động tốt' : 'Mất kết nối' },
+          { fieldLabel: 'CSDL Cloud', before: '-', after: `Google Sheets (Apps Script v${testRes.version || 3})` },
+          { fieldLabel: 'Độ trễ phản hồi', before: '-', after: `${testRes.latencyMs || dt} ms` },
+          { fieldLabel: 'Trạng thái', before: '-', after: testRes.success ? 'Hoạt động tốt' : (testRes.error || 'Mất kết nối') },
         ],
         metadata: {
-          databaseId: serverStatus.databaseId,
-          totalLatencyMs: dt,
-          clientPingMs: browserPing.latencyMs,
-          connected: serverStatus.connected,
+          databaseId: 'google-sheets-cloud',
+          totalLatencyMs: testRes.latencyMs || dt,
+          connected: testRes.success,
         },
       });
-      showToast(`⚡ Ping thành công! Độ trễ phản hồi: ${dt} ms`, 'success');
+      if (testRes.success) {
+        showToast(`⚡ Kết nối Google Sheets thành công! Độ trễ: ${testRes.latencyMs || dt} ms`, 'success');
+      } else {
+        showToast(testRes.error || 'Không thể kết nối Google Sheets. Kiểm tra lại Apps Script URL.', 'error');
+      }
     } catch {
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
-        title: 'Ping Cloud Firestore thất bại',
-        description: 'Không thể kết nối máy chủ để kiểm tra ping Cloud Firestore.',
+        title: 'Ping Google Sheets Cloud thất bại',
+        description: 'Không thể kết nối máy chủ để kiểm tra Google Sheets.',
         beforeState: 'Kiểm tra kết nối Cloud',
         afterState: 'Thất bại',
       });
-      showToast('Không thể kết nối máy chủ để kiểm tra ping.', 'error');
+      showToast('Không thể kết nối máy chủ để kiểm tra Google Sheets.', 'error');
     } finally {
       setIsCheckingStatus(false);
     }
@@ -216,8 +220,8 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
 
     const fullBackup = {
       appName: settings.appTitle || 'OK Sổ Ghi Nợ',
-      schemaVersion: 2,
-      databaseId: status?.databaseId || BUILTIN_FIREBASE_CONFIG.firestoreDatabaseId,
+      schemaVersion: 3,
+      databaseId: status?.databaseId || 'google-sheets-cloud',
       exportedAt: new Date().toISOString(),
       stats: {
         debtorsCount: debtors.length,
@@ -243,9 +247,9 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     recordAuditLog({
       action: 'EXPORT_DATA',
       actor: 'Chủ Sổ (Admin)',
-      title: 'Xuất tệp sao lưu JSON từ Cloud',
-      description: `Đã xuất tệp sao lưu "${filename}" (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch, ${(parties || []).length} cuộc vui; Database: ${fullBackup.databaseId}).`,
-      beforeState: `Database: ${fullBackup.databaseId}`,
+      title: 'Xuất tệp sao lưu JSON từ Google Sheets',
+      description: `Đã xuất tệp sao lưu "${filename}" (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch, ${(parties || []).length} cuộc vui; Nguồn: Google Sheets Cloud).`,
+      beforeState: `CSDL: ${fullBackup.databaseId}`,
       afterState: `Đã xuất tệp ${filename}`,
       changes: [
         { fieldLabel: 'Tệp xuất ra', before: '-', after: filename },
@@ -262,86 +266,69 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     showToast(`Đã xuất tệp sao lưu (${debtors.length} người nợ, ${cleanTransactions.length} giao dịch, mật khẩu quản lý được bảo mật riêng)!`, 'success');
   };
 
-  // Switch Database ID Logic
-  const getTargetDatabaseId = (): string => {
-    if (selectedDbMode === 'APPLET') {
-      return status?.defaultDatabaseId || getClientFirebaseConfig().defaultDatabaseId;
-    }
-    if (selectedDbMode === 'DEFAULT') {
-      return '(default)';
-    }
-    return customDatabaseId.trim();
-  };
-
-  const handleTestTargetDb = async () => {
-    const targetDbId = getTargetDatabaseId();
-    if (!targetDbId) {
+  const handleTestTargetSheets = async () => {
+    const trimmed = modalScriptUrl.trim();
+    if (!trimmed.startsWith('https://script.google.com/')) {
       setTestTargetFeedback({
         success: false,
-        message: 'Vui lòng nhập Database ID hợp lệ trước khi kiểm tra!',
+        message: 'URL Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
       });
       return;
     }
 
-    setIsTestingTargetDb(true);
+    setIsTestingTargetSheets(true);
     setTestTargetFeedback(null);
     try {
-      const res = await apiTestFirestoreConnection({ databaseId: targetDbId });
-      recordAuditLog({
-        action: res.success ? 'CLOUD_SYNC' : 'OPERATION_FAILED',
-        actor: 'Chủ Sổ (Admin)',
-        title: `Kiểm tra Database ID: ${targetDbId}`,
-        description: res.success
-          ? `Kiểm tra kết nối tới Database "${targetDbId}" thành công (Độ trễ: ${res.latencyMs} ms).`
-          : `Kiểm tra kết nối tới Database "${targetDbId}" thất bại: ${res.error || 'Lỗi'}`,
-        beforeState: `Thử kết nối ${targetDbId}`,
-        afterState: res.success ? `Thành công (${res.latencyMs} ms)` : 'Thất bại',
-      });
+      const res = await apiTestSheetsConnection({ appsScriptUrl: trimmed });
       setTestTargetFeedback({
         success: res.success,
         latencyMs: res.latencyMs,
         message: res.success
-          ? `✅ Kết nối tới database "${targetDbId}" thành công! Độ trễ: ${res.latencyMs} ms`
-          : `❌ Không thể kết nối: ${res.error || 'Vui lòng kiểm tra lại quyền truy cập hoặc tên Database ID'}`,
+          ? `✅ Kết nối Google Sheets (Apps Script v${res.version || 3}) thành công! Độ trễ: ${res.latencyMs} ms`
+          : `❌ Không thể kết nối: ${res.error || 'Vui lòng kiểm tra quyền Anyone và mã Apps Script v3'}`,
       });
     } catch (err: any) {
       setTestTargetFeedback({
         success: false,
-        message: `Lỗi: ${err?.message || 'Không thể kiểm tra'}`,
+        message: `Lỗi: ${err?.message || 'Không thể kiểm tra kết nối'}`,
       });
     } finally {
-      setIsTestingTargetDb(false);
+      setIsTestingTargetSheets(false);
     }
   };
 
-  const handleApplyTargetDb = async () => {
-    const targetDbId = getTargetDatabaseId();
-    if (!targetDbId) {
-      showToast('Database ID không được để trống!', 'error');
+  const handleApplyTargetSheets = async () => {
+    const trimmed = modalScriptUrl.trim();
+    if (!trimmed.startsWith('https://script.google.com/')) {
+      showToast('URL Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...', 'error');
       return;
     }
 
-    setIsApplyingDb(true);
+    setIsApplyingSheets(true);
     try {
-      const res = await apiChangeFirestoreDatabase({
-        databaseId: targetDbId,
-        migrateExistingData: migrateDataOnSwitch,
-      });
+      const res = await apiConfigureSheets(trimmed, modalSheetUrl.trim() || undefined);
       if (res.success) {
-        reconfigureClientFirestore(targetDbId);
-        showToast(res.message || `Đã chuyển sang database "${targetDbId}" thành công!`, 'success');
+        if (onSaveSettings) {
+          onSaveSettings({
+            ...settings,
+            googleAppsScriptUrl: trimmed,
+            ...(modalSheetUrl.trim() ? { googleSheetUrl: modalSheetUrl.trim() } : {}),
+            autoSyncGoogleSheets: true,
+          });
+        }
+        showToast(res.message || 'Đã kết nối nguồn Google Sheets v3 thành công!', 'success');
         setLastSyncTime(new Date());
         await checkStatus();
         await fetchBackups();
         onDataReload();
         setIsCloudSourceModalOpen(false);
       } else {
-        showToast(res.message || 'Không thể chuyển đổi database.', 'error');
+        showToast(res.message || 'Không thể cấu hình Google Sheets URL này.', 'error');
       }
     } catch (err: any) {
-      showToast(`Lỗi chuyển đổi: ${err?.message}`, 'error');
+      showToast(`Lỗi cấu hình: ${err?.message}`, 'error');
     } finally {
-      setIsApplyingDb(false);
+      setIsApplyingSheets(false);
     }
   };
 
@@ -394,29 +381,42 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
     return `${h}:${m}:${s} ${d}/${mo}/${y}`;
   };
 
-  const activeDbId = status?.databaseId || BUILTIN_FIREBASE_CONFIG.firestoreDatabaseId;
-  const projectId = status?.projectId || BUILTIN_FIREBASE_CONFIG.projectId;
-  const isOnline = status?.connected !== false;
+  const isConfigured = Boolean(settings.googleAppsScriptUrl || status?.configured);
+  const isOnline = status ? Boolean(status.connected) : isConfigured;
+  const activeDbLabel = status?.databaseId || (isConfigured ? `Google Sheets (v${status?.version || 3})` : 'Chưa cấu hình URL');
+  const activeSourceLabel = status?.source === 'env'
+    ? 'Vercel / Env Var'
+    : status?.source === 'settings' || status?.source === 'header'
+    ? 'Cài đặt ứng dụng'
+    : isConfigured
+    ? 'Apps Script Web App'
+    : 'Chưa kết nối';
 
-  const latencyDisplay = clientPing?.latencyMs
-    ? `⚡ < ${Math.max(clientPing.latencyMs, 20)} ms (Cực nhanh)`
-    : status?.latencyMs
-      ? `⚡ < ${Math.max(status.latencyMs, 25)} ms (Cực nhanh)`
-      : '⚡ < 50 ms (Cực nhanh)';
+  const latencyDisplay = status?.latencyMs
+    ? `⚡ ${status.latencyMs} ms`
+    : isOnline
+    ? '⚡ Sẵn sàng'
+    : 'Chưa kết nối';
+
+  const vercelEnvSnippet = `GOOGLE_APPS_SCRIPT_URL=${(modalScriptUrl || settings.googleAppsScriptUrl || 'https://script.google.com/macros/s/.../exec').trim()}${
+    (modalSheetUrl || settings.googleSheetUrl || '').trim()
+      ? `\nGOOGLE_SHEET_URL=${(modalSheetUrl || settings.googleSheetUrl || '').trim()}`
+      : ''
+  }`;
 
   return (
     <div className="space-y-5">
       {/* =========================================================================
-          TOP HEADER: ĐỒNG BỘ GOOGLE SHEETS & QUẢN TRỊ DỮ LIỆU
+          TOP HEADER: GOOGLE SHEETS CLOUD & QUẢN TRỊ DỮ LIỆU
          ========================================================================= */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 flex items-center gap-2">
             <Cloud className="w-4 h-4 text-emerald-600" />
-            <span>Đồng Bộ Google Sheets &amp; Quản Trị Dữ Liệu</span>
+            <span>Cơ Sở Dữ Liệu Google Sheets &amp; Google Drive</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Đồng bộ tự động tức thì lên Google Sheets (lưu log vĩnh viễn) và đám mây máy chủ Cloud Firestore.
+            Toàn bộ dữ liệu (5 Tab) và ảnh hóa đơn (Google Drive) được lưu trữ 100% trên Google Sheets — không giới hạn đọc/ghi mỗi ngày.
           </p>
         </div>
 
@@ -434,7 +434,13 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                 isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
               }`}
             ></span>
-            <span>{isOnline ? 'Cloud Firestore Online' : 'Cloud Firestore Offline'}</span>
+            <span>
+              {isOnline
+                ? 'Google Sheets Online'
+                : isConfigured
+                ? 'Google Sheets Offline'
+                : 'Chưa cấu hình URL'}
+            </span>
           </span>
         </div>
       </div>
@@ -455,12 +461,12 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
         showToast={showToast}
       />
 
-      {/* Card 1: Thông Tin Hạ Tầng Máy Chủ Đám Mây */}
+      {/* Card 1: Thông Tin Hạ Tầng Google Sheets Cloud */}
       <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
             <Database className="w-4 h-4 text-blue-600" />
-            <span>Thông Tin Hạ Tầng Máy Chủ Đám Mây</span>
+            <span>Thông Tin Hạ Tầng Google Sheets Cloud</span>
           </div>
             <button
               type="button"
@@ -469,37 +475,30 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
               className="px-3 py-1.5 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
             >
               <Zap className={`w-3.5 h-3.5 text-amber-500 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-              <span>{isCheckingStatus ? 'Đang ping...' : 'Kiểm tra kết nối (Ping Test)'}</span>
+              <span>{isCheckingStatus ? 'Đang kiểm tra...' : 'Kiểm tra kết nối (Ping Test)'}</span>
             </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-            {/* Col 1: Database */}
+            {/* Col 1: CSDL */}
             <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs">
-              <div className="text-[11px] text-slate-500 font-medium">Cơ sở dữ liệu (Database)</div>
-              <div
-                className="text-xs font-bold text-slate-900 truncate mt-0.5 font-mono cursor-pointer hover:text-blue-600 transition-colors"
-                title={`${activeDbId} (Nhấn để sao chép)`}
-                onClick={() => {
-                  navigator.clipboard.writeText(activeDbId);
-                  showToast('Đã sao chép Database ID!', 'success');
-                }}
-              >
-                {activeDbId.length > 20 ? `${activeDbId.slice(0, 18)}...` : activeDbId}
+              <div className="text-[11px] text-slate-500 font-medium">Cơ sở dữ liệu (CSDL)</div>
+              <div className="text-xs font-bold text-slate-900 truncate mt-0.5 font-mono">
+                {activeDbLabel}
               </div>
             </div>
 
-            {/* Col 2: Project */}
+            {/* Col 2: Nguồn cấu hình */}
             <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs">
-              <div className="text-[11px] text-slate-500 font-medium">Dự án (Project)</div>
+              <div className="text-[11px] text-slate-500 font-medium">Nguồn kết nối</div>
               <div className="text-xs font-bold text-slate-800 truncate mt-0.5 font-mono">
-                {projectId}
+                {activeSourceLabel}
               </div>
             </div>
 
             {/* Col 3: Last Sync */}
             <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs">
-              <div className="text-[11px] text-slate-500 font-medium">Lần đồng bộ gần nhất</div>
+              <div className="text-[11px] text-slate-500 font-medium">Lần kiểm tra gần nhất</div>
               <div className="text-xs font-bold text-slate-800 truncate mt-0.5">
                 {formatSyncTime(lastSyncTime)}
               </div>
@@ -507,7 +506,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
 
             {/* Col 4: Latency */}
             <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs">
-              <div className="text-[11px] text-slate-500 font-medium">Độ trễ máy chủ (Latency)</div>
+              <div className="text-[11px] text-slate-500 font-medium">Độ trễ phản hồi (Latency)</div>
               <div className="text-xs font-bold text-emerald-600 truncate mt-0.5 flex items-center gap-1">
                 <span>{latencyDisplay}</span>
               </div>
@@ -515,22 +514,22 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           </div>
         </div>
 
-        {/* Row 1: 3 Action Cards (Nguồn Dữ Liệu, Đồng bộ lên Cloud, Tải lại từ Cloud) */}
+        {/* Row 1: 3 Action Cards (Nguồn Dữ Liệu & Vercel, Đồng bộ 5 Tab + Drive, Kiểm tra) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Card A: Nguồn Dữ Liệu Đám Mây */}
+          {/* Card A: Cấu Hình Vercel Env & Bot API */}
           <div className="border border-purple-200/90 bg-purple-50/40 hover:bg-purple-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
             <div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-purple-950">
                   <Database className="w-4 h-4 text-purple-600" />
-                  <span>Nguồn Dữ Liệu Đám Mây</span>
+                  <span>Nguồn Sheets &amp; Vercel Env</span>
                 </div>
                 <span className="bg-purple-100 text-purple-800 text-[10px] px-2 py-0.5 rounded-md font-semibold border border-purple-200">
-                  {selectedDbMode === 'APPLET' ? 'Mặc định' : 'Tùy chỉnh'}
+                  Apps Script v{status?.version || 3}
                 </span>
               </div>
               <p className="text-xs text-slate-600 min-h-[38px] mt-2 leading-relaxed">
-                Đổi sang Firebase của riêng bạn hoặc kết nối Bot Zalo / Telegram / App khác.
+                Đổi URL Google Apps Script, lấy biến môi trường Vercel (đa thiết bị) hoặc kết nối Bot Zalo / Telegram.
               </p>
             </div>
             <button
@@ -539,49 +538,49 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
               className="mt-3 w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>Đổi Nguồn &amp; Xem Hướng Dẫn</span>
+              <span>Cấu Hình Cloud &amp; Vercel</span>
             </button>
           </div>
 
-          {/* Card B: Tự động lưu & đồng bộ 2 chiều */}
+          {/* Card B: Lưu trữ 5 Tab + Drive Ảnh */}
           <div className="border border-emerald-200/90 bg-emerald-50/40 hover:bg-emerald-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
             <div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-950">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Đồng Bộ</span>
+                  <span>Không Giới Hạn Đọc/Ghi</span>
                 </div>
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-md font-semibold border border-emerald-200 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Thời gian thực
+                  5 Tab + Drive
                 </span>
               </div>
               <p className="text-xs text-slate-600 min-h-[38px] mt-2 leading-relaxed">
-                Mọi thao tác ghi nợ, trả tiền, chia tiền tự động lưu lên Cloud Firestore và cập nhật tới tất cả thiết bị khác trong &lt; 0.1s.
+                Mọi thao tác ghi nợ, trả tiền, ảnh hóa đơn và nhật ký lưu thẳng vào Google Sheets &amp; Google Drive của bạn.
               </p>
             </div>
             <div className="mt-3 py-2 px-3 bg-emerald-100/60 rounded-xl flex items-center justify-between text-xs text-emerald-900 font-medium border border-emerald-200/80">
               <span className="flex items-center gap-1.5">
                 <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Tự động 100%</span>
+                <span>Dữ liệu thuộc về bạn 100%</span>
               </span>
             </div>
           </div>
 
-          {/* Card C: Tự bảo vệ & Phục hồi ngoại tuyến */}
+          {/* Card C: Kiểm tra kết nối & Tải lại */}
           <div className="border border-blue-200/90 bg-blue-50/40 hover:bg-blue-50/70 rounded-2xl p-4 flex flex-col justify-between transition-all">
             <div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-blue-950">
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>Bảo Toàn Đa Thiết Bị</span>
+                  <span>Kiểm Tra &amp; Nạp Lại Dữ Liệu</span>
                 </div>
                 <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-md font-semibold border border-blue-200">
                   Chống xung đột
                 </span>
               </div>
               <p className="text-xs text-slate-600 min-h-[38px] mt-2 leading-relaxed">
-                Đồng bộ sự kiện WebSocket liên tục. Khi nhiều thiết bị (Điện thoại, Máy tính) cùng truy cập, dữ liệu luôn nhất quán.
+                Sử dụng LockService của Google Apps Script đảm bảo nhiều điện thoại ghi cùng lúc không bị mất dữ liệu.
               </p>
             </div>
             <button
@@ -591,7 +590,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
               className="mt-3 w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
               <Zap className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-              <span>{isCheckingStatus ? 'Đang đo độ trễ...' : 'Kiểm tra tốc độ phản hồi (Ping)'}</span>
+              <span>{isCheckingStatus ? 'Đang kiểm tra...' : 'Kiểm tra kết nối ngay'}</span>
             </button>
           </div>
         </div>
@@ -718,10 +717,10 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    Nguồn Dữ Liệu Đám Mây &amp; Hướng Dẫn Tích Hợp
+                    Cấu Hình Google Sheets Cloud &amp; Vercel
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Tùy chỉnh Database ID Firestore hoặc kết nối Bot Telegram / Zalo / App khác
+                    Quản lý đường dẫn Apps Script v3, biến môi trường Vercel và tích hợp Bot API
                   </p>
                 </div>
               </div>
@@ -745,7 +744,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Đổi Database Firestore
+                Google Sheets &amp; Vercel
               </button>
               <button
                 type="button"
@@ -771,76 +770,61 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
               </button>
             </div>
 
-            {/* Tab Content 1: Đổi Database */}
+            {/* Tab Content 1: Google Sheets & Vercel Env */}
             {sourceModalTab === 'DATABASE' && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700">Chọn Chế Độ Database:</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDbMode('APPLET')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        selectedDbMode === 'APPLET'
-                          ? 'border-purple-500 bg-purple-50/50 text-purple-900'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="font-bold text-xs">Applet Mặc Định</div>
-                      <div className="text-[11px] text-slate-500 mt-1">Database tạo sẵn của dự án</div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDbMode('DEFAULT')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        selectedDbMode === 'DEFAULT'
-                          ? 'border-purple-500 bg-purple-50/50 text-purple-900'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="font-bold text-xs">(default) Database</div>
-                      <div className="text-[11px] text-slate-500 mt-1">Database gốc của GCP</div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDbMode('CUSTOM')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        selectedDbMode === 'CUSTOM'
-                          ? 'border-purple-500 bg-purple-50/50 text-purple-900'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="font-bold text-xs">Database Tùy Chỉnh</div>
-                      <div className="text-[11px] text-slate-500 mt-1">Nhập Database ID khác</div>
-                    </button>
-                  </div>
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>URL Google Apps Script Web App (v3):</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={modalScriptUrl}
+                    onChange={(e) => setModalScriptUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-purple-500"
+                  />
                 </div>
 
-                {selectedDbMode === 'CUSTOM' && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">Nhập Database ID Của Bạn:</label>
-                    <input
-                      type="text"
-                      value={customDatabaseId}
-                      onChange={(e) => setCustomDatabaseId(e.target.value)}
-                      placeholder="e.g., my-firestore-database-id"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-purple-500"
-                    />
-                  </div>
-                )}
-
-                <div className="p-3 bg-purple-50/70 rounded-xl border border-purple-200 flex items-center justify-between">
-                  <div className="text-xs text-purple-950 font-medium">
-                    Sao chép toàn bộ người nợ ({debtors.length}) và giao dịch ({transactions.length}) sang Database mới
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700">
+                    Link File Google Sheet (Tùy chọn để mở nhanh):
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={migrateDataOnSwitch}
-                    onChange={(e) => setMigrateDataOnSwitch(e.target.checked)}
-                    className="w-4 h-4 text-purple-600 rounded cursor-pointer"
+                    type="url"
+                    value={modalSheetUrl}
+                    onChange={(e) => setModalSheetUrl(e.target.value)}
+                    placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-purple-500"
                   />
+                </div>
+
+                <div className="p-3.5 bg-slate-900 text-slate-100 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-emerald-300">
+                      Biến Môi Trường Vercel (để mọi thiết bị tự kết nối):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(vercelEnvSnippet);
+                        setCopiedVercelEnv(true);
+                        showToast('Đã sao chép biến môi trường Vercel!', 'success');
+                        setTimeout(() => setCopiedVercelEnv(false), 2500);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedVercelEnv ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedVercelEnv ? 'Đã chép' : 'Sao chép'}</span>
+                    </button>
+                  </div>
+                  <pre className="text-[11px] font-mono text-slate-200 overflow-x-auto whitespace-pre-wrap break-all">
+                    {vercelEnvSnippet}
+                  </pre>
+                  <p className="text-[10.5px] text-slate-400">
+                    Vào Vercel Dashboard &rarr; Settings &rarr; Environment Variables &rarr; Dán biến trên rồi Redeploy là mọi máy đều tự kết nối ngay!
+                  </p>
                 </div>
 
                 {testTargetFeedback && (
@@ -858,20 +842,20 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={handleTestTargetDb}
-                    disabled={isTestingTargetDb}
+                    onClick={handleTestTargetSheets}
+                    disabled={isTestingTargetSheets}
                     className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                   >
-                    {isTestingTargetDb ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'}
+                    {isTestingTargetSheets ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'}
                   </button>
 
                   <button
                     type="button"
-                    onClick={handleApplyTargetDb}
-                    disabled={isApplyingDb}
+                    onClick={handleApplyTargetSheets}
+                    disabled={isApplyingSheets}
                     className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
                   >
-                    {isApplyingDb ? 'Đang áp dụng...' : 'Áp Dụng Database Này'}
+                    {isApplyingSheets ? 'Đang lưu...' : 'Lưu & Kết Nối Google Sheets'}
                   </button>
                 </div>
               </div>
@@ -881,7 +865,7 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
             {sourceModalTab === 'BOT_API' && (
               <div className="space-y-3 text-xs text-slate-700">
                 <p className="leading-relaxed">
-                  Bạn có thể tích hợp Bot Telegram, Zalo hoặc ứng dụng di động để tự động thêm giao dịch, tra cứu số dư và đồng bộ trực tiếp lên Cloud Firestore:
+                  Bạn có thể tích hợp Bot Telegram, Zalo hoặc ứng dụng di động để tự động thêm giao dịch, tra cứu số dư và lưu trực tiếp vào Google Sheets:
                 </p>
 
                 <div className="p-3.5 bg-slate-900 text-slate-200 rounded-2xl font-mono text-[11px] space-y-2">
@@ -894,11 +878,11 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                     {JSON.stringify({ debtorId: 'debtor-id', amount: 50000, type: 'ADD', note: 'Ăn trưa' })}
                   </div>
                   <div className="text-slate-400 mt-2"># 3. Đồng bộ bộ dữ liệu JSON:</div>
-                  <div className="text-emerald-400">POST /api/firestore/upload-json</div>
+                  <div className="text-emerald-400">POST /api/sheets/upload-json</div>
                 </div>
 
                 <p className="text-[11px] text-slate-500 italic">
-                  * Gợi ý: Khi viết Bot Zalo/Telegram, bạn chỉ cần gửi HTTP POST tới endpoint trên với mật khẩu chủ sổ trong header là dữ liệu sẽ tự nhảy vào ngay lập tức.
+                  * Gợi ý: Khi viết Bot Zalo/Telegram, bạn chỉ cần gửi HTTP POST tới endpoint trên với mật khẩu chủ sổ trong header là dữ liệu sẽ tự lưu lên Google Sheets.
                 </p>
               </div>
             )}
@@ -928,27 +912,32 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {backups.map((b) => (
-                      <div
-                        key={b.filename}
-                        className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs"
-                      >
-                        <div>
-                          <div className="font-bold text-slate-900">{b.label}</div>
-                          <div className="text-[11px] text-slate-500">
-                            {b.debtorsCount} người nợ • {b.transactionsCount} giao dịch • {new Date(b.createdAt).toLocaleString('vi-VN')}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRestoreBackup(b.filename)}
-                          disabled={restoringFilename === b.filename}
-                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs cursor-pointer"
+                    {backups.map((b) => {
+                      const dCount = b.debtorCount ?? (b as any).debtorsCount ?? 0;
+                      const tCount = b.transactionCount ?? (b as any).transactionsCount ?? 0;
+                      const ts = b.timestamp || (b as any).createdAt;
+                      return (
+                        <div
+                          key={b.filename}
+                          className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs"
                         >
-                          {restoringFilename === b.filename ? 'Đang nạp...' : 'Khôi Phục'}
-                        </button>
-                      </div>
-                    ))}
+                          <div>
+                            <div className="font-bold text-slate-900">{b.label || b.filename}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {dCount} người nợ • {tCount} giao dịch • {ts ? new Date(ts).toLocaleString('vi-VN') : '-'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreBackup(b.filename)}
+                            disabled={restoringFilename === b.filename}
+                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs cursor-pointer"
+                          >
+                            {restoringFilename === b.filename ? 'Đang nạp...' : 'Khôi Phục'}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

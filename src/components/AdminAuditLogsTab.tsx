@@ -228,7 +228,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
       await onSaveSettings(updatedSettings);
 
       showToast(
-        `Đã đồng bộ toàn bộ 4 Tab (Công Nợ, Giao Dịch, Chia Bill, Nhật Ký) sang Google Sheets!`,
+        `Đã đồng bộ toàn bộ 5 Tab (Công Nợ, Giao Dịch, Chia Bill, Nhật Ký, Cài Đặt) sang Google Sheets!`,
         'success'
       );
     } catch (err: any) {
@@ -421,7 +421,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           iconBox: 'bg-blue-100 text-blue-700',
           card: 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200/80 border-l-blue-500',
           labelColor: 'text-blue-700',
-          label: 'Cloud Firestore',
+          label: 'Google Sheets Cloud',
         };
       case 'GUEST_LOOKUP':
         return {
@@ -591,7 +591,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
     participants: 'Thành viên',
     addedParticipants: 'Thành viên mới thêm',
     removedParticipants: 'Thành viên đã gỡ',
-    databaseId: 'Firestore DB',
+    databaseId: 'CSDL Google Sheets',
     totalLatencyMs: 'Độ trễ phản hồi',
     clientPingMs: 'Ping trực tiếp',
     direction: 'Hướng đồng bộ',
@@ -729,15 +729,15 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
         </div>
       </div>
 
-      {/* Upgrade notice if user still uses old Apps Script v1 (without GET_LOGS / APPEND_LOGS) */}
+      {/* Upgrade notice if user still uses old Apps Script v1/v2 */}
       {remoteSyncStatus?.needsAppsScriptUpgrade && (
         <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start gap-2.5 text-xs text-amber-900">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold">Cần cập nhật mã Google Apps Script v2 để đồng bộ nhật ký 2 chiều vĩnh viễn</p>
+              <p className="font-bold">Cần cập nhật mã Google Apps Script v3 để dùng Google Sheets làm CSDL duy nhất &amp; đồng bộ nhật ký 2 chiều</p>
               <p className="text-amber-800/90 mt-0.5 leading-relaxed">
-                Apps Script hiện tại của bạn đang là bản cũ (chỉ hỗ trợ ghi lên, chưa có hàm <code>GET_LOGS</code> đọc lại từ Tab 4). Hãy dán lại mã mới trong phần <strong>Cài Đặt &rarr; Đồng Bộ Google Sheets</strong> và triển khai phiên bản mới.
+                Apps Script hiện tại đang là bản cũ (chưa hỗ trợ đầy đủ 5 Tab &amp; đọc nhật ký từ Tab 4). Hãy dán lại mã mới v3 trong phần <strong>Cài Đặt &rarr; Đồng Bộ Google Sheets</strong> rồi chọn <strong>Triển khai &rarr; Quản lý các bản triển khai &rarr; Phiên bản mới</strong>.
               </p>
             </div>
           </div>
@@ -746,12 +746,12 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
             onClick={() => {
               triggerHaptic('success');
               navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
-              showToast('Đã sao chép mã Google Apps Script v2 vào bộ nhớ tạm!', 'success');
+              showToast('Đã sao chép mã Google Apps Script v3 vào bộ nhớ tạm!', 'success');
             }}
             className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs shrink-0 cursor-pointer inline-flex items-center gap-1.5 self-start sm:self-center"
           >
             <Copy className="w-3.5 h-3.5" />
-            <span>Sao chép mã v2</span>
+            <span>Sao chép mã v3</span>
           </button>
         </div>
       )}
@@ -1166,7 +1166,7 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
       <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-2xl border border-slate-200/80 text-xs text-slate-500 shadow-2xs">
         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
         <span>
-          Nhật ký lưu cục bộ (không tốn lượt đọc/ghi Cloud Firestore) và đồng bộ nối tiếp sang Google Sheets tại tab <strong>&quot;Nhật Ký Thao Tác (Logs)&quot;</strong>.
+          Nhật ký lưu đệm cục bộ và tự động ghi nối tiếp vĩnh viễn sang Google Sheets tại Tab 4 <strong>&quot;Nhật Ký Thao Tác (Logs)&quot;</strong> (Append-Only).
         </span>
       </div>
 
