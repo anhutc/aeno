@@ -883,7 +883,8 @@ function formatHeader(sheet, bgColor) {
  */
 export async function syncViaAppsScript(
   payload: SyncDataPayload,
-  appsScriptUrl: string
+  appsScriptUrl: string,
+  options?: { skipAuditLog?: boolean }
 ): Promise<SyncResult> {
   const url = appsScriptUrl.trim();
   if (!url || !url.startsWith('https://script.google.com/')) {
@@ -912,27 +913,29 @@ export async function syncViaAppsScript(
 
   const now = new Date().toISOString();
   const logsCount = (payload.auditLogs || loadAuditLogs()).length;
-  try {
-    recordAuditLog({
-      action: 'SYNC_SHEETS',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Đồng bộ Google Sheets (Apps Script)',
-      description: `Đã đồng bộ toàn bộ 5 bảng (${payload.debtors.length} người nợ, ${payload.transactions.length} giao dịch, ${payload.parties.length} cuộc vui, ${logsCount} nhật ký) lên Google Sheets qua Apps Script Web App.`,
-      beforeState: 'Bắt đầu gửi dữ liệu sang Google Sheet',
-      afterState: 'Đã hoàn tất đồng bộ 5 bảng qua Apps Script Web App',
-      changes: [
-        { fieldLabel: 'Phương thức', before: '-', after: 'Google Apps Script Web App v3' },
-        { fieldLabel: 'Quy mô đồng bộ', before: '-', after: `${payload.debtors.length} người nợ · ${payload.transactions.length} GD · ${payload.parties.length} cuộc vui · ${logsCount} nhật ký` },
-      ],
-      metadata: {
-        debtorsCount: payload.debtors.length,
-        transactionsCount: payload.transactions.length,
-        partiesCount: payload.parties.length,
-        auditLogsCount: logsCount,
-      },
-    });
-  } catch {
-    // ignore
+  if (!options?.skipAuditLog) {
+    try {
+      recordAuditLog({
+        action: 'SYNC_SHEETS',
+        actor: 'Chủ Sổ (Admin)',
+        title: 'Đồng bộ Google Sheets (Apps Script)',
+        description: `Đã đồng bộ toàn bộ 5 bảng (${payload.debtors.length} người nợ, ${payload.transactions.length} giao dịch, ${payload.parties.length} cuộc vui, ${logsCount} nhật ký) lên Google Sheets qua Apps Script Web App.`,
+        beforeState: 'Bắt đầu gửi dữ liệu sang Google Sheet',
+        afterState: 'Đã hoàn tất đồng bộ 5 bảng qua Apps Script Web App',
+        changes: [
+          { fieldLabel: 'Phương thức', before: '-', after: 'Google Apps Script Web App v3' },
+          { fieldLabel: 'Quy mô đồng bộ', before: '-', after: `${payload.debtors.length} người nợ · ${payload.transactions.length} GD · ${payload.parties.length} cuộc vui · ${logsCount} nhật ký` },
+        ],
+        metadata: {
+          debtorsCount: payload.debtors.length,
+          transactionsCount: payload.transactions.length,
+          partiesCount: payload.parties.length,
+          auditLogsCount: logsCount,
+        },
+      });
+    } catch {
+      // ignore
+    }
   }
 
   return {
@@ -991,7 +994,7 @@ export function triggerDebouncedAutoSync(
         window.dispatchEvent(new CustomEvent('googlesheets-autosync-start'));
       }
 
-      const result: SyncResult = await syncViaAppsScript(payload, appsScriptUrl);
+      const result: SyncResult = await syncViaAppsScript(payload, appsScriptUrl, { skipAuditLog: true });
       try {
         const currentSaved = loadSettings();
         if (currentSaved) {

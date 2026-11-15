@@ -234,6 +234,22 @@ if (!IS_VERCEL) {
 }
 
 const app = express();
+app.use((req: any, _res, next) => {
+  if (req.body !== undefined) {
+    if (typeof req.body === 'string' && req.body.trim().startsWith('{')) {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch {
+        // leave to express/route
+      }
+    }
+    req._body = true;
+  } else if (req.readableEnded) {
+    req.body = {};
+    req._body = true;
+  }
+  next();
+});
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -380,7 +396,7 @@ async function processAndOffloadBillImage(
 app.post('/api/upload-image', async (req, res) => {
   try {
     const reqUrl = resolveRequestScriptUrl(req);
-    const { image, mimeType: providedMimeType } = req.body;
+    const { image, mimeType: providedMimeType } = req.body || {};
     if (!image || typeof image !== 'string') {
       return res.status(400).json({ success: false, message: 'Dữ liệu hình ảnh không hợp lệ' });
     }
@@ -617,115 +633,138 @@ app.get('/api/proxy-vietqr', async (req, res) => {
 
 // --- PUBLIC SETTINGS ---
 app.get('/api/settings', async (req, res) => {
-  const reqUrl = resolveRequestScriptUrl(req);
-  const cfg = getActiveSheetsConfig(reqUrl);
-  await ensureSheetsSettingsSync(false, reqUrl);
-  const db = getDatabase();
-  const {
-    ownerPassword,
-    reminderMessageTemplate,
-    googleAppsScriptUrl,
-    ...publicSettings
-  } = (db.settings || {}) as any;
+  try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const cfg = getActiveSheetsConfig(reqUrl);
+    await ensureSheetsSettingsSync(false, reqUrl);
+    const db = getDatabase();
+    const {
+      ownerPassword,
+      reminderMessageTemplate,
+      googleAppsScriptUrl,
+      ...publicSettings
+    } = (db.settings || {}) as any;
 
-  res.json({
-    success: true,
-    settings: publicSettings,
-    backend: 'google_sheets',
-    sheetsConfigured: Boolean(cfg.appsScriptUrl),
-    sheetsConnected: Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError),
-    needsScriptUpgrade,
-    sheetsError: lastSheetsError,
-    sheetsErrorCode: lastSheetsErrorCode,
-  });
+    return res.json({
+      success: true,
+      settings: publicSettings,
+      backend: 'google_sheets',
+      sheetsConfigured: Boolean(cfg.appsScriptUrl),
+      sheetsConnected: Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError),
+      needsScriptUpgrade,
+      sheetsError: lastSheetsError,
+      sheetsErrorCode: lastSheetsErrorCode,
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      sheetsConfigured: Boolean(getActiveSheetsConfig(resolveRequestScriptUrl(req)).appsScriptUrl),
+      sheetsConnected: false,
+      sheetsError: info.message,
+      sheetsErrorCode: info.code,
+      message: info.message,
+    });
+  }
 });
 
 // --- OWNER LOGIN ---
 app.post('/api/auth/login', async (req, res) => {
-  const { password } = req.body;
-  const inputPass = String(password || '').trim();
-  const reqUrl = resolveRequestScriptUrl(req);
-  const cfg = getActiveSheetsConfig(reqUrl);
+  try {
+    const { password } = req.body || {};
+    const inputPass = String(password || '').trim();
+    const reqUrl = resolveRequestScriptUrl(req);
+    const cfg = getActiveSheetsConfig(reqUrl);
 
-  if (!inputPass) {
-    return res.status(400).json({
-      success: false,
-      message: 'Vui lòng nhập mật khẩu quản trị',
-    });
-  }
-
-  if (!cfg.appsScriptUrl) {
-    return res.status(503).json({
-      success: false,
-      code: 'SHEETS_NOT_CONFIGURED',
-      message: 'Chưa kết nối URL Google Apps Script Web App. Vui lòng dán URL Apps Script để kết nối cơ sở dữ liệu Google Sheets.',
-    });
-  }
-
-  await ensureSheetsSettingsSync(false, reqUrl);
-
-  if (!isSheetsSettingsLoaded && !isSheetsDataLoaded) {
-    return res.status(503).json({
-      success: false,
-      code: lastSheetsErrorCode || 'SHEETS_UNAVAILABLE',
-      needsScriptUpgrade,
-      sheetsError: lastSheetsError,
-      message:
-        lastSheetsError ||
-        'Không thể kết nối cơ sở dữ liệu Google Sheets (Apps Script Web App) để kiểm tra mật khẩu.',
-    });
-  }
-
-  const db = getDatabase();
-  let correctPassword = (db.settings?.ownerPassword || '').trim();
-  let ownerPhone = (db.settings?.ownerPhone || '').trim();
-
-  const cleanInput = inputPass.toLowerCase();
-  const cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
-  const cleanInputPhone = inputPass.replace(/[\s.-]+/g, '');
-
-  let isMatched =
-    (correctPassword && (inputPass === correctPassword || cleanInput === correctPassword.toLowerCase())) ||
-    (ownerPhone && cleanInputPhone === cleanPhone);
-
-  if (!isMatched && Date.now() - lastSettingsSyncAt > 8000) {
-    try {
-      const freshSettings = await loadSettingsFromSheets(cfg.appsScriptUrl);
-      db.settings = { ...db.settings, ...freshSettings, googleAppsScriptUrl: cfg.appsScriptUrl };
-      isSheetsSettingsLoaded = true;
-      lastSettingsSyncAt = Date.now();
-      clearSheetsError();
-      const rPass = (freshSettings.ownerPassword || '').trim();
-      const rPhone = (freshSettings.ownerPhone || '').trim();
-      if (
-        (rPass && (inputPass === rPass || cleanInput === rPass.toLowerCase())) ||
-        (rPhone && cleanInputPhone === rPhone.replace(/[\s.-]+/g, ''))
-      ) {
-        isMatched = true;
-      }
-      correctPassword = rPass;
-    } catch (err: any) {
-      recordSheetsError(err);
+    if (!inputPass) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng nhập mật khẩu quản trị',
+      });
     }
-  }
 
-  if (!isMatched && (!correctPassword || correctPassword === '123456') && inputPass === '123456') {
-    isMatched = true;
-  }
+    if (!cfg.appsScriptUrl) {
+      return res.status(503).json({
+        success: false,
+        code: 'SHEETS_NOT_CONFIGURED',
+        message: 'Chưa kết nối URL Google Apps Script Web App. Vui lòng dán URL Apps Script để kết nối cơ sở dữ liệu Google Sheets.',
+      });
+    }
 
-  if (isMatched) {
-    return res.json({
-      success: true,
-      token: OWNER_TOKEN,
-      settings: db.settings,
+    await ensureSheetsSettingsSync(false, reqUrl);
+
+    if (!isSheetsSettingsLoaded && !isSheetsDataLoaded) {
+      return res.status(503).json({
+        success: false,
+        code: lastSheetsErrorCode || 'SHEETS_UNAVAILABLE',
+        needsScriptUpgrade,
+        sheetsError: lastSheetsError,
+        message:
+          lastSheetsError ||
+          'Không thể kết nối cơ sở dữ liệu Google Sheets (Apps Script Web App) để kiểm tra mật khẩu.',
+      });
+    }
+
+    const db = getDatabase();
+    let correctPassword = (db.settings?.ownerPassword || '').trim();
+    let ownerPhone = (db.settings?.ownerPhone || '').trim();
+
+    const cleanInput = inputPass.toLowerCase();
+    const cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
+    const cleanInputPhone = inputPass.replace(/[\s.-]+/g, '');
+
+    let isMatched =
+      (correctPassword && (inputPass === correctPassword || cleanInput === correctPassword.toLowerCase())) ||
+      (ownerPhone && cleanInputPhone === cleanPhone);
+
+    if (!isMatched && Date.now() - lastSettingsSyncAt > 8000) {
+      try {
+        const freshSettings = await loadSettingsFromSheets(cfg.appsScriptUrl);
+        db.settings = { ...db.settings, ...freshSettings, googleAppsScriptUrl: cfg.appsScriptUrl };
+        isSheetsSettingsLoaded = true;
+        lastSettingsSyncAt = Date.now();
+        clearSheetsError();
+        const rPass = (freshSettings.ownerPassword || '').trim();
+        const rPhone = (freshSettings.ownerPhone || '').trim();
+        if (
+          (rPass && (inputPass === rPass || cleanInput === rPass.toLowerCase())) ||
+          (rPhone && cleanInputPhone === rPhone.replace(/[\s.-]+/g, ''))
+        ) {
+          isMatched = true;
+        }
+        correctPassword = rPass;
+      } catch (err: any) {
+        recordSheetsError(err);
+      }
+    }
+
+    if (!isMatched && (!correctPassword || correctPassword === '123456') && inputPass === '123456') {
+      isMatched = true;
+    }
+
+    if (isMatched) {
+      return res.json({
+        success: true,
+        token: OWNER_TOKEN,
+        settings: db.settings,
+      });
+    }
+
+    return res.status(401).json({
+      success: false,
+      code: 'INVALID_CREDENTIALS',
+      message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      needsScriptUpgrade: info.needsUpgrade,
+      message: info.message || 'Không thể xác thực quản trị với Google Sheets.',
     });
   }
-
-  return res.status(401).json({
-    success: false,
-    code: 'INVALID_CREDENTIALS',
-    message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
-  });
 });
 
 // --- OWNER DATA & CRUD ---
@@ -828,7 +867,7 @@ async function persistFullStateToSheets(db: SheetsDatabaseSchema, overrideUrl?: 
 
 app.post('/api/owner/debtor', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
-  const { id, name, phone, pin, note } = req.body;
+  const { id, name, phone, pin, note } = req.body || {};
   if (!name || !pin) {
     return res.status(400).json({ success: false, message: 'Tên và mật khẩu là bắt buộc' });
   }
@@ -926,7 +965,7 @@ app.delete('/api/owner/debtor/:id', authMiddleware, async (req, res) => {
 
 app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
-  const { id, debtorId, type, amount, date, note, category, billImage, partyId } = req.body;
+  const { id, debtorId, type, amount, date, note, category, billImage, partyId } = req.body || {};
   if (!debtorId || !amount || !date) {
     return res.status(400).json({ success: false, message: 'Thiếu thông tin giao dịch' });
   }
@@ -944,7 +983,7 @@ app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
     category: category || 'SINGLE',
     ...(processedBillImage ? { billImage: processedBillImage } : {}),
     ...(partyId ? { partyId } : {}),
-    createdAt: req.body.createdAt || new Date().toISOString(),
+    createdAt: req.body?.createdAt || new Date().toISOString(),
   };
 
   db.transactions = [newTx, ...db.transactions.filter((t) => t.id !== txId)];
@@ -967,7 +1006,7 @@ app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
 app.put('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { id } = req.params;
-  const { type, amount, date, note, category, billImage, debtorId, partyId, customNote } = req.body;
+  const { type, amount, date, note, category, billImage, debtorId, partyId, customNote } = req.body || {};
   const db = getDatabase();
   const index = db.transactions.findIndex((t) => t.id === id);
 
@@ -981,7 +1020,7 @@ app.put('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
     note: note !== undefined ? note : existing.note || '',
     category: category !== undefined ? category : existing.category || 'SINGLE',
     debtorId: debtorId || existing.debtorId || '',
-    createdAt: existing.createdAt || req.body.createdAt || new Date().toISOString(),
+    createdAt: existing.createdAt || req.body?.createdAt || new Date().toISOString(),
     ...(customNote !== undefined ? { customNote } : {}),
   };
 
@@ -1079,7 +1118,7 @@ app.post('/api/owner/clean-orphans', authMiddleware, async (req, res) => {
 
 app.post('/api/owner/party-split', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
-  const { party, transactions: newTxs } = req.body;
+  const { party, transactions: newTxs } = req.body || {};
   if (!party || !Array.isArray(newTxs)) {
     return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
   }
@@ -1162,7 +1201,7 @@ app.delete('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
 app.put('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { id } = req.params;
-  const { party, transactions: newTxs } = req.body;
+  const { party, transactions: newTxs } = req.body || {};
   if (!party || !Array.isArray(newTxs)) {
     return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
   }
@@ -1218,7 +1257,7 @@ app.put('/api/owner/settings', authMiddleware, async (req, res) => {
   if (!isSheetsSettingsLoaded) {
     await ensureSheetsSettingsSync(false, reqUrl);
   }
-  const newSettings = req.body;
+  const newSettings = req.body || {};
   const db = getDatabase();
   const { reminderMessageTemplate, ...cleanedNewSettings } = (newSettings || {}) as any;
 
@@ -1426,7 +1465,7 @@ app.post('/api/owner/sync-all', authMiddleware, handleSyncAllData);
 app.post('/api/owner/sync-now', authMiddleware, handleSyncAllData);
 
 app.post('/api/owner/sync/external', authMiddleware, async (req, res) => {
-  const { url, apiKey, mode } = req.body;
+  const { url, apiKey, mode } = req.body || {};
   if (!url) {
     return res.status(400).json({ success: false, message: 'Thiếu URL máy chủ đồng bộ' });
   }
@@ -1568,74 +1607,83 @@ const handleTestSheetsConnection = async (req: express.Request, res: express.Res
 app.post(['/api/sheets/test-connection', '/api/firestore/test-connection'], handleTestSheetsConnection);
 
 app.post('/api/sheets/configure', async (req, res) => {
-  const existingCfg = getActiveSheetsConfig();
-  if (existingCfg.appsScriptUrl && !isAuthorizedOwnerRequest(req)) {
-    return res.status(401).json({
-      success: false,
-      message: 'Cần đăng nhập chủ sổ để thay đổi đường dẫn Google Apps Script.',
-    });
-  }
+  try {
+    const existingCfg = getActiveSheetsConfig();
+    if (existingCfg.appsScriptUrl && !isAuthorizedOwnerRequest(req)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Cần đăng nhập chủ sổ để thay đổi đường dẫn Google Apps Script.',
+      });
+    }
 
-  const rawUrl = String(req.body?.appsScriptUrl || '').trim();
-  const rawSheetUrl = typeof req.body?.googleSheetUrl === 'string' ? req.body.googleSheetUrl.trim() : undefined;
-  if (!rawUrl || !rawUrl.startsWith('https://script.google.com/')) {
-    return res.status(400).json({
-      success: false,
-      message: 'Đường link Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
-    });
-  }
+    const rawUrl = String(req.body?.appsScriptUrl || '').trim();
+    const rawSheetUrl = typeof req.body?.googleSheetUrl === 'string' ? req.body.googleSheetUrl.trim() : undefined;
+    if (!rawUrl || !rawUrl.startsWith('https://script.google.com/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Đường link Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
+      });
+    }
 
-  const testRes = await testSheetsConnection(rawUrl);
-  if (!testRes.success) {
-    return res.status(400).json({
-      success: false,
-      message: `Không thể kết nối đến Apps Script: ${testRes.error || 'Kiểm tra lại quyền Anyone khi Deploy'}`,
-    });
-  }
+    const testRes = await testSheetsConnection(rawUrl);
+    if (!testRes.success) {
+      return res.status(400).json({
+        success: false,
+        message: `Không thể kết nối đến Apps Script: ${testRes.error || 'Kiểm tra lại quyền Anyone khi Deploy'}`,
+      });
+    }
 
-  saveSheetsConfig(rawUrl, rawSheetUrl);
-  const db = getDatabase();
-  db.settings = {
-    ...db.settings,
-    googleAppsScriptUrl: rawUrl,
-    ...(rawSheetUrl ? { googleSheetUrl: rawSheetUrl } : {}),
-    autoSyncGoogleSheets: true,
-  };
-  saveDatabase(db);
+    saveSheetsConfig(rawUrl, rawSheetUrl);
+    const db = getDatabase();
+    db.settings = {
+      ...db.settings,
+      googleAppsScriptUrl: rawUrl,
+      ...(rawSheetUrl ? { googleSheetUrl: rawSheetUrl } : {}),
+      autoSyncGoogleSheets: true,
+    };
+    saveDatabase(db);
 
-  if (testRes.needsUpgrade) {
-    needsScriptUpgrade = true;
-    lastSheetsErrorCode = 'SHEETS_LEGACY_SCRIPT';
-    lastSheetsError = 'Google Apps Script hiện tại đang dùng mã cũ (v1/v2). Hãy cập nhật mã v3 trong Code.gs và Deploy phiên bản mới.';
+    if (testRes.needsUpgrade) {
+      needsScriptUpgrade = true;
+      lastSheetsErrorCode = 'SHEETS_LEGACY_SCRIPT';
+      lastSheetsError = 'Google Apps Script hiện tại đang dùng mã cũ (v1/v2). Hãy cập nhật mã v3 trong Code.gs và Deploy phiên bản mới.';
+      return res.json({
+        success: true,
+        configured: true,
+        connected: true,
+        needsUpgrade: true,
+        version: testRes.version,
+        message: lastSheetsError,
+      });
+    }
+
+    // Try hydrating existing data & settings from this Sheet
+    isSheetsDataLoaded = false;
+    lastFullSyncAt = 0;
+    await ensureSheetsSettingsSync(true, rawUrl);
+    const hydratedDb = getDatabase();
+    if (hydratedDb.settings.googleAppsScriptUrl !== rawUrl) {
+      hydratedDb.settings.googleAppsScriptUrl = rawUrl;
+      saveDatabase(hydratedDb);
+    }
+    // Heal Tab 5 if it previously stored a stale/old Apps Script URL
+    saveSettingsToSheets(hydratedDb.settings, rawUrl).catch(() => {});
     return res.json({
       success: true,
       configured: true,
       connected: true,
-      needsUpgrade: true,
+      needsUpgrade: false,
       version: testRes.version,
-      message: lastSheetsError,
+      message: 'Đã kết nối Google Sheets Cloud Database thành công!',
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      message: info.message || 'Lỗi cấu hình kết nối Google Sheets',
     });
   }
-
-  // Try hydrating existing data & settings from this Sheet
-  isSheetsDataLoaded = false;
-  lastFullSyncAt = 0;
-  await ensureSheetsSettingsSync(true, rawUrl);
-  const hydratedDb = getDatabase();
-  if (hydratedDb.settings.googleAppsScriptUrl !== rawUrl) {
-    hydratedDb.settings.googleAppsScriptUrl = rawUrl;
-    saveDatabase(hydratedDb);
-  }
-  // Heal Tab 5 if it previously stored a stale/old Apps Script URL
-  saveSettingsToSheets(hydratedDb.settings, rawUrl).catch(() => {});
-  return res.json({
-    success: true,
-    configured: true,
-    connected: true,
-    needsUpgrade: false,
-    version: testRes.version,
-    message: 'Đã kết nối Google Sheets Cloud Database thành công!',
-  });
 });
 
 app.get(['/api/sheets/backups', '/api/firestore/backups'], authMiddleware, (_req, res) => {
@@ -1890,7 +1938,7 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
 
 app.post(['/api/sheets/force-sync', '/api/firestore/force-sync'], authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
-  const { direction } = req.body;
+  const { direction } = req.body || {};
   try {
     if (direction === 'PUSH') {
       const current = getDatabase();
@@ -2158,159 +2206,169 @@ app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
 
 // --- GUEST APIS (STRICT PRIVACY) ---
 app.post('/api/guest/lookup', async (req, res) => {
-  const reqUrl = resolveRequestScriptUrl(req);
-  const { pin } = req.body;
-  if (!pin || typeof pin !== 'string') {
-    return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu (pass) tra cứu.' });
-  }
+  try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const { pin } = req.body || {};
+    if (!pin || typeof pin !== 'string') {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu (pass) tra cứu.' });
+    }
 
-  const cfg = getActiveSheetsConfig(reqUrl);
-  if (!cfg.appsScriptUrl) {
-    return res.status(503).json({
-      success: false,
-      code: 'SHEETS_NOT_CONFIGURED',
-      message: 'Ứng dụng chưa được kết nối cơ sở dữ liệu Google Sheets. Vui lòng liên hệ chủ sổ.',
-    });
-  }
-
-  const cleanPin = pin.trim();
-  const trimmedPin = cleanPin.toLowerCase();
-
-  let targetDebtor: Debtor | undefined;
-  let sourceTransactions: Transaction[] = [];
-  let sourceParties: PartySplit[] = [];
-  let sourceDebtorsMap: Array<{ id: string; name: string }> = [];
-  let sourceSettings: AppSettings = DEFAULT_SETTINGS;
-
-  if (isSheetsDataLoaded && inMemoryDb && Date.now() - lastFullSyncAt < 8000) {
-    targetDebtor = inMemoryDb.debtors.find((d) => d.pin.trim().toLowerCase() === trimmedPin);
-    sourceTransactions = inMemoryDb.transactions;
-    sourceParties = inMemoryDb.parties || [];
-    sourceDebtorsMap = inMemoryDb.debtors.map((d) => ({ id: d.id, name: d.name }));
-    sourceSettings = inMemoryDb.settings || DEFAULT_SETTINGS;
-  } else {
-    try {
-      const lookupRes = await lookupGuestInSheets(cleanPin, cfg.appsScriptUrl);
-      isSheetsSettingsLoaded = true;
-      lastSettingsSyncAt = Date.now();
-      clearSheetsError();
-      targetDebtor = lookupRes.debtor || undefined;
-      sourceTransactions = lookupRes.transactions;
-      sourceParties = lookupRes.parties;
-      sourceDebtorsMap = lookupRes.debtorsMapSource;
-      sourceSettings = lookupRes.settings;
-    } catch (err: any) {
-      const info = recordSheetsError(err);
+    const cfg = getActiveSheetsConfig(reqUrl);
+    if (!cfg.appsScriptUrl) {
       return res.status(503).json({
         success: false,
-        code: info.code,
-        needsScriptUpgrade: info.needsUpgrade,
-        sheetsError: info.message,
-        message: info.message,
+        code: 'SHEETS_NOT_CONFIGURED',
+        message: 'Ứng dụng chưa được kết nối cơ sở dữ liệu Google Sheets. Vui lòng liên hệ chủ sổ.',
       });
     }
-  }
 
-  if (!targetDebtor) {
-    return res.status(404).json({
-      success: false,
-      code: 'INVALID_CREDENTIALS',
-      message: 'Mật khẩu (pass) không tồn tại hoặc không chính xác. Vui lòng liên hệ chủ sổ.',
-    });
-  }
+    const cleanPin = pin.trim();
+    const trimmedPin = cleanPin.toLowerCase();
 
-  const debtorTransactions = sourceTransactions
-    .filter((tx) => tx.debtorId === targetDebtor!.id)
-    .map((tx) => {
-      if (tx.partyId || tx.category === 'PARTY_SPLIT') {
-        const party = sourceParties.find((p) => p.id === tx.partyId);
-        if (party) {
-          const participantNames: string[] = [];
-          if (party.includeMe) participantNames.push(sourceSettings.ownerName || 'Tôi (Chủ sổ)');
-          (party.participantDebtorIds || []).forEach((id) => {
-            const d = sourceDebtorsMap.find((deb) => deb.id === id);
-            if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
-          });
-          const payerName =
-            party.payerType === 'ME'
-              ? sourceSettings.ownerName || 'Tôi (Chủ sổ)'
-              : sourceDebtorsMap.find((d) => d.id === party.payerDebtorId)?.name || 'Người này';
+    let targetDebtor: Debtor | undefined;
+    let sourceTransactions: Transaction[] = [];
+    let sourceParties: PartySplit[] = [];
+    let sourceDebtorsMap: Array<{ id: string; name: string }> = [];
+    let sourceSettings: AppSettings = DEFAULT_SETTINGS;
 
-          return {
-            ...tx,
-            partyTotalAmount: tx.partyTotalAmount || party.totalAmount,
-            partySplitAmount: tx.partySplitAmount || party.splitAmountPerPerson,
-            partyTotalPeople: tx.partyTotalPeople || party.totalPeopleCount,
-            partyParticipants:
-              tx.partyParticipants && tx.partyParticipants.length > 0
-                ? tx.partyParticipants
-                : participantNames,
-            partyPayerName: tx.partyPayerName || payerName,
-            partyName: tx.partyName || party.name,
-            customNote: tx.customNote || party.note,
-            billImage: tx.billImage || party.billImage,
-          };
-        }
+    if (isSheetsDataLoaded && inMemoryDb && Date.now() - lastFullSyncAt < 8000) {
+      targetDebtor = inMemoryDb.debtors.find((d) => d.pin.trim().toLowerCase() === trimmedPin);
+      sourceTransactions = inMemoryDb.transactions;
+      sourceParties = inMemoryDb.parties || [];
+      sourceDebtorsMap = inMemoryDb.debtors.map((d) => ({ id: d.id, name: d.name }));
+      sourceSettings = inMemoryDb.settings || DEFAULT_SETTINGS;
+    } else {
+      try {
+        const lookupRes = await lookupGuestInSheets(cleanPin, cfg.appsScriptUrl);
+        isSheetsSettingsLoaded = true;
+        lastSettingsSyncAt = Date.now();
+        clearSheetsError();
+        targetDebtor = lookupRes.debtor || undefined;
+        sourceTransactions = lookupRes.transactions;
+        sourceParties = lookupRes.parties;
+        sourceDebtorsMap = lookupRes.debtorsMapSource;
+        sourceSettings = lookupRes.settings;
+      } catch (err: any) {
+        const info = recordSheetsError(err);
+        return res.status(503).json({
+          success: false,
+          code: info.code,
+          needsScriptUpgrade: info.needsUpgrade,
+          sheetsError: info.message,
+          message: info.message,
+        });
       }
-      return tx;
-    });
+    }
 
-  return res.json({
-    success: true,
-    debtor: {
-      id: targetDebtor.id,
-      name: targetDebtor.name,
-      phone: targetDebtor.phone,
-      pin: targetDebtor.pin,
-      note: targetDebtor.note,
-    },
-    transactions: debtorTransactions,
-    settings: {
-      ownerName: sourceSettings.ownerName,
-      ownerPhone: sourceSettings.ownerPhone || '',
-      bankId: sourceSettings.bankId,
-      bankName: sourceSettings.bankName,
-      accountNumber: sourceSettings.accountNumber,
-      accountName: sourceSettings.accountName,
-      defaultMemoPrefix: sourceSettings.defaultMemoPrefix,
-      appTitle: sourceSettings.appTitle,
-      appSubtitle: sourceSettings.appSubtitle,
-      guestAnnouncement: sourceSettings.guestAnnouncement,
-      settledThankYouNote: sourceSettings.settledThankYouNote,
-      defaultQrMode: sourceSettings.defaultQrMode || 'MANUAL_AMOUNT',
-      vietQrTemplate: sourceSettings.vietQrTemplate || 'compact2',
-      lookupInstructionText: sourceSettings.lookupInstructionText,
-      themeColor: sourceSettings.themeColor,
-      currencySuffix: sourceSettings.currencySuffix,
-    },
-  });
+    if (!targetDebtor) {
+      return res.status(404).json({
+        success: false,
+        code: 'INVALID_CREDENTIALS',
+        message: 'Mật khẩu (pass) không tồn tại hoặc không chính xác. Vui lòng liên hệ chủ sổ.',
+      });
+    }
+
+    const debtorTransactions = sourceTransactions
+      .filter((tx) => tx.debtorId === targetDebtor!.id)
+      .map((tx) => {
+        if (tx.partyId || tx.category === 'PARTY_SPLIT') {
+          const party = sourceParties.find((p) => p.id === tx.partyId);
+          if (party) {
+            const participantNames: string[] = [];
+            if (party.includeMe) participantNames.push(sourceSettings.ownerName || 'Tôi (Chủ sổ)');
+            (party.participantDebtorIds || []).forEach((id) => {
+              const d = sourceDebtorsMap.find((deb) => deb.id === id);
+              if (d && !participantNames.includes(d.name)) participantNames.push(d.name);
+            });
+            const payerName =
+              party.payerType === 'ME'
+                ? sourceSettings.ownerName || 'Tôi (Chủ sổ)'
+                : sourceDebtorsMap.find((d) => d.id === party.payerDebtorId)?.name || 'Người này';
+
+            return {
+              ...tx,
+              partyTotalAmount: tx.partyTotalAmount || party.totalAmount,
+              partySplitAmount: tx.partySplitAmount || party.splitAmountPerPerson,
+              partyTotalPeople: tx.partyTotalPeople || party.totalPeopleCount,
+              partyParticipants:
+                tx.partyParticipants && tx.partyParticipants.length > 0
+                  ? tx.partyParticipants
+                  : participantNames,
+              partyPayerName: tx.partyPayerName || payerName,
+              partyName: tx.partyName || party.name,
+              customNote: tx.customNote || party.note,
+              billImage: tx.billImage || party.billImage,
+            };
+          }
+        }
+        return tx;
+      });
+
+    return res.json({
+      success: true,
+      debtor: {
+        id: targetDebtor.id,
+        name: targetDebtor.name,
+        phone: targetDebtor.phone,
+        pin: targetDebtor.pin,
+        note: targetDebtor.note,
+      },
+      transactions: debtorTransactions,
+      settings: {
+        ownerName: sourceSettings.ownerName,
+        ownerPhone: sourceSettings.ownerPhone || '',
+        bankId: sourceSettings.bankId,
+        bankName: sourceSettings.bankName,
+        accountNumber: sourceSettings.accountNumber,
+        accountName: sourceSettings.accountName,
+        defaultMemoPrefix: sourceSettings.defaultMemoPrefix,
+        appTitle: sourceSettings.appTitle,
+        appSubtitle: sourceSettings.appSubtitle,
+        guestAnnouncement: sourceSettings.guestAnnouncement,
+        settledThankYouNote: sourceSettings.settledThankYouNote,
+        defaultQrMode: sourceSettings.defaultQrMode || 'MANUAL_AMOUNT',
+        vietQrTemplate: sourceSettings.vietQrTemplate || 'compact2',
+        lookupInstructionText: sourceSettings.lookupInstructionText,
+        themeColor: sourceSettings.themeColor,
+        currencySuffix: sourceSettings.currencySuffix,
+      },
+    });
+  } catch (err: any) {
+    const info = recordSheetsError(err);
+    return res.status(503).json({
+      success: false,
+      code: info.code,
+      needsScriptUpgrade: info.needsUpgrade,
+      message: info.message || 'Không thể kết nối cơ sở dữ liệu Google Sheets để tra cứu.',
+    });
+  }
 });
 
 app.post('/api/guest/report-payment', async (req, res) => {
-  const reqUrl = resolveRequestScriptUrl(req);
-  const { pin, amount, note, billImage } = req.body;
-  if (!pin || !amount) {
-    return res.status(400).json({ success: false, message: 'Thiếu thông tin thanh toán' });
-  }
-
-  const trimmedPin = String(pin).trim();
-  const processedBillImage = billImage
-    ? await processAndOffloadBillImage(billImage, undefined, reqUrl)
-    : undefined;
-
-  const newTx: Transaction = {
-    id: `tx-report-${Date.now()}`,
-    debtorId: '',
-    type: 'SUB',
-    amount: Number(amount),
-    date: new Date().toISOString().split('T')[0],
-    note: note ? note.trim() : 'Chuyển khoản thanh toán',
-    category: 'PAYMENT_SETTLED',
-    ...(processedBillImage ? { billImage: processedBillImage } : {}),
-    createdAt: new Date().toISOString(),
-  };
-
   try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const { pin, amount, note, billImage } = req.body || {};
+    if (!pin || !amount) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin thanh toán' });
+    }
+
+    const trimmedPin = String(pin).trim();
+    const processedBillImage = billImage
+      ? await processAndOffloadBillImage(billImage, undefined, reqUrl)
+      : undefined;
+
+    const newTx: Transaction = {
+      id: `tx-report-${Date.now()}`,
+      debtorId: '',
+      type: 'SUB',
+      amount: Number(amount),
+      date: new Date().toISOString().split('T')[0],
+      note: note ? note.trim() : 'Chuyển khoản thanh toán',
+      category: 'PAYMENT_SETTLED',
+      ...(processedBillImage ? { billImage: processedBillImage } : {}),
+      createdAt: new Date().toISOString(),
+    };
+
     const result = await guestReportPaymentToSheets(trimmedPin, newTx, reqUrl);
     if (isSheetsDataLoaded && inMemoryDb) {
       inMemoryDb.transactions = [result.transaction, ...inMemoryDb.transactions];
@@ -2366,6 +2424,20 @@ app.get(['/site.webmanifest', '/manifest.webmanifest'], async (req, res) => {
   } catch {
     res.sendFile(path.resolve('./public/site.webmanifest'));
   }
+});
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Express API error:', err?.message || err);
+  if (res.headersSent) return;
+  const status =
+    typeof err?.status === 'number' && err.status >= 400 && err.status < 600
+      ? err.status
+      : 500;
+  return res.status(status).json({
+    success: false,
+    code: 'SHEETS_UNAVAILABLE',
+    message: err?.message || 'Lỗi máy chủ khi xử lý yêu cầu Google Sheets.',
+  });
 });
 
 // --- VITE MIDDLEWARE / STATIC ASSETS & LISTEN ---

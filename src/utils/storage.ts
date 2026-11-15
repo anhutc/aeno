@@ -595,19 +595,6 @@ function generateInitialAuditLogs(): AuditLog[] {
       ],
     },
     {
-      id: `log-init-6`,
-      timestamp: new Date(now - 86400000 * 0.2).toISOString(),
-      action: 'SYNC_SHEETS',
-      actor: 'Chủ Sổ (Admin)',
-      title: 'Đồng bộ Google Sheets',
-      description: 'Tự động sao lưu và cập nhật toàn bộ sổ nợ, giao dịch lên Google Drive',
-      beforeState: 'Bản sao lưu trước đó trên Drive',
-      afterState: 'Đã cập nhật đầy đủ 4 sheet mới nhất lên Google Sheets',
-      changes: [
-        { fieldLabel: 'Trạng thái Google Sheets', before: 'Chưa đồng bộ bản mới', after: 'Đã đồng bộ 4 tab thành công' },
-      ],
-    },
-    {
       id: `log-init-7`,
       timestamp: new Date(now - 86400000 * 0.05).toISOString(),
       action: 'GUEST_LOOKUP',

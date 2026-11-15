@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RefreshCw, AlertCircle, FileSpreadsheet, Link2, LogOut } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './types';
 import {
   fetchOwnerData,
@@ -25,6 +26,7 @@ import {
   apiUpdatePartySplit,
   apiDeletePartySplit,
   apiSaveSettings,
+  apiConfigureSheets,
   apiFetchRemoteAuditLogs,
   getStoredOwnerToken,
   removeStoredOwnerToken,
@@ -68,12 +70,23 @@ export default function App() {
     sheetsError?: string;
   }>({});
   const [cloudStatus, setCloudStatus] = useState<{
+    checked?: boolean;
     configured: boolean;
     connected: boolean;
     needsUpgrade?: boolean;
     error: string | null;
     errorCode?: string | null;
-  }>({ configured: true, connected: true, error: null });
+  }>({ checked: false, configured: true, connected: false, error: null });
+
+  const [ownerDataStatus, setOwnerDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
+  const [ownerDataError, setOwnerDataError] = useState<string | null>(null);
+  const ownerDataStatusRef = useRef<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
+  ownerDataStatusRef.current = ownerDataStatus;
+
+  const [showGateUrlInput, setShowGateUrlInput] = useState(false);
+  const [gateScriptUrl, setGateScriptUrl] = useState('');
+  const [isGateConfiguring, setIsGateConfiguring] = useState(false);
+  const [gateFeedback, setGateFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     const handleLogRecorded = (e: any) => {
@@ -148,19 +161,22 @@ export default function App() {
     if (!getStoredOwnerToken()) {
       try {
         const sRes = await fetch('/api/settings', {
+          cache: 'no-store',
           headers: getSheetsHeaders(),
         });
         if (sRes.ok) {
           const sData = await sRes.json();
+          const isConnected = sData.sheetsConnected === true && !sData.sheetsError;
           setCloudStatus({
+            checked: true,
             configured: sData.sheetsConfigured !== false,
-            connected: sData.sheetsConnected !== false && !sData.sheetsError,
+            connected: isConnected,
             needsUpgrade: Boolean(sData.needsScriptUpgrade),
             error: sData.sheetsError || null,
             errorCode: sData.sheetsErrorCode || null,
           });
 
-          if (sData.success && sData.settings) {
+          if (sData.success && sData.settings && isConnected) {
             const existingLocal = loadSettings();
             const mergedPublic: AppSettings = {
               ...existingLocal,
@@ -179,9 +195,21 @@ export default function App() {
             saveSettings(mergedPublic);
             return;
           }
+          return;
         }
+        setCloudStatus((prev) => ({
+          ...prev,
+          checked: true,
+          connected: false,
+          error: `Máy chủ Google Sheets phản hồi lỗi HTTP ${sRes.status}.`,
+        }));
       } catch {
-        // ignore
+        setCloudStatus((prev) => ({
+          ...prev,
+          checked: true,
+          connected: false,
+          error: 'Không thể kết nối tới máy chủ để tải dữ liệu Google Sheets.',
+        }));
       }
       return;
     }
@@ -190,28 +218,52 @@ export default function App() {
     if (!force && Date.now() - lastActionTimeRef.current < 4000) {
       return;
     }
+
+    if (ownerDataStatusRef.current !== 'READY') {
+      setOwnerDataStatus('LOADING');
+      setOwnerDataError(null);
+    }
+
     try {
       const data = await fetchOwnerData(force);
-      if (!data) return;
+      const isCloudOk = Boolean(data?.cloudStatus?.connected === true);
 
-      if (data.cloudStatus) {
-        setCloudStatus(data.cloudStatus);
+      if (data?.cloudStatus) {
+        setCloudStatus({
+          checked: true,
+          ...data.cloudStatus,
+        });
+      } else {
+        setCloudStatus({
+          checked: true,
+          configured: true,
+          connected: false,
+          error: 'Không nhận được trạng thái kết nối Google Sheets.',
+        });
       }
 
-      if (force && data.cloudStatus?.connected === true) {
+      if (!isCloudOk) {
+        if (ownerDataStatusRef.current !== 'READY') {
+          setDebtors([]);
+          setParties([]);
+          setTransactions([]);
+          setOwnerDataStatus('ERROR');
+          setOwnerDataError(
+            data?.cloudStatus?.error ||
+              'Không thể tải dữ liệu từ Google Sheets. Vui lòng thử lại hoặc kiểm tra lại URL Apps Script.'
+          );
+        }
+        return;
+      }
+
+      if (force || ownerDataStatusRef.current !== 'READY') {
         setDebtors(data.debtors || []);
         setParties(data.parties || []);
         setTransactions(data.transactions || []);
       } else {
-        setDebtors((prevDebtors) => {
-          return smartMergeDebtors(data.debtors || [], prevDebtors);
-        });
-        setParties((prevParties) => {
-          return smartMergeParties(data.parties || [], prevParties);
-        });
-        setTransactions((prevTxs) => {
-          return smartMergeTransactions(data.transactions || [], prevTxs);
-        });
+        setDebtors((prevDebtors) => smartMergeDebtors(data.debtors || [], prevDebtors));
+        setParties((prevParties) => smartMergeParties(data.parties || [], prevParties));
+        setTransactions((prevTxs) => smartMergeTransactions(data.transactions || [], prevTxs));
       }
 
       if (data.settings) {
@@ -226,8 +278,18 @@ export default function App() {
         setSettings(mergedSettings);
         saveSettings(mergedSettings);
       }
-    } catch (err) {
+
+      setOwnerDataError(null);
+      setOwnerDataStatus('READY');
+    } catch (err: any) {
       console.error('Error refreshing data from server:', err);
+      if (ownerDataStatusRef.current !== 'READY') {
+        setDebtors([]);
+        setParties([]);
+        setTransactions([]);
+        setOwnerDataStatus('ERROR');
+        setOwnerDataError(err?.message || 'Lỗi kết nối khi tải dữ liệu từ Google Sheets.');
+      }
     }
   }, []);
 
@@ -331,6 +393,8 @@ export default function App() {
     deepCleanSessionData();
     removeStoredOwnerToken();
     setIsOwnerAuthenticated(false);
+    setOwnerDataStatus('IDLE');
+    setOwnerDataError(null);
     setDebtors([]);
     setTransactions([]);
     setParties([]);
@@ -519,11 +583,38 @@ export default function App() {
   }, []);
 
   const handleOwnerLoginSuccess = () => {
+    setOwnerDataStatus('LOADING');
+    setOwnerDataError(null);
+    setGateFeedback(null);
+    setShowGateUrlInput(false);
+    setGateScriptUrl(settings.googleAppsScriptUrl || '');
     setIsOwnerAuthenticated(true);
     setCurrentView('OWNER');
     window.location.hash = 'owner';
     refreshDataFromServer(true);
     syncRemoteAuditLogs(false);
+  };
+
+  const handleGateConfigureSheets = async () => {
+    const trimmed = gateScriptUrl.trim();
+    if (!trimmed.startsWith('https://script.google.com/')) {
+      setGateFeedback('URL phải bắt đầu bằng https://script.google.com/macros/s/...');
+      return;
+    }
+    setIsGateConfiguring(true);
+    setGateFeedback(null);
+    try {
+      const res = await apiConfigureSheets(trimmed);
+      if (res.success) {
+        await refreshDataFromServer(true);
+      } else {
+        setGateFeedback(res.message || 'Không thể kết nối URL Apps Script này.');
+      }
+    } catch (err: any) {
+      setGateFeedback(err?.message || 'Lỗi kết nối khi cập nhật URL Google Sheets.');
+    } finally {
+      setIsGateConfiguring(false);
+    }
   };
 
   useEffect(() => {
@@ -773,6 +864,7 @@ export default function App() {
       <Header
         currentView={currentView}
         isOwnerAuthenticated={isOwnerAuthenticated}
+        isOwnerDataReady={ownerDataStatus === 'READY'}
         onViewChange={handleViewChange}
         onOwnerLogout={handleOwnerLogout}
         settings={settings}
@@ -820,9 +912,7 @@ export default function App() {
                 onLoginGuestSuccess={(debtor, txs, setts) => {
                   setGuestInitialDebtor(debtor);
                   const validTxs = txs || [];
-                  if (validTxs.length > 0) {
-                    setTransactions(validTxs);
-                  }
+                  setTransactions(validTxs);
                   if (setts) {
                     setSettings(setts);
                     saveSettings(setts);
@@ -842,7 +932,117 @@ export default function App() {
               />
             </motion.div>
           ) : isOwnerAuthenticated ? (
-            currentView === 'SETTINGS' ? (
+            ownerDataStatus !== 'READY' ? (
+              <motion.div
+                key="view-sheets-gate"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="min-h-[68vh] flex items-center justify-center py-6"
+              >
+                <div className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/80 border border-slate-200/90 p-6 sm:p-8 text-center space-y-5">
+                  {ownerDataStatus === 'ERROR' ? (
+                    <>
+                      <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 mx-auto flex items-center justify-center">
+                        <AlertCircle className="w-7 h-7" />
+                      </div>
+                      <div className="space-y-2">
+                        <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                          Chưa tải được dữ liệu từ Google Sheets
+                        </h2>
+                        <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                          {ownerDataError ||
+                            'Hệ thống tạm khóa hiển thị và thao tác để tránh hiển thị dữ liệu trống hoặc mặc định khi kết nối Google Sheets chưa sẵn sàng.'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => refreshDataFromServer(true)}
+                          className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          <span>Thử tải lại dữ liệu từ Google Sheets</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowGateUrlInput((v) => !v)}
+                          className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                        >
+                          <Link2 className="w-4 h-4 text-emerald-700" />
+                          <span>
+                            {showGateUrlInput
+                              ? 'Ẩn cấu hình URL Google Apps Script'
+                              : 'Cập nhật URL Google Apps Script Web App'}
+                          </span>
+                        </button>
+
+                        {showGateUrlInput && (
+                          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-2.5">
+                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>URL Web App (/exec)</span>
+                            </label>
+                            <input
+                              type="url"
+                              value={gateScriptUrl}
+                              onChange={(e) => setGateScriptUrl(e.target.value)}
+                              placeholder="https://script.google.com/macros/s/.../exec"
+                              className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                            {gateFeedback && (
+                              <p className="text-xs font-semibold text-rose-600">{gateFeedback}</p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleGateConfigureSheets}
+                              disabled={isGateConfiguring || !gateScriptUrl.trim()}
+                              className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl cursor-pointer"
+                            >
+                              {isGateConfiguring ? 'Đang kiểm tra & tải dữ liệu...' : 'Lưu URL & Tải lại dữ liệu'}
+                            </button>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={handleOwnerLogout}
+                          className="w-full py-2.5 px-4 text-rose-600 hover:bg-rose-50 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          <span>Đăng xuất</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 mx-auto flex items-center justify-center">
+                        <RefreshCw className="w-7 h-7 animate-spin" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                          Đang tải dữ liệu từ Google Sheets...
+                        </h2>
+                        <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                          Hệ thống đang đồng bộ danh sách người nợ, giao dịch và cài đặt từ Google Sheets. Giao diện sẽ mở khóa ngay khi tải hoàn tất.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleOwnerLogout}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Hủy & Đăng xuất</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            ) : currentView === 'SETTINGS' ? (
               <motion.div
                 key="view-settings"
                 initial={{ opacity: 0, y: 10 }}
@@ -1061,8 +1261,8 @@ export default function App() {
       {/* Offline Status Awareness Indicator */}
       <OfflineIndicator />
 
-      {/* Mobile Bottom Navigation Dock (Chỉ cho Chủ Sổ) */}
-      {isOwnerAuthenticated && (
+      {/* Mobile Bottom Navigation Dock (Chỉ cho Chủ Sổ khi đã tải xong Google Sheets) */}
+      {isOwnerAuthenticated && ownerDataStatus === 'READY' && (
         <BottomNavBar
           currentView={currentView}
           isOwnerAuthenticated={isOwnerAuthenticated}

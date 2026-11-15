@@ -18,6 +18,7 @@ import { getAppBaseUrl } from '../utils/textTemplate';
 interface HeaderProps {
   currentView: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS';
   isOwnerAuthenticated: boolean;
+  isOwnerDataReady?: boolean;
   onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS') => void;
   onOwnerLogout: () => void;
   settings: AppSettings;
@@ -28,6 +29,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentView,
   isOwnerAuthenticated,
+  isOwnerDataReady = true,
   onViewChange,
   onOwnerLogout,
   settings,
@@ -118,6 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* OWNER MODE: Unified Switcher & Logout */}
             {isOwnerAuthenticated && (
               <>
+                {isOwnerDataReady && (
                 <div className="flex items-center bg-slate-100/90 p-0.5 sm:p-1 rounded-xl border border-slate-200/80 shrink-0">
                   <button
                     type="button"
@@ -170,6 +173,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <span className="hidden sm:inline">Cài Đặt</span>
                   </button>
                 </div>
+                )}
 
                 {/* Owner Logout Button */}
                 <button

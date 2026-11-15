@@ -196,6 +196,7 @@ export async function loginOwner(
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         ...getSheetsHeaders(),
@@ -379,18 +380,19 @@ export async function fetchOwnerData(force = false): Promise<{
     // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ danh sách con nợ / giao dịch
     try {
       const sRes = await fetch('/api/settings', {
+        cache: 'no-store',
         headers: getSheetsHeaders(),
       });
       if (sRes.ok) {
         const sData = await sRes.json();
         const cloudStatus = {
           configured: sData.sheetsConfigured !== false,
-          connected: sData.sheetsConnected !== false && !sData.sheetsError,
+          connected: sData.sheetsConnected === true && !sData.sheetsError,
           needsUpgrade: Boolean(sData.needsScriptUpgrade),
           error: sData.sheetsError || null,
           errorCode: sData.sheetsErrorCode || null,
         };
-        if (sData.success && sData.settings) {
+        if (sData.success && sData.settings && cloudStatus.connected) {
           const existingLocal = loadSettings();
           const mergedPublic = {
             ...existingLocal,
@@ -430,12 +432,21 @@ export async function fetchOwnerData(force = false): Promise<{
       transactions: [],
       parties: [],
       settings: loadSettings(),
+      cloudStatus: {
+        configured: true,
+        connected: false,
+        error: 'Không thể kết nối máy chủ để tải dữ liệu Google Sheets.',
+        errorCode: 'SHEETS_UNAVAILABLE',
+      },
     };
   }
 
   // 1. Fetch from server API (backed by Google Sheets)
+  let serverFailMessage = 'Không thể tải dữ liệu từ Google Sheets. Vui lòng kiểm tra kết nối và thử lại.';
+  let serverFailCode: string | null = 'SHEETS_UNAVAILABLE';
   try {
     const res = await fetch(`/api/owner/data${force ? '?force=1' : ''}`, {
+      cache: 'no-store',
       headers: getAuthHeaders(),
     });
     const contentType = res.headers.get('content-type') || '';
@@ -444,18 +455,18 @@ export async function fetchOwnerData(force = false): Promise<{
       if (data.success) {
         const cloudStatus = {
           configured: data.sheetsConfigured !== false,
-          connected: data.sheetsConnected !== false && !data.sheetsError,
+          connected: data.sheetsConnected === true && !data.sheetsError,
           needsUpgrade: Boolean(data.needsScriptUpgrade),
           error: data.sheetsError || null,
           errorCode: data.sheetsErrorCode || null,
         };
 
-        if (data.sheetsConnected === false) {
-          // Sheets hiện đang Offline / lỗi URL: giữ nguyên dữ liệu cache cục bộ, chỉ cập nhật trạng thái cloudStatus
+        if (!cloudStatus.connected) {
+          // Sheets chưa GET thành công: không trả về dữ liệu trống/cũ để UI giữ trạng thái khóa cho tới khi GET thành công
           return {
-            debtors: loadDebtors(),
-            transactions: loadTransactions(),
-            parties: loadParties(),
+            debtors: [],
+            transactions: [],
+            parties: [],
             settings: loadSettings(),
             cloudStatus,
           };
@@ -487,15 +498,27 @@ export async function fetchOwnerData(force = false): Promise<{
           cloudStatus,
         };
       }
+      if (data.message) serverFailMessage = data.message;
+      if (data.code) serverFailCode = data.code;
     } else {
+      if (contentType.includes('application/json')) {
+        const errData = await res.json().catch(() => null);
+        if (errData?.message) serverFailMessage = errData.message;
+        if (errData?.code) serverFailCode = errData.code;
+      } else if (res.status >= 500) {
+        serverFailMessage = `Máy chủ tạm thời quá tải hoặc gặp sự cố khi tải dữ liệu Google Sheets (HTTP ${res.status}).`;
+      } else if (res.status === 401) {
+        serverFailMessage = 'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.';
+      }
       // Fetch public settings if owner token expired or Sheets errored
       try {
         const sRes = await fetch('/api/settings', {
+          cache: 'no-store',
           headers: getSheetsHeaders(),
         });
         if (sRes.ok) {
           const sData = await sRes.json();
-          if (sData.success && sData.settings) {
+          if (sData.success && sData.settings && sData.sheetsConnected === true) {
             const existingLocal = loadSettings();
             saveSettings({
               ...existingLocal,
@@ -513,16 +536,22 @@ export async function fetchOwnerData(force = false): Promise<{
         // ignore
       }
     }
-  } catch (err) {
-    console.warn('Server API unavailable, using local cache:', err);
+  } catch (err: any) {
+    console.warn('Server API unavailable while loading Google Sheets data:', err);
+    if (err?.message) serverFailMessage = `Không thể kết nối máy chủ Google Sheets (${err.message}).`;
   }
 
-  // 2. Local storage cache fallback
   return {
-    debtors: loadDebtors(),
-    transactions: loadTransactions(),
-    parties: loadParties(),
+    debtors: [],
+    transactions: [],
+    parties: [],
     settings: loadSettings(),
+    cloudStatus: {
+      configured: true,
+      connected: false,
+      error: serverFailMessage,
+      errorCode: serverFailCode,
+    },
   };
 }
 
@@ -1740,6 +1769,7 @@ export async function apiGuestLookup(
   try {
     const res = await fetch('/api/guest/lookup', {
       method: 'POST',
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         ...getSheetsHeaders(),
