@@ -160,9 +160,23 @@ export default function App() {
             errorCode: sData.sheetsErrorCode || null,
           });
 
-          if (sData.success && sData.settings && sData.sheetsConnected !== false) {
-            setSettings(sData.settings);
-            saveSettings(sData.settings);
+          if (sData.success && sData.settings) {
+            const existingLocal = loadSettings();
+            const mergedPublic: AppSettings = {
+              ...existingLocal,
+              ...sData.settings,
+              ...(existingLocal.googleAppsScriptUrl
+                ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
+                : {}),
+              ...(existingLocal.googleSheetUrl && !sData.settings.googleSheetUrl
+                ? { googleSheetUrl: existingLocal.googleSheetUrl }
+                : {}),
+              ...(existingLocal.ownerPassword && !sData.settings.ownerPassword
+                ? { ownerPassword: existingLocal.ownerPassword }
+                : {}),
+            };
+            setSettings(mergedPublic);
+            saveSettings(mergedPublic);
             return;
           }
         }
@@ -180,21 +194,34 @@ export default function App() {
       const data = await fetchOwnerData(force);
       if (!data) return;
 
-      setDebtors((prevDebtors) => {
-        return smartMergeDebtors(data.debtors || [], prevDebtors);
-      });
-
-      setParties((prevParties) => {
-        return smartMergeParties(data.parties || [], prevParties);
-      });
-
-      if (data.settings) {
-        setSettings(data.settings);
+      if (force) {
+        setDebtors(data.debtors || []);
+        setParties(data.parties || []);
+        setTransactions(data.transactions || []);
+      } else {
+        setDebtors((prevDebtors) => {
+          return smartMergeDebtors(data.debtors || [], prevDebtors);
+        });
+        setParties((prevParties) => {
+          return smartMergeParties(data.parties || [], prevParties);
+        });
+        setTransactions((prevTxs) => {
+          return smartMergeTransactions(data.transactions || [], prevTxs);
+        });
       }
 
-      setTransactions((prevTxs) => {
-        return smartMergeTransactions(data.transactions || [], prevTxs);
-      });
+      if (data.settings) {
+        const existingLocal = loadSettings();
+        const mergedSettings: AppSettings = {
+          ...existingLocal,
+          ...data.settings,
+          ...(existingLocal.googleAppsScriptUrl && !data.settings.googleAppsScriptUrl
+            ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
+            : {}),
+        };
+        setSettings(mergedSettings);
+        saveSettings(mergedSettings);
+      }
     } catch (err) {
       console.error('Error refreshing data from server:', err);
     }
@@ -825,7 +852,7 @@ export default function App() {
                   transactions={transactions}
                   parties={parties}
                   onSaveSettings={handleSaveSettings}
-                  onDataReload={refreshDataFromServer}
+                  onDataReload={() => refreshDataFromServer(true)}
                   onGoBack={() => handleViewChange('OWNER')}
                 />
               </motion.div>
@@ -892,7 +919,7 @@ export default function App() {
                   onViewImage={handleViewImage}
                   onDeleteDebtor={handleDeleteDebtor}
                   onOpenSettings={() => handleViewChange('SETTINGS')}
-                  onDataReload={refreshDataFromServer}
+                  onDataReload={() => refreshDataFromServer(true)}
                   onEditTx={(tx) => setEditingTransaction(tx)}
                   onDeleteTx={handleDeleteTransaction}
                   onEditParty={(p) => setEditingParty(p)}

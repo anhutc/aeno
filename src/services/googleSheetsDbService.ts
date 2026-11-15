@@ -337,7 +337,7 @@ export async function testSheetsConnection(customUrl?: string): Promise<{
   }
 
   try {
-    const res = await callAppsScriptGet('PING', {}, cfg.appsScriptUrl, 12000);
+    const res = await callAppsScriptGet('PING', {}, cfg.appsScriptUrl, 9000);
     const version = Number(res.version || (res.supportsFullDb ? 3 : res.supportsLogSync ? 2 : 1));
     const supportsFullDb = Boolean(res.supportsFullDb || version >= 3);
     return {
@@ -372,7 +372,7 @@ export async function testSheetsConnection(customUrl?: string): Promise<{
 
 export async function loadSettingsFromSheets(overrideUrl?: string): Promise<AppSettings> {
   const cfg = getActiveSheetsConfig(overrideUrl);
-  const data = await callAppsScriptGet('GET_SETTINGS', {}, cfg.appsScriptUrl, 12000);
+  const data = await callAppsScriptGet('GET_SETTINGS', {}, cfg.appsScriptUrl, 9000);
   if (Number(data.version || 0) < 3 && data.status === 'ok') {
     throw new SheetsDbError(
       'SHEETS_LEGACY_SCRIPT',
@@ -384,7 +384,7 @@ export async function loadSettingsFromSheets(overrideUrl?: string): Promise<AppS
 
 export async function loadAllDataFromSheets(overrideUrl?: string): Promise<SheetsDatabaseSchema> {
   const cfg = getActiveSheetsConfig(overrideUrl);
-  const data = await callAppsScriptGet('LOAD_ALL', {}, cfg.appsScriptUrl, 18000);
+  const data = await callAppsScriptGet('LOAD_ALL', {}, cfg.appsScriptUrl, 12000);
   if (!Array.isArray(data.debtors) && data.status === 'ok') {
     throw new SheetsDbError(
       'SHEETS_LEGACY_SCRIPT',
@@ -410,7 +410,7 @@ export async function lookupGuestInSheets(
   settings: AppSettings;
 }> {
   const cfg = getActiveSheetsConfig(overrideUrl);
-  const data = await callAppsScriptGet('GUEST_LOOKUP', { pin: pin.trim() }, cfg.appsScriptUrl, 15000);
+  const data = await callAppsScriptGet('GUEST_LOOKUP', { pin: pin.trim() }, cfg.appsScriptUrl, 9500);
   if (data.status === 'ok' && data.found === undefined && data.debtor === undefined) {
     throw new SheetsDbError(
       'SHEETS_LEGACY_SCRIPT',

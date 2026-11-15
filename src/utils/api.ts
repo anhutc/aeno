@@ -209,7 +209,14 @@ export async function loginOwner(
       if (res.ok && data.success && data.token) {
         setStoredOwnerToken(data.token);
         if (data.settings) {
-          saveSettings(data.settings);
+          const prevLocal = loadSettings();
+          saveSettings({
+            ...prevLocal,
+            ...data.settings,
+            ...(prevLocal.googleAppsScriptUrl && !data.settings.googleAppsScriptUrl
+              ? { googleAppsScriptUrl: prevLocal.googleAppsScriptUrl }
+              : {}),
+          });
         }
         const s = data.settings || loadSettings();
         const isPhoneMatch = Boolean(
@@ -239,6 +246,10 @@ export async function loginOwner(
           message: data.message || 'Mật khẩu quản trị không chính xác',
         };
       }
+    } else if (res.status >= 500) {
+      serverResponded = true;
+      cloudErrorCode = 'SHEETS_UNAVAILABLE';
+      cloudErrorMessage = `Máy chủ tạm thời quá tải hoặc hết thời gian chờ kết nối Google Sheets (HTTP ${res.status}). Vui lòng thử lại sau.`;
     }
   } catch {
     // network error -> allow cached offline check below
@@ -366,12 +377,26 @@ export async function fetchOwnerData(force = false): Promise<{
       if (sRes.ok) {
         const sData = await sRes.json();
         if (sData.success && sData.settings) {
-          saveSettings(sData.settings);
+          const existingLocal = loadSettings();
+          const mergedPublic = {
+            ...existingLocal,
+            ...sData.settings,
+            ...(existingLocal.googleAppsScriptUrl
+              ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
+              : {}),
+            ...(existingLocal.googleSheetUrl && !sData.settings.googleSheetUrl
+              ? { googleSheetUrl: existingLocal.googleSheetUrl }
+              : {}),
+            ...(existingLocal.ownerPassword && !sData.settings.ownerPassword
+              ? { ownerPassword: existingLocal.ownerPassword }
+              : {}),
+          };
+          saveSettings(mergedPublic);
           return {
             debtors: [],
             transactions: [],
             parties: [],
-            settings: sData.settings,
+            settings: mergedPublic,
           };
         }
       }
@@ -398,7 +423,16 @@ export async function fetchOwnerData(force = false): Promise<{
         const finalDebtors = data.debtors || [];
         const finalTransactions = smartMergeTransactions(data.transactions || []);
         const finalParties = data.parties || [];
-        const finalSettings = data.settings || loadSettings();
+        const prevLocal = loadSettings();
+        const finalSettings = data.settings
+          ? {
+              ...prevLocal,
+              ...data.settings,
+              ...(prevLocal.googleAppsScriptUrl && !data.settings.googleAppsScriptUrl
+                ? { googleAppsScriptUrl: prevLocal.googleAppsScriptUrl }
+                : {}),
+            }
+          : prevLocal;
 
         saveDebtors(finalDebtors);
         saveTransactions(finalTransactions);
@@ -420,7 +454,17 @@ export async function fetchOwnerData(force = false): Promise<{
         if (sRes.ok) {
           const sData = await sRes.json();
           if (sData.success && sData.settings) {
-            saveSettings(sData.settings);
+            const existingLocal = loadSettings();
+            saveSettings({
+              ...existingLocal,
+              ...sData.settings,
+              ...(existingLocal.googleAppsScriptUrl
+                ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
+                : {}),
+              ...(existingLocal.ownerPassword && !sData.settings.ownerPassword
+                ? { ownerPassword: existingLocal.ownerPassword }
+                : {}),
+            });
           }
         }
       } catch {
@@ -1687,7 +1731,7 @@ export async function apiGuestLookup(
             'Không thể kết nối cơ sở dữ liệu Google Sheets để tra cứu. Vui lòng thử lại sau.',
         };
       }
-      if (res.status === 404) {
+      if (res.status === 404 || res.status === 400) {
         if (!isSilent) {
           const maskedPin = cleanPin.length > 2 ? `${cleanPin.slice(0, 1)}***${cleanPin.slice(-1)}` : '***';
           recordAuditLog({
@@ -1704,9 +1748,16 @@ export async function apiGuestLookup(
         return {
           success: false,
           errorCode: 'INVALID_CREDENTIALS',
-          message: data.message || 'Mật khẩu tra cứu không tồn tại hoặc không chính xác.',
+          message: data.message || 'Mã tra cứu không tồn tại hoặc không chính xác.',
         };
       }
+    } else if (res.status >= 500) {
+      serverResponded = true;
+      return {
+        success: false,
+        errorCode: 'SHEETS_UNAVAILABLE',
+        message: `Máy chủ Google Sheets phản hồi chậm hoặc gặp sự cố tạm thời (HTTP ${res.status}). Vui lòng thử lại sau.`,
+      };
     }
   } catch {
     // network error -> offline fallback check below
@@ -2129,6 +2180,90 @@ export async function apiRestoreFirestoreBackup(filename: string): Promise<{
   return { success: false, message: 'Không thể khôi phục từ bản sao lưu.' };
 }
 
+async function offloadSingleBase64ImageForBackup(dataUrl: string): Promise<string | undefined> {
+  if (!dataUrl || typeof dataUrl !== 'string') return undefined;
+  if (!dataUrl.startsWith('data:')) return dataUrl;
+  try {
+    const res = await fetch('/api/upload-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getSheetsHeaders(),
+      },
+      body: JSON.stringify({ image: dataUrl }),
+    });
+    const ct = res.headers.get('content-type') || '';
+    if (res.ok && ct.includes('application/json')) {
+      const data = await res.json();
+      if (data.success && data.url && !String(data.url).startsWith('data:')) {
+        return String(data.url);
+      }
+    }
+  } catch {
+    // ignore individual image upload failure
+  }
+  return dataUrl.length <= 36000 ? dataUrl : undefined;
+}
+
+async function prepareCompactBackupPayload(rawInput: any): Promise<any> {
+  const cloned = JSON.parse(JSON.stringify(rawInput));
+  const target =
+    cloned && cloned.data && (Array.isArray(cloned.data.debtors) || Array.isArray(cloned.data))
+      ? cloned.data
+      : cloned;
+
+  const currentSettings = loadSettings();
+  if (target && !Array.isArray(target) && target.settings && typeof target.settings === 'object') {
+    if (currentSettings.googleAppsScriptUrl) {
+      target.settings.googleAppsScriptUrl = currentSettings.googleAppsScriptUrl;
+    }
+    if (currentSettings.googleSheetUrl && !target.settings.googleSheetUrl) {
+      target.settings.googleSheetUrl = currentSettings.googleSheetUrl;
+    }
+  }
+
+  const itemsWithImages: Array<{ obj: any }> = [];
+  if (Array.isArray(target)) {
+    for (const item of target) {
+      if (item && typeof (item.billImage || item.billImageUrl) === 'string' && String(item.billImage || item.billImageUrl).startsWith('data:')) {
+        itemsWithImages.push({ obj: item });
+      }
+    }
+  } else if (target && typeof target === 'object') {
+    for (const tx of Array.isArray(target.transactions) ? target.transactions : []) {
+      if (tx && typeof (tx.billImage || tx.billImageUrl) === 'string' && String(tx.billImage || tx.billImageUrl).startsWith('data:')) {
+        itemsWithImages.push({ obj: tx });
+      }
+    }
+    for (const p of Array.isArray(target.parties) ? target.parties : []) {
+      if (p && typeof (p.billImage || p.billImageUrl) === 'string' && String(p.billImage || p.billImageUrl).startsWith('data:')) {
+        itemsWithImages.push({ obj: p });
+      }
+    }
+  }
+
+  // Offload inline base64 images in batches of 2 to Google Drive so /api/sheets/upload-json stays tiny & fast on Vercel
+  for (let i = 0; i < itemsWithImages.length; i += 2) {
+    const batch = itemsWithImages.slice(i, i + 2);
+    await Promise.all(
+      batch.map(async ({ obj }) => {
+        const rawImg = String(obj.billImage || obj.billImageUrl || '');
+        const uploadedUrl = await offloadSingleBase64ImageForBackup(rawImg);
+        if (uploadedUrl) {
+          obj.billImage = uploadedUrl;
+        } else {
+          delete obj.billImage;
+        }
+        if ('billImageUrl' in obj) {
+          delete obj.billImageUrl;
+        }
+      })
+    );
+  }
+
+  return target;
+}
+
 export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 'merge' = 'replace'): Promise<{
   success: boolean;
   message?: string;
@@ -2142,10 +2277,11 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
   const prevPartiesCount = loadParties().length;
 
   try {
+    const compactPayload = await prepareCompactBackupPayload(jsonData);
     const res = await fetch('/api/sheets/upload-json', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ data: jsonData, mode }),
+      body: JSON.stringify({ data: compactPayload, mode }),
     });
     const contentType = res.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -2154,7 +2290,16 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
         if (data.data.debtors) saveDebtors(data.data.debtors);
         if (data.data.transactions) saveTransactions(data.data.transactions);
         if (data.data.parties) saveParties(data.data.parties);
-        if (data.data.settings) saveSettings(data.data.settings);
+        if (data.data.settings) {
+          const prevLocal = loadSettings();
+          saveSettings({
+            ...prevLocal,
+            ...data.data.settings,
+            ...(prevLocal.googleAppsScriptUrl && !data.data.settings.googleAppsScriptUrl
+              ? { googleAppsScriptUrl: prevLocal.googleAppsScriptUrl }
+              : {}),
+          });
+        }
         const nextD = (data.data.debtors || []).length;
         const nextT = (data.data.transactions || []).length;
         const nextP = (data.data.parties || []).length;
@@ -2182,8 +2327,17 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
           settings: data.data.settings,
         };
       }
-      return { success: false, message: data.message || 'Lỗi khi nạp tệp JSON lên Google Sheets' };
+      return { success: false, message: data.message || `Lỗi khi nạp tệp JSON lên Google Sheets (HTTP ${res.status})` };
     }
+    return {
+      success: false,
+      message:
+        res.status === 413
+          ? 'Tệp JSON vượt quá giới hạn dung lượng (4.5MB) của máy chủ.'
+          : res.status === 504
+          ? 'Máy chủ hết thời gian chờ khi ghi lên Google Sheets (Timeout HTTP 504). Vui lòng thử lại.'
+          : `Máy chủ trả về lỗi HTTP ${res.status} khi đồng bộ JSON lên Google Sheets.`,
+    };
   } catch (err: any) {
     recordAuditLog({
       action: 'OPERATION_FAILED',
@@ -2196,8 +2350,6 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
     });
     return { success: false, message: err?.message || 'Lỗi khi khôi phục dữ liệu từ tệp JSON' };
   }
-
-  return { success: false, message: 'Không thể kết nối máy chủ để khôi phục JSON' };
 }
 
 export async function apiCleanOrphanTransactions(): Promise<{

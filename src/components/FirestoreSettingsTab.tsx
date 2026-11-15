@@ -424,18 +424,26 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
         <div className="flex items-center gap-1.5">
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
-              isOnline
+              isCheckingStatus && !status
+                ? 'bg-slate-100 text-slate-700 border-slate-300'
+                : isOnline
                 ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                 : 'bg-rose-100 text-rose-800 border-rose-300'
             }`}
           >
             <span
               className={`w-2 h-2 rounded-full ${
-                isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                isCheckingStatus && !status
+                  ? 'bg-slate-400 animate-pulse'
+                  : isOnline
+                  ? 'bg-emerald-500 animate-pulse'
+                  : 'bg-rose-500'
               }`}
             ></span>
             <span>
-              {isOnline
+              {isCheckingStatus && !status
+                ? 'Đang kiểm tra...'
+                : isOnline
                 ? 'Google Sheets Online'
                 : isConfigured
                 ? 'Google Sheets Offline'
@@ -444,6 +452,16 @@ export const FirestoreSettingsTab: React.FC<FirestoreSettingsTabProps> = ({
           </span>
         </div>
       </div>
+
+      {status && !status.connected && status.error && (
+        <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+          <div className="font-bold flex items-center gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span>Chi tiết trạng thái kết nối Google Sheets:</span>
+          </div>
+          <p className="text-[11.5px] text-amber-800 leading-relaxed">{status.error}</p>
+        </div>
+      )}
 
       {/* =========================================================================
           GOOGLE SHEETS & DRIVE SYNC SECTION (100% PURE CLOUD)

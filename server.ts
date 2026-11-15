@@ -101,15 +101,25 @@ function resolveRequestScriptUrl(req?: express.Request): string | undefined {
     typeof req.headers['x-apps-script-url'] === 'string'
       ? req.headers['x-apps-script-url'].trim()
       : '';
-  if (headerUrl && headerUrl.startsWith('https://script.google.com/')) {
+  const bodyUrl =
+    typeof req.body?.googleAppsScriptUrl === 'string'
+      ? req.body.googleAppsScriptUrl.trim()
+      : typeof req.body?.settings?.googleAppsScriptUrl === 'string'
+      ? req.body.settings.googleAppsScriptUrl.trim()
+      : '';
+  const memUrl = (inMemoryDb?.settings?.googleAppsScriptUrl || '').trim();
+  const candidate = [headerUrl, bodyUrl, memUrl].find((u) =>
+    u.startsWith('https://script.google.com/')
+  );
+  if (candidate) {
     // Remember client-provided script URL in config/memory when server env is unset
     const current = getActiveSheetsConfig();
     if (!current.appsScriptUrl || current.source === 'file') {
-      saveSheetsConfig(headerUrl);
+      saveSheetsConfig(candidate);
       const db = getDatabase();
-      db.settings = { ...db.settings, googleAppsScriptUrl: headerUrl };
+      db.settings = { ...db.settings, googleAppsScriptUrl: candidate };
     }
-    return headerUrl;
+    return candidate;
   }
   return undefined;
 }
@@ -231,15 +241,15 @@ const SKIP_FULL_HYDRATION_PREFIXES = [
   '/api/guest/lookup',
   '/api/guest/report-payment',
   '/api/owner/data',
+  '/api/owner/settings',
+  '/api/owner/sync-all',
+  '/api/owner/sync-now',
   '/api/audit-logs/',
   '/api/proxy-vietqr',
   '/api/images/',
   '/api/upload-image',
-  '/api/sheets/status',
-  '/api/sheets/test-connection',
-  '/api/sheets/configure',
-  '/api/firestore/status',
-  '/api/firestore/test-connection',
+  '/api/sheets/',
+  '/api/firestore/',
 ];
 
 app.use(async (req, _res, next) => {
@@ -1177,13 +1187,20 @@ app.put('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
 
 app.put('/api/owner/settings', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
+  if (!isSheetsSettingsLoaded) {
+    await ensureSheetsSettingsSync(false, reqUrl);
+  }
   const newSettings = req.body;
   const db = getDatabase();
   const { reminderMessageTemplate, ...cleanedNewSettings } = (newSettings || {}) as any;
 
+  const existingScriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
   db.settings = {
     ...db.settings,
     ...cleanedNewSettings,
+    ...(existingScriptUrl && !cleanedNewSettings?.googleAppsScriptUrl
+      ? { googleAppsScriptUrl: existingScriptUrl }
+      : {}),
   };
   saveDatabase(db);
 
@@ -1318,6 +1335,9 @@ app.post('/api/owner/reset-sample-data', handleResetSampleData);
 const handleSyncAllData = async (req: express.Request, res: express.Response) => {
   const reqUrl = resolveRequestScriptUrl(req);
   try {
+    if (!isSheetsSettingsLoaded) {
+      await ensureSheetsSettingsSync(false, reqUrl);
+    }
     const clientData = req.body || {};
     const db = getDatabase();
 
@@ -1331,7 +1351,18 @@ const handleSyncAllData = async (req: express.Request, res: express.Response) =>
       db.parties = clientData.parties;
     }
     if (clientData.settings && typeof clientData.settings === 'object') {
-      db.settings = { ...db.settings, ...clientData.settings };
+      const existingScriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
+      const existingPass = (db.settings?.ownerPassword || '').trim();
+      db.settings = {
+        ...db.settings,
+        ...clientData.settings,
+        ...(existingScriptUrl && !clientData.settings.googleAppsScriptUrl
+          ? { googleAppsScriptUrl: existingScriptUrl }
+          : {}),
+        ...(existingPass && !clientData.settings.ownerPassword
+          ? { ownerPassword: existingPass }
+          : {}),
+      };
       if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
         saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
       }
@@ -1618,6 +1649,15 @@ app.post(['/api/sheets/restore-backup', '/api/firestore/restore-backup'], authMi
 
 app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
+  const cfg = getActiveSheetsConfig(reqUrl);
+  if (!cfg.appsScriptUrl) {
+    return res.status(503).json({
+      success: false,
+      code: 'SHEETS_NOT_CONFIGURED',
+      message: 'Chưa cấu hình URL Google Apps Script Web App để lưu dữ liệu lên Google Sheets.',
+    });
+  }
+
   let raw = req.body?.data !== undefined ? req.body.data : req.body;
   const mode = req.body?.mode === 'merge' ? 'merge' : 'replace';
 
@@ -1629,6 +1669,12 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
   }
 
   try {
+    if (mode === 'merge') {
+      await ensureSheetsDataSync(false, reqUrl);
+    } else if (!isSheetsSettingsLoaded) {
+      await ensureSheetsSettingsSync(false, reqUrl);
+    }
+
     const currentDb = getDatabase();
     let inputDebtors: any[] = [];
     let inputTransactions: any[] = [];
@@ -1646,11 +1692,11 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
     }
 
     const cleanDebtors: Debtor[] = inputDebtors.map((d: any, idx: number) => ({
-      id: String(d.id || `d_${Date.now()}_${idx}`),
-      name: String(d.name || 'Người nợ không tên'),
+      id: String(d.id || `d_${Date.now()}_${idx}`).trim(),
+      name: String(d.name || 'Người nợ không tên').trim(),
       phone: d.phone ? String(d.phone) : undefined,
       note: d.note ? String(d.note) : '',
-      pin: String(d.pin || Math.floor(100000 + Math.random() * 900000)),
+      pin: String(d.pin !== undefined && d.pin !== null && String(d.pin).trim() !== '' ? d.pin : Math.floor(100000 + Math.random() * 900000)).trim(),
       createdAt: String(d.createdAt || new Date().toISOString()),
       updatedAt: String(d.updatedAt || d.createdAt || new Date().toISOString()),
     }));
@@ -1658,16 +1704,18 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
     const cleanTransactions: Transaction[] = inputTransactions.map((t: any, idx: number) => {
       let typeVal: 'ADD' | 'SUB' = 'ADD';
       if (t.type === 'SUB' || t.type === 'REPAYMENT' || t.type === 'PAYMENT') typeVal = 'SUB';
+      const rawImg = t.billImage || t.billImageUrl ? String(t.billImage || t.billImageUrl) : undefined;
+      const safeImg = rawImg && rawImg.startsWith('data:') && rawImg.length > 38000 ? undefined : rawImg;
       return {
-        id: String(t.id || `tx_${Date.now()}_${idx}`),
-        debtorId: String(t.debtorId || ''),
-        amount: typeof t.amount === 'number' ? t.amount : Number(t.amount) || 0,
+        id: String(t.id || `tx_${Date.now()}_${idx}`).trim(),
+        debtorId: String(t.debtorId || '').trim(),
+        amount: typeof t.amount === 'number' ? t.amount : Number(String(t.amount || 0).replace(/,/g, '')) || 0,
         type: typeVal,
         note: String(t.note || t.description || ''),
         category: (t.category || 'SINGLE') as any,
         date: String(t.date || new Date().toISOString().split('T')[0]),
-        billImage: t.billImage || t.billImageUrl ? String(t.billImage || t.billImageUrl) : undefined,
-        partyId: t.partyId ? String(t.partyId) : undefined,
+        ...(safeImg ? { billImage: safeImg } : {}),
+        partyId: t.partyId ? String(t.partyId).trim() : undefined,
         createdAt: String(t.createdAt || new Date().toISOString()),
       };
     });
@@ -1678,7 +1726,7 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
         : Array.isArray(p.participants)
         ? p.participants.map((item: any) => (typeof item === 'string' ? item : item.debtorId || item.id))
         : [];
-      const total = typeof p.totalAmount === 'number' ? p.totalAmount : Number(p.totalAmount) || 0;
+      const total = typeof p.totalAmount === 'number' ? p.totalAmount : Number(String(p.totalAmount || 0).replace(/,/g, '')) || 0;
       const count = participantIds.length + (p.includeMe !== false ? 1 : 0);
       const split =
         typeof p.splitAmountPerPerson === 'number'
@@ -1686,19 +1734,21 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
           : count > 0
           ? Math.round(total / count)
           : total;
+      const rawPartyImg = p.billImage || p.billImageUrl ? String(p.billImage || p.billImageUrl) : undefined;
+      const safePartyImg = rawPartyImg && rawPartyImg.startsWith('data:') && rawPartyImg.length > 38000 ? undefined : rawPartyImg;
 
       return {
-        id: String(p.id || `p_${Date.now()}_${idx}`),
+        id: String(p.id || `p_${Date.now()}_${idx}`).trim(),
         name: String(p.name || p.title || 'Đợt chia tiền'),
         date: String(p.date || new Date().toISOString().split('T')[0]),
         totalAmount: total,
         payerType: (p.payerType === 'DEBTOR' ? 'DEBTOR' : 'ME') as 'ME' | 'DEBTOR',
         payerDebtorId:
-          p.payerDebtorId || p.paidByDebtorId ? String(p.payerDebtorId || p.paidByDebtorId) : undefined,
-        participantDebtorIds: participantIds.map(String),
+          p.payerDebtorId || p.paidByDebtorId ? String(p.payerDebtorId || p.paidByDebtorId).trim() : undefined,
+        participantDebtorIds: participantIds.map((x: any) => String(x).trim()),
         includeMe: p.includeMe !== false,
         splitAmountPerPerson: split,
-        billImage: p.billImage || p.billImageUrl ? String(p.billImage || p.billImageUrl) : undefined,
+        ...(safePartyImg ? { billImage: safePartyImg } : {}),
         createdAt: String(p.createdAt || new Date().toISOString()),
       };
     });
@@ -1729,11 +1779,31 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
       finalParties = cleanParties;
     }
 
+    const activeScriptUrl = cfg.appsScriptUrl || currentDb.settings?.googleAppsScriptUrl || '';
+    const activeSheetUrl = cfg.googleSheetUrl || currentDb.settings?.googleSheetUrl || '';
+
     if (inputSettings) {
-      const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...safeInputSettings } = inputSettings;
-      finalSettings = { ...currentDb.settings, ...safeInputSettings, ownerPassword: currentDb.settings.ownerPassword };
+      const {
+        ownerPassword: _ignoredPass,
+        reminderMessageTemplate,
+        shareMessageTemplate,
+        googleAppsScriptUrl: _ignoredScriptUrl,
+        googleSheetUrl: _ignoredSheetUrl,
+        ...safeInputSettings
+      } = inputSettings;
+      finalSettings = {
+        ...currentDb.settings,
+        ...safeInputSettings,
+        ownerPassword: currentDb.settings.ownerPassword,
+        ...(activeScriptUrl ? { googleAppsScriptUrl: activeScriptUrl } : {}),
+        ...(activeSheetUrl ? { googleSheetUrl: activeSheetUrl } : {}),
+      };
     } else {
-      finalSettings = currentDb.settings;
+      finalSettings = {
+        ...currentDb.settings,
+        ...(activeScriptUrl ? { googleAppsScriptUrl: activeScriptUrl } : {}),
+        ...(activeSheetUrl ? { googleSheetUrl: activeSheetUrl } : {}),
+      };
     }
 
     const validDebtorIds = new Set(finalDebtors.map((d) => d.id));
@@ -1746,7 +1816,7 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
       settings: finalSettings,
     };
 
-    await persistFullStateToSheets(newState, reqUrl);
+    await persistFullStateToSheets(newState, reqUrl || activeScriptUrl);
 
     return res.json({
       success: true,
@@ -1759,9 +1829,12 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
       },
     });
   } catch (err: any) {
-    return res.status(500).json({
+    const info = recordSheetsError(err);
+    return res.status(503).json({
       success: false,
-      message: `Lỗi khôi phục dữ liệu JSON lên Google Sheets: ${err?.message}`,
+      code: info.code,
+      needsScriptUpgrade: info.needsUpgrade,
+      message: `Lỗi khôi phục dữ liệu JSON lên Google Sheets: ${info.message}`,
     });
   }
 });

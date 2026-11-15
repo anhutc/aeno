@@ -541,6 +541,11 @@ function readDebtorsFromSheet_(ss) {
         var parsed = JSON.parse(jsonStr);
         if (parsed && parsed.id) {
           if (row[1]) parsed.name = String(row[1]).trim();
+          if (row[7] !== undefined && String(row[7]).trim() !== "") {
+            parsed.pin = String(row[7]).trim();
+          } else {
+            parsed.pin = String(parsed.pin !== undefined && parsed.pin !== null ? parsed.pin : "").trim();
+          }
           result.push(parsed);
           continue;
         }

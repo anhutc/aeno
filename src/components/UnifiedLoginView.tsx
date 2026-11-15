@@ -80,6 +80,12 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   } | null>(null);
 
   useEffect(() => {
+    if (settings.googleAppsScriptUrl) {
+      setScriptUrlInput(settings.googleAppsScriptUrl);
+    }
+  }, [settings.googleAppsScriptUrl]);
+
+  useEffect(() => {
     isBiometricsAvailable().then((avail) => {
       setCanUseBiometrics(avail);
       setIsBiometricEnrolled(isBiometricsEnrolled());
@@ -285,13 +291,18 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         if (rawErrCode) {
           const isNotConfigured = rawErrCode === 'SHEETS_NOT_CONFIGURED';
           const isLegacyScript = rawErrCode === 'SHEETS_LEGACY_SCRIPT';
+          const cloudSourceRes =
+            (guestRes as any)?.errorCode && (guestRes as any).errorCode !== 'INVALID_CREDENTIALS'
+              ? guestRes
+              : ownerRes.errorCode && ownerRes.errorCode !== 'INVALID_CREDENTIALS'
+              ? ownerRes
+              : null;
           const cloudMsg = isNotConfigured
             ? 'Chưa kết nối Google Sheets (Apps Script URL). Quản trị viên vui lòng dán link Apps Script v3 ở phần thiết lập bên trên hoặc cài đặt biến GOOGLE_APPS_SCRIPT_URL trên Vercel.'
             : isLegacyScript
             ? 'Google Apps Script đang sử dụng phiên bản cũ (v1/v2). Vui lòng cập nhật mã Apps Script v3 (5 Tab) và triển khai phiên bản mới.'
-            : ownerRes.message ||
-              guestRes.message ||
-              'Không thể kết nối đến cơ sở dữ liệu Google Sheets để kiểm tra mật khẩu. Vui lòng thử lại sau.';
+            : cloudSourceRes?.message ||
+              'Không thể kết nối đến cơ sở dữ liệu Google Sheets để kiểm tra mã truy cập. Vui lòng thử lại sau.';
 
           if (isNotConfigured) {
             setShowSheetsSetup(true);
@@ -329,7 +340,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           changes: [{ fieldLabel: 'Kết quả đối chiếu', before: 'Chờ xác thực', after: `Thất bại (${masked})` }],
           metadata: { maskedInput: masked, inputLength: clean.length },
         });
-        setError('Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
+        setError('Mã tra cứu hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 500);
       } catch (err: any) {

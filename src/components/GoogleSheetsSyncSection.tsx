@@ -25,12 +25,12 @@ import { AppSettings, Debtor, Transaction, PartySplit } from '../types';
 import { loadAuditLogs } from '../utils/storage';
 import { formatVND } from '../utils/vietqr';
 import {
-  syncViaAppsScript,
   GOOGLE_APPS_SCRIPT_TEMPLATE,
   exportGoogleSheetsCsvFile,
   triggerDebouncedAutoSync,
   SyncResult,
 } from '../services/googleSheetsService';
+import { apiTestSheetsConnection, apiSyncAllNow } from '../utils/api';
 import { triggerHaptic } from '../utils/haptic';
 
 interface GoogleSheetsSyncSectionProps {
@@ -251,19 +251,25 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
     triggerHaptic('light');
     setIsTestingUrl(true);
     try {
-      // Test sending a lightweight payload
-      const testRes = await syncViaAppsScript(
-        {
-          debtors,
-          transactions,
-          parties,
-          settings,
-          auditLogs: loadAuditLogs(),
-        },
-        url
-      );
-      setSyncResult(testRes);
-      showToast('Kết nối Google Apps Script thành công 100%! Bảng tính đã được cập nhật.', 'success');
+      const testRes = await apiTestSheetsConnection({ appsScriptUrl: url });
+      if (testRes.success) {
+        if (testRes.needsUpgrade) {
+          showToast(
+            `Kết nối được Web App (v${testRes.version || 1}) nhưng cần cập nhật mã Apps Script v3 (5 Tab)!`,
+            'error'
+          );
+        } else {
+          showToast(
+            `Kết nối Google Apps Script v${testRes.version || 3} thành công! Độ trễ: ${testRes.latencyMs} ms`,
+            'success'
+          );
+        }
+      } else {
+        showToast(
+          `Không thể kết nối: ${testRes.error || 'Kiểm tra lại quyền truy cập Anyone trên Apps Script'}`,
+          'error'
+        );
+      }
     } catch (err: any) {
       showToast(`Không thể kết nối: ${err?.message || 'Kiểm tra lại quyền truy cập Anyone trên Apps Script'}`, 'error');
     } finally {
@@ -312,7 +318,7 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
   };
 
   const executeSync = async (customUrl?: string) => {
-    const activeUrl = customUrl || settings.googleAppsScriptUrl;
+    const activeUrl = (customUrl || settings.googleAppsScriptUrl || '').trim();
     if (!activeUrl) {
       showToast('Chưa có URL Google Apps Script. Vui lòng thiết lập ở bên dưới.', 'error');
       setIsEditingUrl(true);
@@ -325,26 +331,50 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
 
     try {
       setSyncStatusStep('Đang đồng bộ dữ liệu sang Google Sheet qua Google Apps Script Web App v3...');
-      const result = await syncViaAppsScript(
-        {
-          debtors,
-          transactions,
-          parties,
-          settings,
-          auditLogs: loadAuditLogs(),
+      const updatedTargetSettings: AppSettings = {
+        ...settings,
+        googleAppsScriptUrl: activeUrl,
+      };
+      const serverSync = await apiSyncAllNow({
+        debtors,
+        transactions,
+        parties,
+        settings: updatedTargetSettings,
+      });
+
+      if (!serverSync.success) {
+        showToast(
+          serverSync.message || 'Không thể đồng bộ dữ liệu lên Google Sheets. Kiểm tra lại Apps Script v3.',
+          'error'
+        );
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const result: SyncResult = {
+        success: true,
+        spreadsheetId: 'apps_script',
+        spreadsheetUrl: settings.googleSheetUrl || 'https://docs.google.com/spreadsheets',
+        title: `[AENO] Sổ Nợ & Đối Soát - ${settings.ownerName || 'Chủ Sổ'}`,
+        updatedAt: now,
+        summary: {
+          debtorsCount: serverSync.debtors?.length ?? debtors.length,
+          transactionsCount: serverSync.transactions?.length ?? transactions.length,
+          partiesCount: serverSync.parties?.length ?? parties.length,
+          auditLogsCount: loadAuditLogs().length,
+          totalActiveDebt: 0,
         },
-        activeUrl
-      );
+      };
 
       const updatedSettings: AppSettings = {
-        ...settings,
-        lastGoogleSheetSyncAt: result.updatedAt,
+        ...updatedTargetSettings,
+        lastGoogleSheetSyncAt: now,
       };
       await onSaveSettings(updatedSettings);
       setSyncResult(result);
 
       showToast(
-        `Đã đồng bộ thành công toàn bộ 5 Tab sang Google Sheets! Nhật ký logs được lưu trữ vĩnh viễn.`,
+        `Đã đồng bộ thành công toàn bộ 5 Tab sang Google Sheets (${result.summary.debtorsCount} người nợ, ${result.summary.transactionsCount} giao dịch)!`,
         'success'
       );
     } catch (err: any) {

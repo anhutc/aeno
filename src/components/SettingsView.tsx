@@ -259,7 +259,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setMessage({ text, type });
-    setTimeout(() => setMessage(null), 3500);
+    setTimeout(() => setMessage(null), type === 'error' ? 7000 : 3500);
   };
 
   const handleBankChange = (bankId: string) => {
@@ -485,6 +485,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       let debtorsFound: Debtor[] = [];
       let transactionsFound: Transaction[] = [];
       let partiesFound: PartySplit[] = [];
+      let mergedSettings: AppSettings | null = null;
 
       if (Array.isArray(rawJson)) {
         if (rawJson.length > 0 && rawJson[0].debtorId !== undefined && rawJson[0].amount !== undefined) {
@@ -497,12 +498,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         if (Array.isArray(rawJson.transactions)) transactionsFound = rawJson.transactions;
         if (Array.isArray(rawJson.parties)) partiesFound = rawJson.parties;
         if (rawJson.settings && typeof rawJson.settings === 'object') {
-          // Bảo vệ an toàn tuyệt đối: Không để tệp JSON nhập vào ghi đè hoặc làm mất mật khẩu quản lý hiện tại
-          const { ownerPassword: _ignoredPass, reminderMessageTemplate, shareMessageTemplate, ...importedSafeSettings } = rawJson.settings;
-          const mergedSettings = { ...formData, ...importedSafeSettings, ownerPassword: formData.ownerPassword };
+          // Bảo vệ an toàn tuyệt đối: Không để tệp JSON cũ ghi đè mật khẩu quản lý hoặc làm mất URL Google Sheets đang dùng
+          const {
+            ownerPassword: _ignoredPass,
+            reminderMessageTemplate,
+            shareMessageTemplate,
+            googleAppsScriptUrl: importedScriptUrl,
+            googleSheetUrl: importedSheetUrl,
+            ...importedSafeSettings
+          } = rawJson.settings;
+          const activeScriptUrl =
+            (formData.googleAppsScriptUrl || '').trim() ||
+            (typeof importedScriptUrl === 'string' && importedScriptUrl.startsWith('https://script.google.com/')
+              ? importedScriptUrl.trim()
+              : undefined);
+          const activeSheetUrl =
+            (formData.googleSheetUrl || '').trim() ||
+            (typeof importedSheetUrl === 'string' ? importedSheetUrl.trim() : undefined);
+          mergedSettings = {
+            ...formData,
+            ...importedSafeSettings,
+            ownerPassword: formData.ownerPassword,
+            ...(activeScriptUrl ? { googleAppsScriptUrl: activeScriptUrl } : {}),
+            ...(activeSheetUrl ? { googleSheetUrl: activeSheetUrl } : {}),
+          };
           setFormData(mergedSettings);
           saveSettings(mergedSettings);
-          onSaveSettings(mergedSettings);
         }
       }
 
@@ -539,18 +560,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         saveParties(Array.from(curPartyMap.values()));
       }
 
-      // Also sync to Google Sheets Cloud automatically
-      try {
-        await apiUploadJsonToFirestore(rawJson, mode);
-      } catch {
-        // ignore cloud sync error if offline or unconfigured
+      const uploadRes = await apiUploadJsonToFirestore(rawJson, mode);
+      if (!uploadRes.success) {
+        if (mergedSettings) {
+          onSaveSettings(mergedSettings);
+        }
+        setIsRestoreConfirmOpen(false);
+        setRestorePreview(null);
+        showToast(
+          `Đã nạp dữ liệu trên máy nhưng CHƯA đồng bộ được lên Google Sheets: ${uploadRes.message || 'Vui lòng kiểm tra kết nối Google Sheets trong tab này.'}`,
+          'error'
+        );
+        return;
       }
 
       handleDataReloadAndSync();
       setIsRestoreConfirmOpen(false);
       setRestorePreview(null);
       showToast(
-        `Đã khôi phục thành công ${debtorsFound.length} người nợ và ${transactionsFound.length} giao dịch (đã đồng bộ lên Cloud)!`,
+        `Đã khôi phục và đồng bộ lên Google Sheets thành công (${uploadRes.debtors?.length ?? debtorsFound.length} người nợ, ${uploadRes.transactions?.length ?? transactionsFound.length} giao dịch)!`,
         'success'
       );
     } catch (err: any) {
