@@ -49,6 +49,169 @@ export function getSheetsHeaders(): Record<string, string> {
   return {};
 }
 
+async function parseApiJsonSafely(res: Response): Promise<{
+  data: any | null;
+  errorMessage: string;
+}> {
+  let rawText = '';
+  try {
+    rawText = await res.text();
+  } catch {
+    return {
+      data: null,
+      errorMessage: `Không thể đọc phản hồi từ máy chủ (HTTP ${res.status}).`,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(rawText);
+    if (parsed && typeof parsed === 'object') {
+      return { data: parsed, errorMessage: '' };
+    }
+  } catch {
+    // non-JSON response (e.g. HTML 404/500/504 from proxy/Vercel or SPA fallback)
+  }
+
+  const trimmed = rawText.trim();
+  const isHtml = trimmed.startsWith('<');
+  if (res.status === 413) {
+    return {
+      data: null,
+      errorMessage: 'Dữ liệu gửi lên vượt quá giới hạn dung lượng (HTTP 413).',
+    };
+  }
+  if (res.status === 504) {
+    return {
+      data: null,
+      errorMessage: 'Máy chủ hết thời gian chờ phản hồi từ Google Sheets (HTTP 504). Vui lòng thử lại.',
+    };
+  }
+  if (res.status >= 500) {
+    return {
+      data: null,
+      errorMessage: `Máy chủ gặp sự cố tạm thời khi xử lý yêu cầu (HTTP ${res.status}). Vui lòng thử lại sau.`,
+    };
+  }
+  if (res.status === 404 || (isHtml && trimmed.includes('id="root"'))) {
+    return {
+      data: null,
+      errorMessage: `Không tìm thấy API máy chủ (HTTP ${res.status}). Vui lòng kiểm tra lại cấu hình triển khai.`,
+    };
+  }
+  return {
+    data: null,
+    errorMessage: `Không nhận được phản hồi hợp lệ từ máy chủ (HTTP ${res.status}).`,
+  };
+}
+
+async function pingAppsScriptDirect(appsScriptUrl: string): Promise<{
+  success: boolean;
+  latencyMs: number;
+  version: number;
+  supportsFullDb: boolean;
+  supportsLogSync: boolean;
+  supportsDriveUpload: boolean;
+  needsUpgrade: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const cleanUrl = (appsScriptUrl || '').trim();
+  const t0 = Date.now();
+  if (!cleanUrl.startsWith('https://script.google.com/')) {
+    return {
+      success: false,
+      latencyMs: 0,
+      version: 0,
+      supportsFullDb: false,
+      supportsLogSync: false,
+      supportsDriveUpload: false,
+      needsUpgrade: false,
+      error: 'URL Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9000);
+  try {
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const res = await fetch(`${cleanUrl}${sep}action=PING`, {
+      method: 'GET',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      if (text.includes('accounts.google.com') || text.includes('Sign in')) {
+        return {
+          success: false,
+          latencyMs: Date.now() - t0,
+          version: 0,
+          supportsFullDb: false,
+          supportsLogSync: false,
+          supportsDriveUpload: false,
+          needsUpgrade: false,
+          error: 'Google Apps Script đang yêu cầu đăng nhập. Vui lòng chọn quyền truy cập "Bất kỳ ai (Anyone)" khi Triển khai (Deploy).',
+        };
+      }
+      return {
+        success: false,
+        latencyMs: Date.now() - t0,
+        version: 0,
+        supportsFullDb: false,
+        supportsLogSync: false,
+        supportsDriveUpload: false,
+        needsUpgrade: false,
+        error: `Google Apps Script trả về dữ liệu không hợp lệ (HTTP ${res.status}). Hãy kiểm tra lại URL Web App (/exec).`,
+      };
+    }
+
+    if (!res.ok || json?.success === false) {
+      return {
+        success: false,
+        latencyMs: Date.now() - t0,
+        version: 0,
+        supportsFullDb: false,
+        supportsLogSync: false,
+        supportsDriveUpload: false,
+        needsUpgrade: false,
+        error: json?.error || json?.message || `Lỗi phản hồi từ Google Apps Script (HTTP ${res.status})`,
+      };
+    }
+
+    const version = Number(json.version || (json.supportsFullDb ? 3 : json.supportsLogSync ? 2 : 1));
+    const supportsFullDb = Boolean(json.supportsFullDb || version >= 3);
+    return {
+      success: true,
+      latencyMs: Date.now() - t0,
+      version,
+      supportsFullDb,
+      supportsLogSync: Boolean(json.supportsLogSync || version >= 2),
+      supportsDriveUpload: Boolean(json.supportsDriveUpload || version >= 3),
+      needsUpgrade: !supportsFullDb,
+      message: json.message || 'Kết nối Google Sheets thành công!',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      latencyMs: Date.now() - t0,
+      version: 0,
+      supportsFullDb: false,
+      supportsLogSync: false,
+      supportsDriveUpload: false,
+      needsUpgrade: false,
+      error: err?.name === 'AbortError'
+        ? 'Hết thời gian chờ kết nối Google Apps Script (Timeout).'
+        : err?.message || 'Không thể kết nối trực tiếp tới Google Apps Script.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const OWNER_TOKEN_KEY = 'debt_app_owner_token';
 
 // In-memory token storage ONLY (không lưu vào sessionStorage/localStorage để bắt buộc nhập lại mật khẩu khi reload trang)
@@ -652,9 +815,8 @@ export async function apiSaveDebtor(
       headers: getAuthHeaders(),
       body: JSON.stringify({ ...debtor, id: targetId }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         const mergedDebtors = data.debtors ? smartMergeDebtors(data.debtors) : loadDebtors();
         saveDebtors(mergedDebtors);
@@ -675,11 +837,10 @@ export async function apiSaveDebtor(
       });
       return { success: false, message: errMsg };
     }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Lỗi kết nối khi lưu người nợ lên Google Sheets' };
   }
-
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiDeleteDebtor(
@@ -876,9 +1037,8 @@ export async function apiSaveTransaction(
       headers: getAuthHeaders(),
       body: JSON.stringify(localNewTx),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         const merged = smartMergeTransactions(data.transactions || currentLocal);
         try {
@@ -910,14 +1070,18 @@ export async function apiSaveTransaction(
       });
       return { success: false, message: errMsg };
     }
+    try {
+      saveTransactions(prevSnapshot);
+    } catch {
+      // ignore
+    }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return {
       success: false,
       message: err?.message || 'Lỗi kết nối khi lưu giao dịch lên Google Sheets',
     };
   }
-
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiUpdateTransaction(
@@ -1059,9 +1223,8 @@ export async function apiUpdateTransaction(
       headers: getAuthHeaders(),
       body: JSON.stringify(tx),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         const merged = smartMergeTransactions(data.transactions || allTxs);
         saveTransactions(merged);
@@ -1084,11 +1247,11 @@ export async function apiUpdateTransaction(
       });
       return { success: false, message: errMsg };
     }
+    saveTransactions(prevAllTxs);
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Lỗi kết nối khi cập nhật giao dịch' };
   }
-
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiDeleteTransaction(
@@ -1291,9 +1454,8 @@ export async function apiSavePartySplit(
       headers: getAuthHeaders(),
       body: JSON.stringify({ party: newParty, transactions: createdTxs }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         const mergedParties = smartMergeParties(data.parties || allParties);
         const mergedTxs = smartMergeTransactions(data.transactions || updatedTxs);
@@ -1315,11 +1477,10 @@ export async function apiSavePartySplit(
       });
       return { success: false, message: errMsg };
     }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Lỗi kết nối khi lưu chia tiền' };
   }
-
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiDeletePartySplit(
@@ -1551,9 +1712,8 @@ export async function apiUpdatePartySplit(
       headers: getAuthHeaders(),
       body: JSON.stringify({ party: updatedParty, transactions: createdTxs }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         const mergedParties = smartMergeParties(data.parties || [], allParties);
         const mergedTxs = smartMergeTransactions(data.transactions || [], updatedTxs);
@@ -1575,11 +1735,10 @@ export async function apiUpdatePartySplit(
       });
       return { success: false, message: errMsg };
     }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Lỗi kết nối khi cập nhật chia tiền' };
   }
-
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 export async function apiSaveSettings(
@@ -1683,9 +1842,8 @@ export async function apiSaveSettings(
       },
       body: JSON.stringify(settings),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success && data.settings) {
         saveSettings(data.settings);
         recordSettingsLogIfChanged(data.settings);
@@ -1697,12 +1855,15 @@ export async function apiSaveSettings(
         message: data.message || 'Không thể lưu cài đặt lên Google Sheets',
       };
     }
+    return {
+      success: false,
+      settings,
+      message: errorMessage,
+    };
   } catch (err: any) {
     console.warn('Server saveSettings notice:', err);
     return { success: false, settings, message: err?.message || 'Lỗi kết nối khi lưu cài đặt' };
   }
-
-  return { success: true, settings };
 }
 
 // --- GUEST APIS (LOOKUP BY PIN) ---
@@ -1924,9 +2085,8 @@ export async function apiGuestReportPayment(
       },
       body: JSON.stringify({ pin: cleanPin, amount, note, billImage }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         recordReportAudit(debtorObj?.name, debtorObj?.id);
         return { success: true, transactions: data.transactions };
@@ -1946,14 +2106,13 @@ export async function apiGuestReportPayment(
       });
       return { success: false, message: errMsg };
     }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return {
       success: false,
       message: err?.message || 'Lỗi kết nối khi gửi báo chuyển khoản lên Google Sheets',
     };
   }
-
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
 }
 
 /// --- GOOGLE SHEETS CLOUD DATABASE STATUS & MANAGEMENT ---
@@ -1984,13 +2143,16 @@ export interface FirestoreStatusInfo {
 }
 
 export async function apiGetSheetsStatus(): Promise<FirestoreStatusInfo> {
+  const localUrl = (loadSettings().googleAppsScriptUrl || '').trim();
+  let serverError = 'Không nhận được trạng thái Google Sheets từ máy chủ';
+
   try {
     const res = await fetch('/api/sheets/status', {
+      cache: 'no-store',
       headers: getAuthHeaders(),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data && (res.ok || typeof data.connected === 'boolean')) {
       return {
         success: Boolean(data.success),
         configured: data.configured,
@@ -2013,27 +2175,46 @@ export async function apiGetSheetsStatus(): Promise<FirestoreStatusInfo> {
         lastChecked: data.lastChecked || new Date().toISOString(),
       };
     }
+    if (errorMessage) serverError = errorMessage;
   } catch (err: any) {
-    return {
-      success: false,
-      configured: false,
-      connected: false,
-      latencyMs: 0,
-      databaseId: 'Chưa cấu hình',
-      stats: { debtors: 0, transactions: 0, parties: 0 },
-      error: err?.message || 'Không thể kết nối đến máy chủ Google Sheets',
-      lastChecked: new Date().toISOString(),
-    };
+    serverError = err?.message || 'Không thể kết nối đến máy chủ Google Sheets';
+  }
+
+  if (localUrl.startsWith('https://script.google.com/')) {
+    const direct = await pingAppsScriptDirect(localUrl);
+    if (direct.success) {
+      return {
+        success: true,
+        configured: true,
+        connected: true,
+        latencyMs: direct.latencyMs,
+        version: direct.version,
+        supportsFullDb: direct.supportsFullDb,
+        supportsLogSync: direct.supportsLogSync,
+        supportsDriveUpload: direct.supportsDriveUpload,
+        needsUpgrade: direct.needsUpgrade,
+        source: 'direct',
+        databaseId: `Google Sheets (Apps Script v${direct.version || 3})`,
+        stats: {
+          debtors: loadDebtors().length,
+          transactions: loadTransactions().length,
+          parties: loadParties().length,
+        },
+        error: null,
+        lastChecked: new Date().toISOString(),
+      };
+    }
+    serverError = direct.error || serverError;
   }
 
   return {
     success: false,
-    configured: false,
+    configured: Boolean(localUrl),
     connected: false,
     latencyMs: 0,
-    databaseId: 'Chưa cấu hình',
+    databaseId: localUrl ? 'Google Sheets Cloud' : 'Chưa cấu hình',
     stats: { debtors: 0, transactions: 0, parties: 0 },
-    error: 'Không nhận được trạng thái Google Sheets từ máy chủ',
+    error: serverError,
     lastChecked: new Date().toISOString(),
   };
 }
@@ -2056,6 +2237,8 @@ export async function apiTestSheetsConnection(options?: {
   stats?: { debtors: number; transactions: number; parties: number };
   error?: string;
 }> {
+  const candidateUrl = (options?.appsScriptUrl || loadSettings().googleAppsScriptUrl || '').trim();
+  let serverError = '';
   try {
     const res = await fetch('/api/sheets/test-connection', {
       method: 'POST',
@@ -2065,30 +2248,44 @@ export async function apiTestSheetsConnection(options?: {
       },
       body: JSON.stringify(options || {}),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       return {
         ...data,
         connected: Boolean(data.success),
         databaseId: data.configured ? `Google Sheets (Apps Script v${data.version || 3})` : 'Chưa cấu hình',
       };
     }
+    serverError = errorMessage;
   } catch (err: any) {
+    serverError = err?.message || 'Không thể kiểm tra kết nối Google Sheets';
+  }
+
+  if (candidateUrl.startsWith('https://script.google.com/')) {
+    const direct = await pingAppsScriptDirect(candidateUrl);
+    if (direct.success) {
+      return {
+        ...direct,
+        configured: true,
+        connected: true,
+        databaseId: `Google Sheets (Apps Script v${direct.version || 3})`,
+      };
+    }
     return {
       success: false,
-      configured: false,
+      configured: true,
       connected: false,
-      latencyMs: 0,
-      error: err?.message || 'Không thể kiểm tra kết nối Google Sheets',
+      latencyMs: direct.latencyMs,
+      error: direct.error || serverError || 'Không thể kiểm tra kết nối Google Sheets',
     };
   }
+
   return {
     success: false,
     configured: false,
     connected: false,
     latencyMs: 0,
-    error: 'Không thể kiểm tra kết nối Google Sheets',
+    error: serverError || 'Không thể kiểm tra kết nối Google Sheets',
   };
 }
 
@@ -2105,36 +2302,63 @@ export async function apiConfigureSheets(
   version?: number;
   message?: string;
 }> {
+  const trimmedUrl = appsScriptUrl.trim();
+  const trimmedSheetUrl = googleSheetUrl?.trim() || '';
+  let serverError = '';
+
   try {
     const res = await fetch('/api/sheets/configure', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
-        appsScriptUrl: appsScriptUrl.trim(),
-        ...(googleSheetUrl?.trim() ? { googleSheetUrl: googleSheetUrl.trim() } : {}),
+        appsScriptUrl: trimmedUrl,
+        ...(trimmedSheetUrl ? { googleSheetUrl: trimmedSheetUrl } : {}),
       }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         const current = loadSettings();
         saveSettings({
           ...current,
-          googleAppsScriptUrl: appsScriptUrl.trim(),
-          ...(googleSheetUrl?.trim() ? { googleSheetUrl: googleSheetUrl.trim() } : {}),
+          googleAppsScriptUrl: trimmedUrl,
+          ...(trimmedSheetUrl ? { googleSheetUrl: trimmedSheetUrl } : {}),
           autoSyncGoogleSheets: true,
         });
       }
       return data;
     }
+    serverError = errorMessage;
   } catch (err: any) {
+    serverError = err?.message || 'Lỗi kết nối khi cấu hình URL Google Apps Script';
+  }
+
+  // Fallback: kiểm tra trực tiếp Google Apps Script khi máy chủ trung gian trả về phản hồi không hợp lệ
+  const direct = await pingAppsScriptDirect(trimmedUrl);
+  if (direct.success) {
+    const current = loadSettings();
+    saveSettings({
+      ...current,
+      googleAppsScriptUrl: trimmedUrl,
+      ...(trimmedSheetUrl ? { googleSheetUrl: trimmedSheetUrl } : {}),
+      autoSyncGoogleSheets: true,
+    });
     return {
-      success: false,
-      message: err?.message || 'Lỗi kết nối khi cấu hình URL Google Apps Script',
+      success: true,
+      configured: true,
+      connected: true,
+      needsUpgrade: direct.needsUpgrade,
+      version: direct.version,
+      message: direct.needsUpgrade
+        ? 'Kết nối được Apps Script nhưng đang dùng mã cũ (v1/v2). Hãy cập nhật mã v3.'
+        : 'Đã kết nối Google Sheets thành công!',
     };
   }
-  return { success: false, message: 'Không nhận được phản hồi hợp lệ từ máy chủ' };
+
+  return {
+    success: false,
+    message: direct.error || serverError || 'Không nhận được phản hồi hợp lệ từ máy chủ',
+  };
 }
 
 export interface BackupItem {
@@ -2359,9 +2583,8 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
       headers: getAuthHeaders(),
       body: JSON.stringify({ data: compactPayload, mode }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success && data.data) {
         if (data.data.debtors) saveDebtors(data.data.debtors);
         if (data.data.transactions) saveTransactions(data.data.transactions);
@@ -2407,12 +2630,7 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
     }
     return {
       success: false,
-      message:
-        res.status === 413
-          ? 'Tệp JSON vượt quá giới hạn dung lượng (4.5MB) của máy chủ.'
-          : res.status === 504
-          ? 'Máy chủ hết thời gian chờ khi ghi lên Google Sheets (Timeout HTTP 504). Vui lòng thử lại.'
-          : `Máy chủ trả về lỗi HTTP ${res.status} khi đồng bộ JSON lên Google Sheets.`,
+      message: errorMessage,
     };
   } catch (err: any) {
     recordAuditLog({
@@ -2482,9 +2700,8 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
       headers: getAuthHeaders(),
       body: JSON.stringify({ direction }),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success && data.data) {
         if (data.data.debtors) saveDebtors(data.data.debtors);
         if (data.data.transactions) saveTransactions(data.data.transactions);
@@ -2517,11 +2734,10 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
       }
       return { success: false, message: data.message || 'Đồng bộ Google Sheets thất bại' };
     }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Không thể kết nối đến Google Sheets để đồng bộ' };
   }
-
-  return { success: false, message: 'Đồng bộ Google Sheets thất bại' };
 }
 
 /**
@@ -2554,9 +2770,8 @@ export async function apiSyncAllNow(dataOverride?: {
       headers: getAuthHeaders(),
       body: JSON.stringify(localData),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (data) {
       if (res.ok && data.success) {
         if (data.debtors) saveDebtors(data.debtors);
         if (data.transactions) saveTransactions(data.transactions);
@@ -2580,12 +2795,11 @@ export async function apiSyncAllNow(dataOverride?: {
       }
       return { success: false, message: data.message || 'Không thể đồng bộ lên Google Sheets' };
     }
+    return { success: false, message: errorMessage };
   } catch (err: any) {
     console.warn('Server sync-all API warning:', err);
     return { success: false, message: err?.message || 'Không thể kết nối đến máy chủ để đồng bộ Google Sheets' };
   }
-
-  return { success: false, message: 'Không thể kết nối đến máy chủ để đồng bộ Google Sheets' };
 }
 
 export async function apiClearAllSampleData(

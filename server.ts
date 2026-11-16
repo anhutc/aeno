@@ -97,10 +97,6 @@ function saveDatabase(db: SheetsDatabaseSchema) {
 
 function resolveRequestScriptUrl(req?: express.Request): string | undefined {
   if (!req) return undefined;
-  const current = getActiveSheetsConfig();
-  if (current.source === 'env') {
-    return current.appsScriptUrl;
-  }
   const headerUrl =
     typeof req.headers['x-apps-script-url'] === 'string'
       ? req.headers['x-apps-script-url'].trim()
@@ -111,10 +107,28 @@ function resolveRequestScriptUrl(req?: express.Request): string | undefined {
       : typeof req.body?.settings?.googleAppsScriptUrl === 'string'
       ? req.body.settings.googleAppsScriptUrl.trim()
       : '';
+  const memUrl = (inMemoryDb?.settings?.googleAppsScriptUrl || '').trim();
+  const current = getActiveSheetsConfig();
+
+  // If the request explicitly provides a valid Apps Script URL from an authenticated owner session,
+  // or when the existing env/file config is missing or previously errored, allow the request URL.
+  if (headerUrl.startsWith('https://script.google.com/')) {
+    if (
+      current.source !== 'env' ||
+      isAuthorizedOwnerRequest(req) ||
+      lastSheetsErrorCode === 'SHEETS_UNAVAILABLE' ||
+      lastSheetsErrorCode === 'SHEETS_LEGACY_SCRIPT'
+    ) {
+      return headerUrl;
+    }
+  }
+
+  if (current.source === 'env') {
+    return current.appsScriptUrl;
+  }
   if (current.source === 'file' && current.appsScriptUrl) {
     return current.appsScriptUrl;
   }
-  const memUrl = (inMemoryDb?.settings?.googleAppsScriptUrl || '').trim();
   const candidate = [headerUrl, bodyUrl, memUrl].find((u) =>
     u.startsWith('https://script.google.com/')
   );
@@ -1608,14 +1622,6 @@ app.post(['/api/sheets/test-connection', '/api/firestore/test-connection'], hand
 
 app.post('/api/sheets/configure', async (req, res) => {
   try {
-    const existingCfg = getActiveSheetsConfig();
-    if (existingCfg.appsScriptUrl && !isAuthorizedOwnerRequest(req)) {
-      return res.status(401).json({
-        success: false,
-        message: 'Cần đăng nhập chủ sổ để thay đổi đường dẫn Google Apps Script.',
-      });
-    }
-
     const rawUrl = String(req.body?.appsScriptUrl || '').trim();
     const rawSheetUrl = typeof req.body?.googleSheetUrl === 'string' ? req.body.googleSheetUrl.trim() : undefined;
     if (!rawUrl || !rawUrl.startsWith('https://script.google.com/')) {
@@ -1623,6 +1629,24 @@ app.post('/api/sheets/configure', async (req, res) => {
         success: false,
         message: 'Đường link Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
       });
+    }
+
+    const existingCfg = getActiveSheetsConfig();
+    if (
+      existingCfg.appsScriptUrl &&
+      existingCfg.appsScriptUrl !== rawUrl &&
+      !isAuthorizedOwnerRequest(req)
+    ) {
+      const existingHealth = await testSheetsConnection(existingCfg.appsScriptUrl).catch(() => ({
+        success: false,
+        needsUpgrade: false,
+      }));
+      if (existingHealth.success && !existingHealth.needsUpgrade) {
+        return res.status(401).json({
+          success: false,
+          message: 'Cần đăng nhập chủ sổ để thay đổi đường dẫn Google Apps Script.',
+        });
+      }
     }
 
     const testRes = await testSheetsConnection(rawUrl);

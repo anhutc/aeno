@@ -10,7 +10,39 @@ const resolvedApp: any =
     ? namedApp
     : null;
 
+function restoreApiUrl(req: IncomingMessage) {
+  const rawUrl = req.url || '/';
+  try {
+    const parsed = new URL(rawUrl, 'http://localhost');
+    const rewrittenPath = parsed.searchParams.get('__path');
+    if (rewrittenPath !== null) {
+      parsed.searchParams.delete('__path');
+      const cleanPath = rewrittenPath.replace(/^\/+/, '');
+      const qs = parsed.searchParams.toString();
+      req.url = `/api/${cleanPath}${qs ? `?${qs}` : ''}`;
+      return;
+    }
+
+    const originalUrlHeader =
+      (req.headers['x-vercel-original-url'] as string | undefined) ||
+      (req.headers['x-invoke-path'] as string | undefined);
+    if (
+      originalUrlHeader &&
+      originalUrlHeader.startsWith('/api/') &&
+      (parsed.pathname === '/api' || parsed.pathname === '/api/index')
+    ) {
+      const origParsed = new URL(originalUrlHeader, 'http://localhost');
+      const qs = parsed.searchParams.toString() || origParsed.searchParams.toString();
+      req.url = `${origParsed.pathname}${qs ? `?${qs}` : ''}`;
+    }
+  } catch {
+    // ignore malformed URL
+  }
+}
+
 export default function handler(req: IncomingMessage, res: ServerResponse) {
+  restoreApiUrl(req);
+
   if (typeof resolvedApp !== 'function') {
     if (!res.headersSent) {
       res.statusCode = 500;
