@@ -7,8 +7,8 @@ import {
   INITIAL_DEBTORS,
   INITIAL_PARTIES,
   INITIAL_TRANSACTIONS,
-} from './src/data/mockData';
-import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './src/types';
+} from './src/data/mockData.js';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './src/types.js';
 import {
   SheetsDatabaseSchema,
   getActiveSheetsConfig,
@@ -25,7 +25,7 @@ import {
   createSnapshotBackup,
   listSnapshotBackups,
   restoreSnapshotBackup,
-} from './src/services/googleSheetsDbService';
+} from './src/services/googleSheetsDbService.js';
 
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');

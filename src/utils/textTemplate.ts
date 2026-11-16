@@ -4,7 +4,7 @@
  * ============================================================================
  */
 
-import { formatVND } from './vietqr';
+import { formatVND } from './vietqr.js';
 
 export const DEFAULT_APP_TITLE = 'Sổ Ghi Nợ & Chia Tiền';
 export const DEFAULT_APP_SUBTITLE =

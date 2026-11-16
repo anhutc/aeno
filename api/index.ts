@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import appImport, { app as namedApp } from '../server';
+import appImport, { app as namedApp } from '../server.js';
 
 const resolvedApp: any =
   typeof appImport === 'function'

@@ -1,4 +1,4 @@
-import { BankOption } from '../types';
+import { BankOption } from '../types.js';
 
 export const POPULAR_BANKS: BankOption[] = [
   { id: 'MB', name: 'Ngân hàng Quân Đội', shortName: 'MB Bank' },

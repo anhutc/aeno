@@ -6,8 +6,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types';
-import { DEFAULT_SETTINGS } from '../data/mockData';
+import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from '../types.js';
+import { DEFAULT_SETTINGS } from '../data/mockData.js';
 
 export interface SheetsDatabaseSchema {
   debtors: Debtor[];

@@ -1,11 +1,11 @@
-import { Debtor, Transaction, PartySplit, AppSettings } from '../types';
+import { Debtor, Transaction, PartySplit, AppSettings } from '../types.js';
 import {
   DEFAULT_APP_TITLE,
   DEFAULT_APP_SUBTITLE,
   DEFAULT_SHARE_MESSAGE,
   DEFAULT_GUEST_ANNOUNCEMENT,
   DEFAULT_SETTLED_NOTE,
-} from '../utils/textTemplate';
+} from '../utils/textTemplate.js';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ownerName: 'Chủ Sổ',

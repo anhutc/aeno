@@ -131,7 +131,7 @@ async function pingAppsScriptDirect(appsScriptUrl: string): Promise<{
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+  const timer = setTimeout(() => controller.abort(), 15000);
   try {
     const sep = cleanUrl.includes('?') ? '&' : '?';
     const res = await fetch(`${cleanUrl}${sep}action=PING`, {
@@ -541,13 +541,14 @@ export async function fetchOwnerData(force = false): Promise<{
   const token = getStoredOwnerToken();
   if (!token) {
     // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ danh sách con nợ / giao dịch
+    let publicFailMessage = 'Không thể kết nối máy chủ để tải dữ liệu Google Sheets.';
     try {
       const sRes = await fetch('/api/settings', {
         cache: 'no-store',
         headers: getSheetsHeaders(),
       });
-      if (sRes.ok) {
-        const sData = await sRes.json();
+      const { data: sData, errorMessage } = await parseApiJsonSafely(sRes);
+      if (sRes.ok && sData) {
         const cloudStatus = {
           configured: sData.sheetsConfigured !== false,
           connected: sData.sheetsConnected === true && !sData.sheetsError,
@@ -587,6 +588,11 @@ export async function fetchOwnerData(force = false): Promise<{
           cloudStatus,
         };
       }
+      if (sData?.sheetsError || sData?.message) {
+        publicFailMessage = sData.sheetsError || sData.message;
+      } else if (errorMessage) {
+        publicFailMessage = errorMessage;
+      }
     } catch {
       // ignore
     }
@@ -598,7 +604,7 @@ export async function fetchOwnerData(force = false): Promise<{
       cloudStatus: {
         configured: true,
         connected: false,
-        error: 'Không thể kết nối máy chủ để tải dữ liệu Google Sheets.',
+        error: publicFailMessage,
         errorCode: 'SHEETS_UNAVAILABLE',
       },
     };

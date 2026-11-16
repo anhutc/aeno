@@ -164,8 +164,14 @@ export default function App() {
           cache: 'no-store',
           headers: getSheetsHeaders(),
         });
-        if (sRes.ok) {
-          const sData = await sRes.json();
+        const contentType = sRes.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+        let sData: any = null;
+        if (isJson) {
+          sData = await sRes.json().catch(() => null);
+        }
+
+        if (sRes.ok && sData) {
           const isConnected = sData.sheetsConnected === true && !sData.sheetsError;
           setCloudStatus({
             checked: true,
@@ -197,11 +203,18 @@ export default function App() {
           }
           return;
         }
+
+        const jsonErrMsg = sData?.sheetsError || sData?.message;
         setCloudStatus((prev) => ({
           ...prev,
           checked: true,
+          configured: sData?.sheetsConfigured ?? prev.configured,
           connected: false,
-          error: `Máy chủ Google Sheets phản hồi lỗi HTTP ${sRes.status}.`,
+          needsUpgrade: Boolean(sData?.needsScriptUpgrade),
+          errorCode: sData?.sheetsErrorCode || sData?.code || prev.errorCode,
+          error:
+            jsonErrMsg ||
+            `Máy chủ API phản hồi lỗi HTTP ${sRes.status} (không thể tải trạng thái Google Sheets).`,
         }));
       } catch {
         setCloudStatus((prev) => ({
