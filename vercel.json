@@ -1,6 +1,11 @@
 {
   "version": 2,
   "framework": "vite",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "data/sheets-config.json"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",

@@ -562,7 +562,7 @@ export async function fetchOwnerData(force = false): Promise<{
   if (!token) {
     // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ dữ liệu nhạy cảm hay chi tiết kết nối máy chủ
     try {
-      const sRes = await fetch('/api/settings', {
+      const sRes = await fetch(`/api/settings${force ? '?force=1' : ''}`, {
         cache: 'no-store',
       });
       const { data: sData } = await parseApiJsonSafely(sRes);

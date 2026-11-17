@@ -156,7 +156,7 @@ async function ensureSheetsSettingsSync(forceRefresh = false, overrideUrl?: stri
     return;
   }
 
-  if (!forceRefresh && isSheetsSettingsLoaded && Date.now() - lastSettingsSyncAt < 20000) {
+  if (!forceRefresh && isSheetsSettingsLoaded && !lastSheetsError && Date.now() - lastSettingsSyncAt < 20000) {
     return;
   }
   if (!forceRefresh && !sheetsSettingsSyncPromise && lastSheetsErrorAt > 0 && Date.now() - lastSheetsErrorAt < 8000) {
@@ -637,7 +637,8 @@ app.get('/api/proxy-vietqr', async (req, res) => {
 app.get('/api/settings', async (req, res) => {
   try {
     const reqUrl = resolveRequestScriptUrl(req);
-    await ensureSheetsSettingsSync(false, reqUrl);
+    const force = req.query.force === '1' || req.query.force === 'true';
+    await ensureSheetsSettingsSync(force, reqUrl);
     const db = getDatabase();
     const isConnected = Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError);
     if (!isConnected) {

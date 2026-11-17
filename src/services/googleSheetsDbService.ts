@@ -40,7 +40,14 @@ export class SheetsDbError extends Error {
 const IS_VERCEL = Boolean(process.env.VERCEL);
 const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'debt-app-data') : path.join(process.cwd(), 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'sheets-config.json');
+const REPO_CONFIG_FILE = path.join(process.cwd(), 'data', 'sheets-config.json');
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+
+// Server-side fallback only (never imported by client bundle); lowest priority below env vars and disk config
+const BUNDLED_FALLBACK_CONFIG = {
+  appsScriptUrl: 'https://script.google.com/macros/s/AKfycbzBEh_Xr9VVaYF2I_qIeX8l2yoOiW9ihFQuSgJhlPwpvVIHUMPDrstMza0r1U14Z7X_/exec',
+  googleSheetUrl: 'https://docs.google.com/spreadsheets/d/1SSI1cnRIJFbtW5scMcjLmtN-fGhLnNXEOkbXQd-VDtc',
+};
 
 function ensureDirs() {
   try {
@@ -58,15 +65,18 @@ function isValidAppsScriptUrl(url?: string | null): boolean {
 }
 
 function readPersistedSheetsConfig(): { appsScriptUrl?: string; googleSheetUrl?: string } | null {
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-      if (parsed && typeof parsed === 'object') {
-        return parsed;
+  const candidates = CONFIG_FILE === REPO_CONFIG_FILE ? [CONFIG_FILE] : [CONFIG_FILE, REPO_CONFIG_FILE];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (parsed && typeof parsed === 'object' && isValidAppsScriptUrl(parsed.appsScriptUrl)) {
+          return parsed;
+        }
       }
+    } catch {
+      // ignore and check next candidate
     }
-  } catch {
-    // ignore
   }
   return null;
 }
@@ -118,6 +128,14 @@ export function getActiveSheetsConfig(overrideUrl?: string): SheetsConnectionCon
     return {
       appsScriptUrl: fileCfg.appsScriptUrl.trim(),
       googleSheetUrl: (process.env.GOOGLE_SHEET_URL || fileCfg.googleSheetUrl || '').trim() || undefined,
+      source: 'file',
+    };
+  }
+
+  if (isValidAppsScriptUrl(BUNDLED_FALLBACK_CONFIG.appsScriptUrl)) {
+    return {
+      appsScriptUrl: BUNDLED_FALLBACK_CONFIG.appsScriptUrl,
+      googleSheetUrl: (process.env.GOOGLE_SHEET_URL || BUNDLED_FALLBACK_CONFIG.googleSheetUrl || '').trim() || undefined,
       source: 'file',
     };
   }
