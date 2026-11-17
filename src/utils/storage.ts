@@ -388,18 +388,45 @@ export function saveParties(parties: PartySplit[]): void {
 
 let _cachedSettingsRaw: string | null = null;
 let _cachedSettingsObj: AppSettings | null = null;
+let _memorySensitiveSettings: Partial<AppSettings> = {};
+
+function stripSensitiveSettingsForStorage(settings: AppSettings): Record<string, any> {
+  const {
+    ownerPassword: _p,
+    reminderMessageTemplate: _r,
+    googleAppsScriptUrl: _gUrl,
+    googleSheetUrl: _sUrl,
+    googleSheetId: _sId,
+    ...publicOnly
+  } = (settings || {}) as any;
+  return publicOnly;
+}
+
+export function clearMemorySettings(): void {
+  _cachedSettingsRaw = null;
+  _cachedSettingsObj = null;
+  _memorySensitiveSettings = {};
+}
 
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (!raw) {
       saveSettings(DEFAULT_SETTINGS);
-      return DEFAULT_SETTINGS;
+      return { ...DEFAULT_SETTINGS, ..._memorySensitiveSettings };
     }
     if (raw === _cachedSettingsRaw && _cachedSettingsObj) {
       return _cachedSettingsObj;
     }
     const parsed = JSON.parse(raw);
+    const hasLegacySecrets = Boolean(
+      parsed &&
+        typeof parsed === 'object' &&
+        (parsed.ownerPassword !== undefined ||
+          parsed.googleAppsScriptUrl !== undefined ||
+          parsed.googleSheetUrl !== undefined ||
+          parsed.googleSheetId !== undefined)
+    );
     const stripMemoLine = (text: string | undefined, defaultText: string) => {
       if (!text) return defaultText;
       return text
@@ -407,15 +434,19 @@ export function loadSettings(): AppSettings {
         .filter((l) => !l.toLowerCase().includes('nội dung chuyển khoản') && !l.toLowerCase().includes('noi dung chuyen khoan'))
         .join('\n');
     };
-    const { reminderMessageTemplate, ...restParsed } = parsed;
+    const safeParsed = stripSensitiveSettingsForStorage(parsed || {});
+    if (hasLegacySecrets) {
+      safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(safeParsed));
+    }
     const result: AppSettings = {
       ...DEFAULT_SETTINGS,
-      ...restParsed,
+      ...safeParsed,
+      ..._memorySensitiveSettings,
       defaultMemoPrefix: '',
-      ownerPhone: parsed.ownerPhone !== undefined ? parsed.ownerPhone : (DEFAULT_SETTINGS.ownerPhone || ''),
-      lookupGuideTemplate: stripMemoLine(parsed.lookupGuideTemplate || parsed.shareMessageTemplate, DEFAULT_SETTINGS.lookupGuideTemplate || ''),
+      ownerPhone: safeParsed.ownerPhone !== undefined ? safeParsed.ownerPhone : (DEFAULT_SETTINGS.ownerPhone || ''),
+      lookupGuideTemplate: stripMemoLine(safeParsed.lookupGuideTemplate || safeParsed.shareMessageTemplate, DEFAULT_SETTINGS.lookupGuideTemplate || ''),
     };
-    _cachedSettingsRaw = raw;
+    _cachedSettingsRaw = JSON.stringify(safeParsed);
     _cachedSettingsObj = result;
     return result;
   } catch (err) {
@@ -426,10 +457,28 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(settings: AppSettings): void {
   try {
-    const { reminderMessageTemplate, ...cleanedSettings } = settings as any;
-    const serialized = JSON.stringify(cleanedSettings);
+    const s = (settings || {}) as any;
+    if (s.googleAppsScriptUrl !== undefined) {
+      if (s.googleAppsScriptUrl) _memorySensitiveSettings.googleAppsScriptUrl = s.googleAppsScriptUrl;
+      else delete _memorySensitiveSettings.googleAppsScriptUrl;
+    }
+    if (s.googleSheetUrl !== undefined) {
+      if (s.googleSheetUrl) _memorySensitiveSettings.googleSheetUrl = s.googleSheetUrl;
+      else delete _memorySensitiveSettings.googleSheetUrl;
+    }
+    if (s.googleSheetId !== undefined) {
+      if (s.googleSheetId) _memorySensitiveSettings.googleSheetId = s.googleSheetId;
+      else delete _memorySensitiveSettings.googleSheetId;
+    }
+    if (s.ownerPassword !== undefined) {
+      if (s.ownerPassword) _memorySensitiveSettings.ownerPassword = s.ownerPassword;
+      else delete _memorySensitiveSettings.ownerPassword;
+    }
+
+    const storageSafe = stripSensitiveSettingsForStorage(settings);
+    const serialized = JSON.stringify(storageSafe);
     _cachedSettingsRaw = serialized;
-    _cachedSettingsObj = { ...settings };
+    _cachedSettingsObj = { ...DEFAULT_SETTINGS, ...storageSafe, ..._memorySensitiveSettings };
     safeSetItem(STORAGE_KEYS.SETTINGS, serialized);
   } catch (err) {
     console.warn('[Storage] Failed to save settings locally:', err);
@@ -484,6 +533,7 @@ export function getDebtorStatement(
  */
 export function deepCleanSessionData(): void {
   try {
+    clearMemorySettings();
     if (typeof window === 'undefined') return;
 
     const keysToRemove = [
@@ -500,6 +550,15 @@ export function deepCleanSessionData(): void {
     ];
 
     keysToRemove.forEach((k) => localStorage.removeItem(k));
+    const rawSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    if (rawSettings) {
+      try {
+        const parsed = JSON.parse(rawSettings);
+        safeSetItem(STORAGE_KEYS.SETTINGS, JSON.stringify(stripSensitiveSettingsForStorage(parsed)));
+      } catch {
+        // ignore
+      }
+    }
     sessionStorage.clear();
 
     // Reset URL và xóa hash/query để người khác không ấn Back xem lại được

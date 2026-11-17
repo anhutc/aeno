@@ -14,6 +14,7 @@ import {
   getActiveSheetsConfig,
   saveSheetsConfig,
   classifySheetsError,
+  sanitizeSheetsErrorMessage,
   testSheetsConnection,
   loadSettingsFromSheets,
   loadAllDataFromSheets,
@@ -97,30 +98,26 @@ function saveDatabase(db: SheetsDatabaseSchema) {
 
 function resolveRequestScriptUrl(req?: express.Request): string | undefined {
   if (!req) return undefined;
+  const isOwner = isAuthorizedOwnerRequest(req);
   const headerUrl =
-    typeof req.headers['x-apps-script-url'] === 'string'
+    isOwner && typeof req.headers['x-apps-script-url'] === 'string'
       ? req.headers['x-apps-script-url'].trim()
       : '';
   const bodyUrl =
-    typeof req.body?.googleAppsScriptUrl === 'string'
+    isOwner && typeof req.body?.googleAppsScriptUrl === 'string'
       ? req.body.googleAppsScriptUrl.trim()
-      : typeof req.body?.settings?.googleAppsScriptUrl === 'string'
+      : isOwner && typeof req.body?.settings?.googleAppsScriptUrl === 'string'
       ? req.body.settings.googleAppsScriptUrl.trim()
       : '';
   const memUrl = (inMemoryDb?.settings?.googleAppsScriptUrl || '').trim();
   const current = getActiveSheetsConfig();
 
-  // If the request explicitly provides a valid Apps Script URL from an authenticated owner session,
-  // or when the existing env/file config is missing or previously errored, allow the request URL.
-  if (headerUrl.startsWith('https://script.google.com/')) {
-    if (
-      current.source !== 'env' ||
-      isAuthorizedOwnerRequest(req) ||
-      lastSheetsErrorCode === 'SHEETS_UNAVAILABLE' ||
-      lastSheetsErrorCode === 'SHEETS_LEGACY_SCRIPT'
-    ) {
-      return headerUrl;
-    }
+  // Only allow authenticated owner requests to override the server's active connection URL
+  if (isOwner && headerUrl.startsWith('https://script.google.com/')) {
+    return headerUrl;
+  }
+  if (isOwner && bodyUrl.startsWith('https://script.google.com/')) {
+    return bodyUrl;
   }
 
   if (current.source === 'env') {
@@ -129,10 +126,7 @@ function resolveRequestScriptUrl(req?: express.Request): string | undefined {
   if (current.source === 'file' && current.appsScriptUrl) {
     return current.appsScriptUrl;
   }
-  const candidate = [headerUrl, bodyUrl, memUrl].find((u) =>
-    u.startsWith('https://script.google.com/')
-  );
-  return candidate || undefined;
+  return memUrl.startsWith('https://script.google.com/') ? memUrl : undefined;
 }
 
 function recordSheetsError(err: any) {
@@ -338,16 +332,9 @@ const authMiddleware = (
 };
 
 // --- HEALTH CHECK ---
-app.get('/api/health', async (req, res) => {
-  const reqUrl = resolveRequestScriptUrl(req);
-  const cfg = getActiveSheetsConfig(reqUrl);
+app.get('/api/health', async (_req, res) => {
   res.json({
     status: 'ok',
-    backend: 'google_sheets',
-    sheetsConfigured: Boolean(cfg.appsScriptUrl),
-    sheetsConnected: Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError),
-    needsScriptUpgrade,
-    sheetsError: lastSheetsError,
     time: new Date().toISOString(),
   });
 });
@@ -427,7 +414,7 @@ app.post('/api/upload-image', async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error handling /api/upload-image:', err);
-    return res.status(500).json({ success: false, message: err?.message || 'Lỗi lưu trữ hình ảnh' });
+    return res.status(500).json({ success: false, message: 'Lỗi lưu trữ hình ảnh' });
   }
 });
 
@@ -457,7 +444,8 @@ app.get('/api/images/gdrive_:fileId', async (req, res) => {
     }
     return res.status(404).send('Không tìm thấy ảnh trên Google Drive');
   } catch (err: any) {
-    return res.status(500).send(err?.message || 'Lỗi tải ảnh Google Drive');
+    console.warn('Error loading Drive image:', err?.message || err);
+    return res.status(500).send('Lỗi tải ảnh');
   }
 });
 
@@ -649,36 +637,39 @@ app.get('/api/proxy-vietqr', async (req, res) => {
 app.get('/api/settings', async (req, res) => {
   try {
     const reqUrl = resolveRequestScriptUrl(req);
-    const cfg = getActiveSheetsConfig(reqUrl);
     await ensureSheetsSettingsSync(false, reqUrl);
     const db = getDatabase();
+    const isConnected = Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError);
+    if (!isConnected) {
+      return res.json({
+        success: false,
+        sheetsConnected: false,
+        message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+      });
+    }
     const {
-      ownerPassword,
-      reminderMessageTemplate,
-      googleAppsScriptUrl,
+      ownerPassword: _p,
+      reminderMessageTemplate: _r,
+      googleAppsScriptUrl: _gUrl,
+      googleSheetUrl: _sUrl,
+      googleSheetId: _sId,
+      autoSyncGoogleSheets: _aSync,
+      lastGoogleSheetSyncAt: _lSync,
+      lastClearedAt: _lClear,
       ...publicSettings
     } = (db.settings || {}) as any;
 
     return res.json({
       success: true,
       settings: publicSettings,
-      backend: 'google_sheets',
-      sheetsConfigured: Boolean(cfg.appsScriptUrl),
-      sheetsConnected: Boolean((isSheetsDataLoaded || isSheetsSettingsLoaded) && !lastSheetsError),
-      needsScriptUpgrade,
-      sheetsError: lastSheetsError,
-      sheetsErrorCode: lastSheetsErrorCode,
+      sheetsConnected: true,
     });
   } catch (err: any) {
-    const info = recordSheetsError(err);
+    recordSheetsError(err);
     return res.status(503).json({
       success: false,
-      code: info.code,
-      sheetsConfigured: Boolean(getActiveSheetsConfig(resolveRequestScriptUrl(req)).appsScriptUrl),
       sheetsConnected: false,
-      sheetsError: info.message,
-      sheetsErrorCode: info.code,
-      message: info.message,
+      message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     });
   }
 });
@@ -701,8 +692,8 @@ app.post('/api/auth/login', async (req, res) => {
     if (!cfg.appsScriptUrl) {
       return res.status(503).json({
         success: false,
-        code: 'SHEETS_NOT_CONFIGURED',
-        message: 'Chưa kết nối URL Google Apps Script Web App. Vui lòng dán URL Apps Script để kết nối cơ sở dữ liệu Google Sheets.',
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
       });
     }
 
@@ -711,12 +702,8 @@ app.post('/api/auth/login', async (req, res) => {
     if (!isSheetsSettingsLoaded && !isSheetsDataLoaded) {
       return res.status(503).json({
         success: false,
-        code: lastSheetsErrorCode || 'SHEETS_UNAVAILABLE',
-        needsScriptUpgrade,
-        sheetsError: lastSheetsError,
-        message:
-          lastSheetsError ||
-          'Không thể kết nối cơ sở dữ liệu Google Sheets (Apps Script Web App) để kiểm tra mật khẩu.',
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
       });
     }
 
@@ -771,12 +758,11 @@ app.post('/api/auth/login', async (req, res) => {
       message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
     });
   } catch (err: any) {
-    const info = recordSheetsError(err);
+    recordSheetsError(err);
     return res.status(503).json({
       success: false,
-      code: info.code,
-      needsScriptUpgrade: info.needsUpgrade,
-      message: info.message || 'Không thể xác thực quản trị với Google Sheets.',
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     });
   }
 });
@@ -794,7 +780,7 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
       sheetsConfigured: false,
       sheetsConnected: false,
       needsScriptUpgrade: false,
-      sheetsError: 'Chưa cấu hình URL Google Apps Script Web App.',
+      sheetsError: 'Hệ thống chưa cấu hình kết nối cơ sở dữ liệu.',
       sheetsErrorCode: 'SHEETS_NOT_CONFIGURED',
       debtors: db.debtors,
       transactions: db.transactions,
@@ -1492,9 +1478,9 @@ app.post('/api/owner/sync/external', authMiddleware, async (req, res) => {
     if (mode === 'PULL') {
       const remoteRes = await fetch(url, { method: 'GET', headers });
       if (!remoteRes.ok) {
-        return res.status(remoteRes.status).json({
+        return res.status(502).json({
           success: false,
-          message: `Máy chủ trả về mã lỗi HTTP ${remoteRes.status}: ${remoteRes.statusText}`,
+          message: 'Máy chủ đồng bộ bên ngoài phản hồi không hợp lệ. Vui lòng thử lại sau.',
         });
       }
       const data = await remoteRes.json();
@@ -1525,9 +1511,9 @@ app.post('/api/owner/sync/external', authMiddleware, async (req, res) => {
       };
       const remoteRes = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
       if (!remoteRes.ok) {
-        return res.status(remoteRes.status).json({
+        return res.status(502).json({
           success: false,
-          message: `Máy chủ trả về mã lỗi HTTP ${remoteRes.status}: ${remoteRes.statusText}`,
+          message: 'Máy chủ đồng bộ bên ngoài phản hồi không hợp lệ. Vui lòng thử lại sau.',
         });
       }
       const result = await remoteRes.json().catch(() => ({}));
@@ -1539,9 +1525,9 @@ app.post('/api/owner/sync/external', authMiddleware, async (req, res) => {
       });
     }
   } catch (err: any) {
-    return res.status(500).json({
+    return res.status(503).json({
       success: false,
-      message: `Lỗi kết nối máy chủ: ${err?.message || 'Không thể gửi yêu cầu'}`,
+      message: sanitizeSheetsErrorMessage(err?.message, 'Không thể kết nối máy chủ đồng bộ bên ngoài.'),
     });
   }
 });
@@ -1552,21 +1538,6 @@ const handleGetSheetsStatus = async (req: express.Request, res: express.Response
     const reqUrl = resolveRequestScriptUrl(req);
     const testRes = await testSheetsConnection(reqUrl);
     const currentDb = getDatabase();
-    const isOwner = isAuthorizedOwnerRequest(req);
-
-    if (!isOwner) {
-      return res.json({
-        success: true,
-        backend: 'google_sheets',
-        configured: testRes.configured,
-        connected: testRes.success,
-        latencyMs: testRes.latencyMs,
-        version: testRes.version,
-        needsUpgrade: testRes.needsUpgrade,
-        error: testRes.error || null,
-        lastChecked: new Date().toISOString(),
-      });
-    }
 
     return res.json({
       success: true,
@@ -1587,7 +1558,7 @@ const handleGetSheetsStatus = async (req: express.Request, res: express.Response
         transactions: currentDb.transactions.length,
         parties: currentDb.parties.length,
       },
-      error: testRes.error || null,
+      error: testRes.error ? sanitizeSheetsErrorMessage(testRes.error) : null,
       lastChecked: new Date().toISOString(),
     });
   } catch (err: any) {
@@ -1595,12 +1566,12 @@ const handleGetSheetsStatus = async (req: express.Request, res: express.Response
       success: false,
       configured: false,
       connected: false,
-      error: err?.message || 'Lỗi kiểm tra trạng thái Google Sheets',
+      error: sanitizeSheetsErrorMessage(err?.message, 'Lỗi kiểm tra trạng thái kết nối.'),
     });
   }
 };
 
-app.get(['/api/sheets/status', '/api/firestore/status'], handleGetSheetsStatus);
+app.get(['/api/sheets/status', '/api/firestore/status'], authMiddleware, handleGetSheetsStatus);
 
 const handleTestSheetsConnection = async (req: express.Request, res: express.Response) => {
   try {
@@ -1613,14 +1584,14 @@ const handleTestSheetsConnection = async (req: express.Request, res: express.Res
       configured: false,
       latencyMs: 0,
       version: 0,
-      error: err?.message || 'Không thể kiểm tra kết nối Google Sheets',
+      error: sanitizeSheetsErrorMessage(err?.message, 'Không thể kiểm tra kết nối cơ sở dữ liệu.'),
     });
   }
 };
 
-app.post(['/api/sheets/test-connection', '/api/firestore/test-connection'], handleTestSheetsConnection);
+app.post(['/api/sheets/test-connection', '/api/firestore/test-connection'], authMiddleware, handleTestSheetsConnection);
 
-app.post('/api/sheets/configure', async (req, res) => {
+app.post('/api/sheets/configure', authMiddleware, async (req, res) => {
   try {
     const rawUrl = String(req.body?.appsScriptUrl || '').trim();
     const rawSheetUrl = typeof req.body?.googleSheetUrl === 'string' ? req.body.googleSheetUrl.trim() : undefined;
@@ -1629,24 +1600,6 @@ app.post('/api/sheets/configure', async (req, res) => {
         success: false,
         message: 'Đường link Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/...',
       });
-    }
-
-    const existingCfg = getActiveSheetsConfig();
-    if (
-      existingCfg.appsScriptUrl &&
-      existingCfg.appsScriptUrl !== rawUrl &&
-      !isAuthorizedOwnerRequest(req)
-    ) {
-      const existingHealth = await testSheetsConnection(existingCfg.appsScriptUrl).catch(() => ({
-        success: false,
-        needsUpgrade: false,
-      }));
-      if (existingHealth.success && !existingHealth.needsUpgrade) {
-        return res.status(401).json({
-          success: false,
-          message: 'Cần đăng nhập chủ sổ để thay đổi đường dẫn Google Apps Script.',
-        });
-      }
     }
 
     const testRes = await testSheetsConnection(rawUrl);
@@ -1705,7 +1658,7 @@ app.post('/api/sheets/configure', async (req, res) => {
     return res.status(503).json({
       success: false,
       code: info.code,
-      message: info.message || 'Lỗi cấu hình kết nối Google Sheets',
+      message: info.message || 'Lỗi cấu hình kết nối cơ sở dữ liệu.',
     });
   }
 });
@@ -2152,9 +2105,10 @@ app.post('/api/audit-logs/push', async (req, res) => {
       forwardedToSheets: Boolean(scriptUrl),
     });
   } catch (err: any) {
+    console.warn('Error in /api/audit-logs/push:', err?.message || err);
     return res.status(500).json({
       success: false,
-      message: err?.message || 'Lỗi ghi nhận nhật ký',
+      message: 'Lỗi ghi nhận nhật ký',
     });
   }
 });
@@ -2223,7 +2177,7 @@ app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
       source: 'server_memory',
       hasAppsScriptUrl: true,
       needsAppsScriptUpgrade: false,
-      sheetsError: err?.message || 'Không thể kết nối Google Apps Script',
+      sheetsError: sanitizeSheetsErrorMessage(err?.message, 'Không thể kết nối máy chủ nhật ký.'),
     });
   }
 });
@@ -2241,8 +2195,8 @@ app.post('/api/guest/lookup', async (req, res) => {
     if (!cfg.appsScriptUrl) {
       return res.status(503).json({
         success: false,
-        code: 'SHEETS_NOT_CONFIGURED',
-        message: 'Ứng dụng chưa được kết nối cơ sở dữ liệu Google Sheets. Vui lòng liên hệ chủ sổ.',
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
       });
     }
 
@@ -2273,13 +2227,11 @@ app.post('/api/guest/lookup', async (req, res) => {
         sourceDebtorsMap = lookupRes.debtorsMapSource;
         sourceSettings = lookupRes.settings;
       } catch (err: any) {
-        const info = recordSheetsError(err);
+        recordSheetsError(err);
         return res.status(503).json({
           success: false,
-          code: info.code,
-          needsScriptUpgrade: info.needsUpgrade,
-          sheetsError: info.message,
-          message: info.message,
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
         });
       }
     }
@@ -2358,12 +2310,11 @@ app.post('/api/guest/lookup', async (req, res) => {
       },
     });
   } catch (err: any) {
-    const info = recordSheetsError(err);
+    recordSheetsError(err);
     return res.status(503).json({
       success: false,
-      code: info.code,
-      needsScriptUpgrade: info.needsUpgrade,
-      message: info.message || 'Không thể kết nối cơ sở dữ liệu Google Sheets để tra cứu.',
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     });
   }
 });
@@ -2404,11 +2355,11 @@ app.post('/api/guest/report-payment', async (req, res) => {
       transactions: result.transactions,
     });
   } catch (err: any) {
-    const info = recordSheetsError(err);
+    recordSheetsError(err);
     return res.status(503).json({
       success: false,
-      code: info.code,
-      message: `Không thể gửi báo thanh toán lên Google Sheets: ${info.message}`,
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     });
   }
 });
@@ -2459,8 +2410,8 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
       : 500;
   return res.status(status).json({
     success: false,
-    code: 'SHEETS_UNAVAILABLE',
-    message: err?.message || 'Lỗi máy chủ khi xử lý yêu cầu Google Sheets.',
+    code: 'SERVICE_UNAVAILABLE',
+    message: 'Hệ thống đang gặp sự cố tạm thời. Vui lòng thử lại sau.',
   });
 });
 

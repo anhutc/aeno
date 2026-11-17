@@ -18,16 +18,9 @@ import {
   CreditCard,
   User,
   ScanFace,
-  Fingerprint,
-  X,
-  Info,
-  FileSpreadsheet,
-  Link2,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
-import { loginOwner, apiGuestLookup, apiConfigureSheets } from '../utils/api';
+import { loginOwner, apiGuestLookup } from '../utils/api';
 import { loadDebtors, loadTransactions, loadSettings, recordAuditLog } from '../utils/storage';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
@@ -71,27 +64,14 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [isBiometricEnrolled, setIsBiometricEnrolled] = useState(false);
   const [isBiometricLoading, setIsBiometricLoading] = useState(false);
 
-  // Thiết lập nhanh Google Apps Script URL khi lần đầu triển khai
-  const [showSheetsSetup, setShowSheetsSetup] = useState(false);
-  const [scriptUrlInput, setScriptUrlInput] = useState(settings.googleAppsScriptUrl || '');
-  const [isConfiguringSheets, setIsConfiguringSheets] = useState(false);
+  // Trạng thái thử kết nối lại máy chủ
   const [isRetryingCloud, setIsRetryingCloud] = useState(false);
-  const [sheetsSetupFeedback, setSheetsSetupFeedback] = useState<{
-    type: 'success' | 'error';
-    message: string;
-  } | null>(null);
 
   const isCheckingInitialCloud = cloudStatus?.checked === false;
   const isCloudDisconnected = Boolean(
     cloudStatus?.checked && (cloudStatus?.configured === false || cloudStatus?.connected === false || cloudStatus?.error)
   );
   const isLoginBlockedByCloud = isCheckingInitialCloud || isCloudDisconnected;
-
-  useEffect(() => {
-    if (settings.googleAppsScriptUrl) {
-      setScriptUrlInput(settings.googleAppsScriptUrl);
-    }
-  }, [settings.googleAppsScriptUrl]);
 
   useEffect(() => {
     isBiometricsAvailable().then((avail) => {
@@ -178,14 +158,11 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const executeAuthentication = useCallback(
     async (codeToVerify: string, methodHint?: 'PASSWORD' | 'FACE_ID') => {
       if (isCheckingInitialCloud) {
-        setError('Đang tải dữ liệu từ Google Sheets, vui lòng chờ giây lát...');
+        setError('Đang kết nối hệ thống, vui lòng chờ giây lát...');
         return;
       }
       if (isCloudDisconnected) {
-        setError(
-          cloudStatus?.error ||
-            'Chưa kết nối được với Google Sheets. Vui lòng thử kết nối lại hoặc cập nhật URL Google Apps Script.'
-        );
+        setError('Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau hoặc liên hệ quản lý.');
         return;
       }
       const clean = codeToVerify.trim();
@@ -306,42 +283,21 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           }
         }
 
-        // 4. Nếu lỗi do chưa cấu hình hoặc mất kết nối Google Sheets, thông báo rõ nguyên nhân (không báo sai mật khẩu!)
+        // 4. Nếu hệ thống mất kết nối hoặc chưa sẵn sàng, hiển thị thông báo an toàn (không lộ thông tin máy chủ)
         if (rawErrCode) {
-          const isNotConfigured = rawErrCode === 'SHEETS_NOT_CONFIGURED';
-          const isLegacyScript = rawErrCode === 'SHEETS_LEGACY_SCRIPT';
-          const cloudSourceRes =
-            (guestRes as any)?.errorCode && (guestRes as any).errorCode !== 'INVALID_CREDENTIALS'
-              ? guestRes
-              : ownerRes.errorCode && ownerRes.errorCode !== 'INVALID_CREDENTIALS'
-              ? ownerRes
-              : null;
-          const cloudMsg = isNotConfigured
-            ? 'Chưa kết nối Google Sheets (Apps Script URL). Quản trị viên vui lòng dán link Apps Script v3 ở phần thiết lập bên trên hoặc cài đặt biến GOOGLE_APPS_SCRIPT_URL trên Vercel.'
-            : isLegacyScript
-            ? 'Google Apps Script đang sử dụng phiên bản cũ (v1/v2). Vui lòng cập nhật mã Apps Script v3 (5 Tab) và triển khai phiên bản mới.'
-            : cloudSourceRes?.message ||
-              'Không thể kết nối đến cơ sở dữ liệu Google Sheets để kiểm tra mã truy cập. Vui lòng thử lại sau.';
-
-          if (isNotConfigured) {
-            setShowSheetsSetup(true);
-          }
+          const safeUnavailableMsg =
+            'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau hoặc liên hệ quản lý.';
 
           recordAuditLog({
             action: 'OPERATION_FAILED',
-            actor: 'Hệ thống Google Sheets',
-            title: isNotConfigured
-              ? 'Chưa cấu hình URL Google Apps Script'
-              : isLegacyScript
-              ? 'Apps Script cần nâng cấp lên v3'
-              : 'Mất kết nối Google Sheets khi xác thực',
-            description: cloudMsg,
+            actor: 'Hệ thống',
+            title: 'Tạm gián đoạn kết nối khi xác thực',
+            description: 'Không thể kết nối máy chủ để xác thực truy cập.',
             beforeState: 'Gửi yêu cầu xác thực',
-            afterState: rawErrCode,
-            changes: [{ fieldLabel: 'Trạng thái Google Sheets', before: 'Đang kiểm tra', after: rawErrCode }],
-            metadata: { errorCode: rawErrCode },
+            afterState: 'Tạm gián đoạn kết nối',
+            changes: [{ fieldLabel: 'Trạng thái kết nối', before: 'Đang kiểm tra', after: 'Gián đoạn' }],
           });
-          setError(cloudMsg);
+          setError(safeUnavailableMsg);
           setIsShaking(true);
           setTimeout(() => setIsShaking(false), 500);
           return;
@@ -403,43 +359,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setError('');
   };
 
-  const handleConfigureSheetsQuick = async () => {
-    const trimmed = scriptUrlInput.trim();
-    if (!trimmed.startsWith('https://script.google.com/')) {
-      setSheetsSetupFeedback({
-        type: 'error',
-        message: 'URL phải bắt đầu bằng https://script.google.com/macros/s/...',
-      });
-      return;
-    }
-    setIsConfiguringSheets(true);
-    setSheetsSetupFeedback(null);
-    try {
-      const res = await apiConfigureSheets(trimmed);
-      if (res.success) {
-        setSheetsSetupFeedback({
-          type: 'success',
-          message: 'Kết nối Google Sheets v3 thành công! Bạn có thể đăng nhập ngay bây giờ.',
-        });
-        setError('');
-        setShowSheetsSetup(false);
-        onRefreshCloudStatus?.();
-      } else {
-        setSheetsSetupFeedback({
-          type: 'error',
-          message: res.message || 'Không thể kết nối URL Apps Script này. Kiểm tra quyền Anyone và phiên bản v3.',
-        });
-      }
-    } catch (err: any) {
-      setSheetsSetupFeedback({
-        type: 'error',
-        message: err?.message || 'Lỗi kết nối máy chủ khi kiểm tra URL Google Sheets.',
-      });
-    } finally {
-      setIsConfiguringSheets(false);
-    }
-  };
-
   return (
     <div className="relative min-h-[82vh] flex flex-col items-center justify-center p-3 sm:p-5 w-full select-none">
       {/* 🌌 Ambient Glow nhẹ nhàng phía sau */}
@@ -483,8 +402,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             <div className="p-3 sm:p-3.5 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs flex items-center gap-2.5">
               <RefreshCw className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
               <div>
-                <p className="font-bold text-slate-800">Đang kiểm tra dữ liệu từ Google Sheets...</p>
-                <p className="text-[11px] text-slate-500">Chỉ cho phép đăng nhập khi kết nối Google Sheets sẵn sàng.</p>
+                <p className="font-bold text-slate-800">Đang kết nối hệ thống...</p>
+                <p className="text-[11px] text-slate-500">Vui lòng chờ giây lát trong khi kiểm tra sẵn sàng.</p>
               </div>
             </div>
           )}
@@ -492,86 +411,26 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           {!isCheckingInitialCloud && isCloudDisconnected && (
             <div className="p-3 sm:p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-2.5">
               <div className="flex items-start gap-2.5 leading-relaxed">
-                <FileSpreadsheet className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600 shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-1">
-                  <p className="font-bold">
-                    {cloudStatus?.configured === false
-                      ? 'Chưa kết nối cơ sở dữ liệu Google Sheets'
-                      : cloudStatus?.needsUpgrade
-                      ? 'Google Apps Script cần nâng cấp lên v3'
-                      : 'Không thể kết nối tới Google Sheets'}
-                  </p>
+                  <p className="font-bold">Hệ thống đang tạm gián đoạn kết nối</p>
                   <p className="text-[11.5px] text-amber-800/90 leading-snug">
-                    {cloudStatus?.configured === false
-                      ? 'Hệ thống hiện dùng Google Sheets (Apps Script v3) làm cơ sở dữ liệu duy nhất. Dán URL Web App Apps Script để kết nối ngay, hoặc cài đặt biến GOOGLE_APPS_SCRIPT_URL trên Vercel để mọi thiết bị tự động kết nối.'
-                      : cloudStatus?.error ||
-                        'Không thể tải dữ liệu từ Google Apps Script Web App. Vui lòng kiểm tra lại cấu hình hoặc kết nối mạng.'}
+                    Không thể kết nối tới máy chủ lúc này. Vui lòng thử kết nối lại sau ít phút hoặc liên hệ quản lý.
                   </p>
                 </div>
               </div>
 
-              <div className="pt-1.5 border-t border-amber-200/70 flex flex-wrap items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSheetsSetup((v) => !v)}
-                  className="inline-flex items-center gap-1.5 text-[11.5px] font-bold text-emerald-800 hover:text-emerald-950 cursor-pointer"
-                >
-                  <Link2 className="w-3.5 h-3.5" />
-                  <span>
-                    {showSheetsSetup
-                      ? 'Ẩn cấu hình Google Sheets nhanh'
-                      : cloudStatus?.configured === false
-                      ? 'Kết nối URL Google Apps Script ngay'
-                      : 'Cập nhật / Đổi URL Google Apps Script mới'}
-                  </span>
-                  {showSheetsSetup ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
-
+              <div className="pt-1.5 border-t border-amber-200/70 flex items-center justify-end">
                 <button
                   type="button"
                   onClick={handleRetryCloudCheck}
                   disabled={isRetryingCloud}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-amber-100/70 border border-amber-300 text-[11px] font-bold text-amber-900 cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-amber-100/70 border border-amber-300 text-[11px] font-bold text-amber-900 cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3 h-3 ${isRetryingCloud ? 'animate-spin' : ''}`} />
                   <span>{isRetryingCloud ? 'Đang thử...' : 'Thử kết nối lại'}</span>
                 </button>
               </div>
-
-                  {showSheetsSetup && (
-                    <div className="mt-2.5 space-y-2">
-                      <input
-                        type="url"
-                        value={scriptUrlInput}
-                        onChange={(e) => setScriptUrlInput(e.target.value)}
-                        placeholder="https://script.google.com/macros/s/.../exec"
-                        className="w-full px-3 py-2 text-xs font-mono bg-white border border-amber-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleConfigureSheetsQuick}
-                        disabled={isConfiguringSheets || !scriptUrlInput.trim()}
-                        className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
-                      >
-                        {isConfiguringSheets ? 'Đang kiểm tra & kết nối...' : 'Lưu & Kết nối Google Sheets'}
-                      </button>
-                      <p className="text-[10.5px] text-amber-800/80 leading-snug">
-                        Mẹo: Để tất cả điện thoại khác tự động kết nối mà không cần dán lại link, hãy thêm biến <code className="font-mono font-bold">GOOGLE_APPS_SCRIPT_URL</code> trong Vercel Environment Variables và Redeploy.
-                      </p>
-                    </div>
-                  )}
-
-              {sheetsSetupFeedback && (
-                <div
-                  className={`p-2 rounded-lg text-[11px] font-semibold ${
-                    sheetsSetupFeedback.type === 'success'
-                      ? 'bg-emerald-100 text-emerald-900'
-                      : 'bg-rose-100 text-rose-800'
-                  }`}
-                >
-                  {sheetsSetupFeedback.message}
-                </div>
-              )}
             </div>
           )}
 
@@ -664,12 +523,12 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             ) : isCheckingInitialCloud ? (
               <>
                 <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-white" />
-                <span>Đang kết nối Google Sheets...</span>
+                <span>Đang kết nối...</span>
               </>
             ) : isCloudDisconnected ? (
               <>
                 <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                <span>Chờ kết nối Google Sheets</span>
+                <span>Tạm ngưng kết nối</span>
               </>
             ) : (
               <>

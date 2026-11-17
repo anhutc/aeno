@@ -34,19 +34,49 @@ import {
   saveAuditLogs,
   clearAuditLogs,
   mergeRemoteAuditLogs,
+  clearMemorySettings,
 } from './storage';
 
+// In-memory ONLY storage for active owner token & connection URL (never persisted to localStorage)
+let memoryOwnerToken: string | null = null;
+let memoryAppsScriptUrl: string | null = null;
+
+export function setMemoryAppsScriptUrl(url?: string | null): void {
+  const clean = (url || '').trim();
+  memoryAppsScriptUrl = clean.startsWith('https://script.google.com/') ? clean : null;
+}
+
 export function getSheetsHeaders(): Record<string, string> {
-  try {
-    const s = loadSettings();
-    const url = (s?.googleAppsScriptUrl || '').trim();
-    if (url.startsWith('https://script.google.com/')) {
-      return { 'x-apps-script-url': url };
-    }
-  } catch {
-    // ignore
+  if (!memoryOwnerToken || !memoryAppsScriptUrl) {
+    return {};
   }
-  return {};
+  return { 'x-apps-script-url': memoryAppsScriptUrl };
+}
+
+function sanitizeClientError(raw: unknown, fallback = 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.'): string {
+  const str = String(raw || '').trim();
+  if (!str) return fallback;
+  const cleaned = str
+    .replace(/https?:\/\/[^\s)"'<>]+/gi, '')
+    .replace(/script\.google\.com[^\s)"'<>]*/gi, '')
+    .replace(/docs\.google\.com[^\s)"'<>]*/gi, '')
+    .replace(/\(\s*HTTP\s*\d{3}\s*\)/gi, '')
+    .replace(/\bHTTP\s*\d{3}\b/gi, '')
+    .trim();
+  const lower = cleaned.toLowerCase();
+  if (
+    !cleaned ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('load failed') ||
+    lower.includes('aborted') ||
+    lower.includes('google sheets') ||
+    lower.includes('apps script') ||
+    lower.includes('vercel')
+  ) {
+    return fallback;
+  }
+  return cleaned;
 }
 
 async function parseApiJsonSafely(res: Response): Promise<{
@@ -59,7 +89,7 @@ async function parseApiJsonSafely(res: Response): Promise<{
   } catch {
     return {
       data: null,
-      errorMessage: `Không thể đọc phản hồi từ máy chủ (HTTP ${res.status}).`,
+      errorMessage: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     };
   }
 
@@ -72,35 +102,27 @@ async function parseApiJsonSafely(res: Response): Promise<{
     // non-JSON response (e.g. HTML 404/500/504 from proxy/Vercel or SPA fallback)
   }
 
-  const trimmed = rawText.trim();
-  const isHtml = trimmed.startsWith('<');
   if (res.status === 413) {
     return {
       data: null,
-      errorMessage: 'Dữ liệu gửi lên vượt quá giới hạn dung lượng (HTTP 413).',
+      errorMessage: 'Dữ liệu gửi lên vượt quá giới hạn dung lượng cho phép.',
     };
   }
-  if (res.status === 504) {
+  if (res.status === 401) {
     return {
       data: null,
-      errorMessage: 'Máy chủ hết thời gian chờ phản hồi từ Google Sheets (HTTP 504). Vui lòng thử lại.',
+      errorMessage: 'Phiên xác thực đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.',
     };
   }
-  if (res.status >= 500) {
+  if (res.status === 504 || res.status >= 500 || res.status === 404) {
     return {
       data: null,
-      errorMessage: `Máy chủ gặp sự cố tạm thời khi xử lý yêu cầu (HTTP ${res.status}). Vui lòng thử lại sau.`,
-    };
-  }
-  if (res.status === 404 || (isHtml && trimmed.includes('id="root"'))) {
-    return {
-      data: null,
-      errorMessage: `Không tìm thấy API máy chủ (HTTP ${res.status}). Vui lòng kiểm tra lại cấu hình triển khai.`,
+      errorMessage: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     };
   }
   return {
     data: null,
-    errorMessage: `Không nhận được phản hồi hợp lệ từ máy chủ (HTTP ${res.status}).`,
+    errorMessage: 'Không thể xử lý phản hồi từ hệ thống. Vui lòng thử lại sau.',
   };
 }
 
@@ -214,17 +236,15 @@ async function pingAppsScriptDirect(appsScriptUrl: string): Promise<{
 
 const OWNER_TOKEN_KEY = 'debt_app_owner_token';
 
-// In-memory token storage ONLY (không lưu vào sessionStorage/localStorage để bắt buộc nhập lại mật khẩu khi reload trang)
-let memoryOwnerToken: string | null = null;
-
 // Xóa sạch token tồn dư cũ trong sessionStorage/localStorage khi khởi tạo
 try {
   if (typeof window !== 'undefined') {
     window.sessionStorage?.removeItem(OWNER_TOKEN_KEY);
     window.localStorage?.removeItem(OWNER_TOKEN_KEY);
-    // Lắng nghe sự kiện trước khi reload/đóng tab để xóa token bộ nhớ
+    // Lắng nghe sự kiện trước khi reload/đóng tab để xóa token & URL bộ nhớ
     window.addEventListener('beforeunload', () => {
       memoryOwnerToken = null;
+      memoryAppsScriptUrl = null;
     });
   }
 } catch {
@@ -243,6 +263,8 @@ export function setStoredOwnerToken(token: string): void {
 
 export function removeStoredOwnerToken(): void {
   memoryOwnerToken = null;
+  memoryAppsScriptUrl = null;
+  clearMemorySettings();
   try {
     if (typeof window !== 'undefined') {
       window.sessionStorage?.removeItem(OWNER_TOKEN_KEY);
@@ -355,14 +377,13 @@ export async function loginOwner(
   let needsScriptUpgrade = false;
   let serverResponded = false;
 
-  // 1. Try server-side authentication against Google Sheets
+  // 1. Try server-side authentication (never send x-apps-script-url unauthenticated)
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
-        ...getSheetsHeaders(),
       },
       body: JSON.stringify({ password: cleanPass }),
     });
@@ -373,13 +394,13 @@ export async function loginOwner(
       if (res.ok && data.success && data.token) {
         setStoredOwnerToken(data.token);
         if (data.settings) {
+          if (data.settings.googleAppsScriptUrl) {
+            setMemoryAppsScriptUrl(data.settings.googleAppsScriptUrl);
+          }
           const prevLocal = loadSettings();
           saveSettings({
             ...prevLocal,
             ...data.settings,
-            ...(prevLocal.googleAppsScriptUrl && !data.settings.googleAppsScriptUrl
-              ? { googleAppsScriptUrl: prevLocal.googleAppsScriptUrl }
-              : {}),
           });
         }
         const s = data.settings || loadSettings();
@@ -392,17 +413,18 @@ export async function loginOwner(
             : isPhoneMatch
             ? 'Số điện thoại chủ sổ'
             : 'Mật khẩu quản trị';
-        recordOwnerLoginSuccess('Google Sheets Cloud', methodLabel);
+        recordOwnerLoginSuccess('Cloud Server', methodLabel);
         return { success: true };
       }
       if (
+        data.code === 'SERVICE_UNAVAILABLE' ||
         data.code === 'SHEETS_NOT_CONFIGURED' ||
         data.code === 'SHEETS_LEGACY_SCRIPT' ||
         data.code === 'SHEETS_UNAVAILABLE'
       ) {
-        cloudErrorCode = data.code;
-        cloudErrorMessage = data.message;
-        needsScriptUpgrade = Boolean(data.needsScriptUpgrade);
+        cloudErrorCode = 'SHEETS_UNAVAILABLE';
+        cloudErrorMessage = 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.';
+        needsScriptUpgrade = false;
       } else if (res.status === 401) {
         return {
           success: false,
@@ -413,7 +435,7 @@ export async function loginOwner(
     } else if (res.status >= 500) {
       serverResponded = true;
       cloudErrorCode = 'SHEETS_UNAVAILABLE';
-      cloudErrorMessage = `Máy chủ tạm thời quá tải hoặc hết thời gian chờ kết nối Google Sheets (HTTP ${res.status}). Vui lòng thử lại sau.`;
+      cloudErrorMessage = 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.';
     }
   } catch {
     // network error -> allow cached offline check below
@@ -424,9 +446,7 @@ export async function loginOwner(
       success: false,
       errorCode: cloudErrorCode,
       needsScriptUpgrade,
-      message:
-        cloudErrorMessage ||
-        'Không thể kết nối cơ sở dữ liệu Google Sheets (Apps Script Web App).',
+      message: cloudErrorMessage || 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     };
   }
 
@@ -540,36 +560,26 @@ export async function fetchOwnerData(force = false): Promise<{
 }> {
   const token = getStoredOwnerToken();
   if (!token) {
-    // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ danh sách con nợ / giao dịch
-    let publicFailMessage = 'Không thể kết nối máy chủ để tải dữ liệu Google Sheets.';
+    // Bảo mật: Chưa xác thực Chủ Nợ thì KHÔNG tải hoặc rò rỉ dữ liệu nhạy cảm hay chi tiết kết nối máy chủ
     try {
       const sRes = await fetch('/api/settings', {
         cache: 'no-store',
-        headers: getSheetsHeaders(),
       });
-      const { data: sData, errorMessage } = await parseApiJsonSafely(sRes);
+      const { data: sData } = await parseApiJsonSafely(sRes);
       if (sRes.ok && sData) {
+        const isConnected = sData.sheetsConnected === true;
         const cloudStatus = {
-          configured: sData.sheetsConfigured !== false,
-          connected: sData.sheetsConnected === true && !sData.sheetsError,
-          needsUpgrade: Boolean(sData.needsScriptUpgrade),
-          error: sData.sheetsError || null,
-          errorCode: sData.sheetsErrorCode || null,
+          configured: isConnected,
+          connected: isConnected,
+          needsUpgrade: false,
+          error: isConnected ? null : 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+          errorCode: isConnected ? null : 'SERVICE_UNAVAILABLE',
         };
-        if (sData.success && sData.settings && cloudStatus.connected) {
+        if (sData.success && sData.settings && isConnected) {
           const existingLocal = loadSettings();
           const mergedPublic = {
             ...existingLocal,
             ...sData.settings,
-            ...(existingLocal.googleAppsScriptUrl
-              ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
-              : {}),
-            ...(existingLocal.googleSheetUrl && !sData.settings.googleSheetUrl
-              ? { googleSheetUrl: existingLocal.googleSheetUrl }
-              : {}),
-            ...(existingLocal.ownerPassword && !sData.settings.ownerPassword
-              ? { ownerPassword: existingLocal.ownerPassword }
-              : {}),
           };
           saveSettings(mergedPublic);
           return {
@@ -588,11 +598,6 @@ export async function fetchOwnerData(force = false): Promise<{
           cloudStatus,
         };
       }
-      if (sData?.sheetsError || sData?.message) {
-        publicFailMessage = sData.sheetsError || sData.message;
-      } else if (errorMessage) {
-        publicFailMessage = errorMessage;
-      }
     } catch {
       // ignore
     }
@@ -602,17 +607,17 @@ export async function fetchOwnerData(force = false): Promise<{
       parties: [],
       settings: loadSettings(),
       cloudStatus: {
-        configured: true,
+        configured: false,
         connected: false,
-        error: publicFailMessage,
-        errorCode: 'SHEETS_UNAVAILABLE',
+        error: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+        errorCode: 'SERVICE_UNAVAILABLE',
       },
     };
   }
 
-  // 1. Fetch from server API (backed by Google Sheets)
-  let serverFailMessage = 'Không thể tải dữ liệu từ Google Sheets. Vui lòng kiểm tra kết nối và thử lại.';
-  let serverFailCode: string | null = 'SHEETS_UNAVAILABLE';
+  // 1. Fetch from server API (authenticated owner)
+  let serverFailMessage = 'Tạm thời chưa thể tải dữ liệu từ hệ thống. Vui lòng thử kết nối lại.';
+  let serverFailCode: string | null = 'SERVICE_UNAVAILABLE';
   try {
     const res = await fetch(`/api/owner/data${force ? '?force=1' : ''}`, {
       cache: 'no-store',
@@ -622,16 +627,16 @@ export async function fetchOwnerData(force = false): Promise<{
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success) {
+        const isConnected = data.sheetsConnected === true && !data.sheetsError;
         const cloudStatus = {
           configured: data.sheetsConfigured !== false,
-          connected: data.sheetsConnected === true && !data.sheetsError,
+          connected: isConnected,
           needsUpgrade: Boolean(data.needsScriptUpgrade),
-          error: data.sheetsError || null,
-          errorCode: data.sheetsErrorCode || null,
+          error: isConnected ? null : 'Tạm thời chưa thể tải dữ liệu từ hệ thống. Vui lòng thử kết nối lại.',
+          errorCode: data.sheetsErrorCode || (isConnected ? null : 'SERVICE_UNAVAILABLE'),
         };
 
         if (!cloudStatus.connected) {
-          // Sheets chưa GET thành công: không trả về dữ liệu trống/cũ để UI giữ trạng thái khóa cho tới khi GET thành công
           return {
             debtors: [],
             transactions: [],
@@ -649,11 +654,12 @@ export async function fetchOwnerData(force = false): Promise<{
           ? {
               ...prevLocal,
               ...data.settings,
-              ...(prevLocal.googleAppsScriptUrl && !data.settings.googleAppsScriptUrl
-                ? { googleAppsScriptUrl: prevLocal.googleAppsScriptUrl }
-                : {}),
             }
           : prevLocal;
+
+        if (finalSettings?.googleAppsScriptUrl) {
+          setMemoryAppsScriptUrl(finalSettings.googleAppsScriptUrl);
+        }
 
         saveDebtors(finalDebtors);
         saveTransactions(finalTransactions);
@@ -667,23 +673,19 @@ export async function fetchOwnerData(force = false): Promise<{
           cloudStatus,
         };
       }
-      if (data.message) serverFailMessage = data.message;
+      if (data.message) serverFailMessage = sanitizeClientError(data.message, serverFailMessage);
       if (data.code) serverFailCode = data.code;
     } else {
       if (contentType.includes('application/json')) {
         const errData = await res.json().catch(() => null);
-        if (errData?.message) serverFailMessage = errData.message;
+        if (errData?.message) serverFailMessage = sanitizeClientError(errData.message, serverFailMessage);
         if (errData?.code) serverFailCode = errData.code;
-      } else if (res.status >= 500) {
-        serverFailMessage = `Máy chủ tạm thời quá tải hoặc gặp sự cố khi tải dữ liệu Google Sheets (HTTP ${res.status}).`;
       } else if (res.status === 401) {
         serverFailMessage = 'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.';
       }
-      // Fetch public settings if owner token expired or Sheets errored
       try {
         const sRes = await fetch('/api/settings', {
           cache: 'no-store',
-          headers: getSheetsHeaders(),
         });
         if (sRes.ok) {
           const sData = await sRes.json();
@@ -692,12 +694,6 @@ export async function fetchOwnerData(force = false): Promise<{
             saveSettings({
               ...existingLocal,
               ...sData.settings,
-              ...(existingLocal.googleAppsScriptUrl
-                ? { googleAppsScriptUrl: existingLocal.googleAppsScriptUrl }
-                : {}),
-              ...(existingLocal.ownerPassword && !sData.settings.ownerPassword
-                ? { ownerPassword: existingLocal.ownerPassword }
-                : {}),
             });
           }
         }
@@ -706,8 +702,7 @@ export async function fetchOwnerData(force = false): Promise<{
       }
     }
   } catch (err: any) {
-    console.warn('Server API unavailable while loading Google Sheets data:', err);
-    if (err?.message) serverFailMessage = `Không thể kết nối máy chủ Google Sheets (${err.message}).`;
+    console.warn('Server API unavailable while loading owner data:', err);
   }
 
   return {
@@ -845,7 +840,10 @@ export async function apiSaveDebtor(
     }
     return { success: false, message: errorMessage };
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi kết nối khi lưu người nợ lên Google Sheets' };
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi lưu người nợ. Vui lòng thử lại.'),
+    };
   }
 }
 
@@ -1085,7 +1083,7 @@ export async function apiSaveTransaction(
   } catch (err: any) {
     return {
       success: false,
-      message: err?.message || 'Lỗi kết nối khi lưu giao dịch lên Google Sheets',
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi lưu giao dịch. Vui lòng thử lại.'),
     };
   }
 }
@@ -1835,7 +1833,10 @@ export async function apiSaveSettings(
     });
   };
 
-  // 1. Immediately save to local client storage for instant UI reactivity
+  // 1. Immediately save to local client storage (sensitive fields stay in RAM only)
+  if (settings.googleAppsScriptUrl !== undefined) {
+    setMemoryAppsScriptUrl(settings.googleAppsScriptUrl);
+  }
   saveSettings(settings);
 
   // 2. Try server API with auth headers and optional admin password header
@@ -1851,6 +1852,9 @@ export async function apiSaveSettings(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success && data.settings) {
+        if (data.settings.googleAppsScriptUrl) {
+          setMemoryAppsScriptUrl(data.settings.googleAppsScriptUrl);
+        }
         saveSettings(data.settings);
         recordSettingsLogIfChanged(data.settings);
         return { success: true, settings: data.settings };
@@ -1858,7 +1862,7 @@ export async function apiSaveSettings(
       return {
         success: false,
         settings: data.settings || settings,
-        message: data.message || 'Không thể lưu cài đặt lên Google Sheets',
+        message: data.message || 'Không thể lưu cài đặt lúc này.',
       };
     }
     return {
@@ -1868,7 +1872,7 @@ export async function apiSaveSettings(
     };
   } catch (err: any) {
     console.warn('Server saveSettings notice:', err);
-    return { success: false, settings, message: err?.message || 'Lỗi kết nối khi lưu cài đặt' };
+    return { success: false, settings, message: 'Lỗi kết nối khi lưu cài đặt. Vui lòng thử lại.' };
   }
 }
 
@@ -1939,7 +1943,6 @@ export async function apiGuestLookup(
       cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
-        ...getSheetsHeaders(),
       },
       body: JSON.stringify({ pin: cleanPin }),
     });
@@ -1948,7 +1951,7 @@ export async function apiGuestLookup(
       serverResponded = true;
       const data = await res.json();
       if (res.ok && data.success && data.debtor) {
-        recordLookupAudit(data.debtor, data.transactions || [], 'Google Sheets Cloud');
+        recordLookupAudit(data.debtor, data.transactions || [], 'Cloud Server');
         return {
           success: true,
           debtor: data.debtor,
@@ -1957,17 +1960,16 @@ export async function apiGuestLookup(
         };
       }
       if (
+        data.code === 'SERVICE_UNAVAILABLE' ||
         data.code === 'SHEETS_NOT_CONFIGURED' ||
         data.code === 'SHEETS_LEGACY_SCRIPT' ||
         data.code === 'SHEETS_UNAVAILABLE'
       ) {
         return {
           success: false,
-          errorCode: data.code,
-          needsScriptUpgrade: Boolean(data.needsScriptUpgrade),
-          message:
-            data.message ||
-            'Không thể kết nối cơ sở dữ liệu Google Sheets để tra cứu. Vui lòng thử lại sau.',
+          errorCode: 'SHEETS_UNAVAILABLE',
+          needsScriptUpgrade: false,
+          message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
         };
       }
       if (res.status === 404 || res.status === 400) {
@@ -1995,7 +1997,7 @@ export async function apiGuestLookup(
       return {
         success: false,
         errorCode: 'SHEETS_UNAVAILABLE',
-        message: `Máy chủ Google Sheets phản hồi chậm hoặc gặp sự cố tạm thời (HTTP ${res.status}). Vui lòng thử lại sau.`,
+        message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
       };
     }
   } catch {
@@ -2025,7 +2027,7 @@ export async function apiGuestLookup(
   return {
     success: false,
     errorCode: 'SHEETS_UNAVAILABLE',
-    message: 'Không thể kết nối đến máy chủ Google Sheets để tra cứu. Vui lòng thử lại sau.',
+    message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
   };
 }
 
@@ -2087,7 +2089,6 @@ export async function apiGuestReportPayment(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...getSheetsHeaders(),
       },
       body: JSON.stringify({ pin: cleanPin, amount, note, billImage }),
     });
@@ -2097,7 +2098,7 @@ export async function apiGuestReportPayment(
         recordReportAudit(debtorObj?.name, debtorObj?.id);
         return { success: true, transactions: data.transactions };
       }
-      const errMsg = data.message || 'Không thể gửi báo thanh toán lên Google Sheets';
+      const errMsg = sanitizeClientError(data.message, 'Không thể gửi báo thanh toán lúc này. Vui lòng thử lại sau.');
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: debtorObj?.name ? `Khách: ${debtorObj.name}` : 'Khách vãng lai',
@@ -2113,10 +2114,10 @@ export async function apiGuestReportPayment(
       return { success: false, message: errMsg };
     }
     return { success: false, message: errorMessage };
-  } catch (err: any) {
+  } catch {
     return {
       success: false,
-      message: err?.message || 'Lỗi kết nối khi gửi báo chuyển khoản lên Google Sheets',
+      message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
     };
   }
 }
@@ -2149,7 +2150,20 @@ export interface FirestoreStatusInfo {
 }
 
 export async function apiGetSheetsStatus(): Promise<FirestoreStatusInfo> {
-  const localUrl = (loadSettings().googleAppsScriptUrl || '').trim();
+  if (!getStoredOwnerToken()) {
+    return {
+      success: false,
+      configured: false,
+      connected: false,
+      latencyMs: 0,
+      databaseId: 'Chưa xác thực',
+      stats: { debtors: 0, transactions: 0, parties: 0 },
+      error: 'Yêu cầu đăng nhập chủ sổ.',
+      lastChecked: new Date().toISOString(),
+    };
+  }
+
+  const localUrl = (memoryAppsScriptUrl || loadSettings().googleAppsScriptUrl || '').trim();
   let serverError = 'Không nhận được trạng thái Google Sheets từ máy chủ';
 
   try {
@@ -2177,13 +2191,13 @@ export async function apiGetSheetsStatus(): Promise<FirestoreStatusInfo> {
           transactions: loadTransactions().length,
           parties: loadParties().length,
         },
-        error: data.error || null,
+        error: data.error ? sanitizeClientError(data.error, 'Không thể kết nối máy chủ cơ sở dữ liệu.') : null,
         lastChecked: data.lastChecked || new Date().toISOString(),
       };
     }
     if (errorMessage) serverError = errorMessage;
-  } catch (err: any) {
-    serverError = err?.message || 'Không thể kết nối đến máy chủ Google Sheets';
+  } catch {
+    serverError = 'Không thể kết nối đến máy chủ cơ sở dữ liệu.';
   }
 
   if (localUrl.startsWith('https://script.google.com/')) {
@@ -2243,15 +2257,22 @@ export async function apiTestSheetsConnection(options?: {
   stats?: { debtors: number; transactions: number; parties: number };
   error?: string;
 }> {
-  const candidateUrl = (options?.appsScriptUrl || loadSettings().googleAppsScriptUrl || '').trim();
+  if (!getStoredOwnerToken()) {
+    return {
+      success: false,
+      configured: false,
+      connected: false,
+      latencyMs: 0,
+      error: 'Yêu cầu đăng nhập chủ sổ.',
+    };
+  }
+
+  const candidateUrl = (options?.appsScriptUrl || memoryAppsScriptUrl || loadSettings().googleAppsScriptUrl || '').trim();
   let serverError = '';
   try {
     const res = await fetch('/api/sheets/test-connection', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getSheetsHeaders(),
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(options || {}),
     });
     const { data, errorMessage } = await parseApiJsonSafely(res);
@@ -2263,8 +2284,8 @@ export async function apiTestSheetsConnection(options?: {
       };
     }
     serverError = errorMessage;
-  } catch (err: any) {
-    serverError = err?.message || 'Không thể kiểm tra kết nối Google Sheets';
+  } catch {
+    serverError = 'Không thể kiểm tra kết nối Google Sheets';
   }
 
   if (candidateUrl.startsWith('https://script.google.com/')) {
@@ -2308,6 +2329,13 @@ export async function apiConfigureSheets(
   version?: number;
   message?: string;
 }> {
+  if (!getStoredOwnerToken()) {
+    return {
+      success: false,
+      message: 'Yêu cầu đăng nhập chủ sổ để cấu hình kết nối.',
+    };
+  }
+
   const trimmedUrl = appsScriptUrl.trim();
   const trimmedSheetUrl = googleSheetUrl?.trim() || '';
   let serverError = '';
@@ -2324,6 +2352,7 @@ export async function apiConfigureSheets(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success) {
+        setMemoryAppsScriptUrl(trimmedUrl);
         const current = loadSettings();
         saveSettings({
           ...current,
@@ -2335,13 +2364,14 @@ export async function apiConfigureSheets(
       return data;
     }
     serverError = errorMessage;
-  } catch (err: any) {
-    serverError = err?.message || 'Lỗi kết nối khi cấu hình URL Google Apps Script';
+  } catch {
+    serverError = 'Lỗi kết nối khi cấu hình URL Google Apps Script';
   }
 
   // Fallback: kiểm tra trực tiếp Google Apps Script khi máy chủ trung gian trả về phản hồi không hợp lệ
   const direct = await pingAppsScriptDirect(trimmedUrl);
   if (direct.success) {
+    setMemoryAppsScriptUrl(trimmedUrl);
     const current = loadSettings();
     saveSettings({
       ...current,
@@ -2632,23 +2662,27 @@ export async function apiUploadJsonToFirestore(jsonData: any, mode: 'replace' | 
           settings: data.data.settings,
         };
       }
-      return { success: false, message: data.message || `Lỗi khi nạp tệp JSON lên Google Sheets (HTTP ${res.status})` };
+      return {
+        success: false,
+        message: sanitizeClientError(data.message, 'Không thể khôi phục dữ liệu từ tệp JSON lúc này.'),
+      };
     }
     return {
       success: false,
       message: errorMessage,
     };
   } catch (err: any) {
+    const safeErr = sanitizeClientError(err?.message, 'Lỗi khi khôi phục dữ liệu từ tệp JSON');
     recordAuditLog({
       action: 'OPERATION_FAILED',
       actor: 'Chủ Sổ (Admin)',
       title: 'Lỗi khôi phục tệp JSON',
-      description: `Không thể khôi phục dữ liệu: ${err?.message || 'Tệp không đúng định dạng'}`,
+      description: `Không thể khôi phục dữ liệu: ${safeErr}`,
       beforeState: 'Thử nhập tệp sao lưu JSON',
-      afterState: `Thất bại: ${err?.message || 'Lỗi'}`,
+      afterState: `Thất bại: ${safeErr}`,
       changes: [{ fieldLabel: 'Kết quả khôi phục', before: 'Đang xử lý', after: 'Thất bại' }],
     });
-    return { success: false, message: err?.message || 'Lỗi khi khôi phục dữ liệu từ tệp JSON' };
+    return { success: false, message: safeErr };
   }
 }
 
@@ -2738,11 +2772,17 @@ export async function apiForceSyncFirestore(direction: 'PUSH' | 'PULL'): Promise
           settings: data.data.settings,
         };
       }
-      return { success: false, message: data.message || 'Đồng bộ Google Sheets thất bại' };
+      return {
+        success: false,
+        message: sanitizeClientError(data.message, 'Đồng bộ dữ liệu thất bại'),
+      };
     }
     return { success: false, message: errorMessage };
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Không thể kết nối đến Google Sheets để đồng bộ' };
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Không thể kết nối máy chủ để đồng bộ dữ liệu.'),
+    };
   }
 }
 
@@ -2799,12 +2839,18 @@ export async function apiSyncAllNow(dataOverride?: {
           },
         };
       }
-      return { success: false, message: data.message || 'Không thể đồng bộ lên Google Sheets' };
+      return {
+        success: false,
+        message: sanitizeClientError(data.message, 'Không thể đồng bộ dữ liệu lên hệ thống.'),
+      };
     }
     return { success: false, message: errorMessage };
   } catch (err: any) {
     console.warn('Server sync-all API warning:', err);
-    return { success: false, message: err?.message || 'Không thể kết nối đến máy chủ để đồng bộ Google Sheets' };
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Không thể kết nối đến máy chủ để đồng bộ dữ liệu.'),
+    };
   }
 }
 
@@ -2873,7 +2919,10 @@ export async function apiClearAllSampleData(
       }
     }
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi kết nối khi xóa dữ liệu trên Google Sheets' };
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi xóa dữ liệu. Vui lòng thử lại.'),
+    };
   }
 
   return { success: false, message: 'Không thể xóa dữ liệu lúc này' };
@@ -2937,7 +2986,10 @@ export async function apiResetSampleData(
       }
     }
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi kết nối khi nạp lại dữ liệu mẫu' };
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi nạp lại dữ liệu mẫu. Vui lòng thử lại.'),
+    };
   }
 
   return { success: false, message: 'Không thể nạp lại dữ liệu mẫu lúc này' };
@@ -3016,15 +3068,9 @@ export async function apiFetchRemoteAuditLogs(
   }
 
   try {
-    const localSettings = loadSettings();
-    const headers = new Headers(getAuthHeaders());
-    if (localSettings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
-      headers.set('x-apps-script-url', localSettings.googleAppsScriptUrl.trim());
-    }
-
     const res = await fetch(`/api/owner/audit-logs?limit=${limit}`, {
       method: 'GET',
-      headers,
+      headers: getAuthHeaders(),
     });
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !contentType.includes('application/json')) {
@@ -3048,7 +3094,7 @@ export async function apiFetchRemoteAuditLogs(
       source: data.source,
       hasAppsScriptUrl: data.hasAppsScriptUrl,
       needsAppsScriptUpgrade: Boolean(data.needsAppsScriptUpgrade),
-      sheetsError: data.sheetsError,
+      sheetsError: data.sheetsError ? sanitizeClientError(data.sheetsError, 'Lỗi kết nối nhật ký.') : undefined,
     };
   } catch (err: any) {
     return {
@@ -3056,7 +3102,7 @@ export async function apiFetchRemoteAuditLogs(
       logs: loadAuditLogs(),
       newCount: 0,
       hiddenByClearCount: 0,
-      sheetsError: err?.message || 'Lỗi kết nối máy chủ',
+      sheetsError: sanitizeClientError(err?.message, 'Lỗi kết nối máy chủ'),
     };
   }
 }

@@ -129,6 +129,35 @@ export function getActiveSheetsConfig(overrideUrl?: string): SheetsConnectionCon
   };
 }
 
+export function sanitizeSheetsErrorMessage(raw: unknown, fallback = 'Không thể kết nối đến máy chủ cơ sở dữ liệu.'): string {
+  const str = String(raw || '').trim();
+  if (!str) return fallback;
+  const cleaned = str
+    .replace(/https?:\/\/[^\s)"'<>]+/gi, '[địa chỉ máy chủ]')
+    .replace(/script\.google\.com[^\s)"'<>]*/gi, '[máy chủ dữ liệu]')
+    .replace(/docs\.google\.com[^\s)"'<>]*/gi, '[máy chủ dữ liệu]')
+    .replace(/\(\s*HTTP\s*\d{3}\s*\)/gi, '')
+    .replace(/\bHTTP\s*\d{3}\b/gi, '')
+    .trim();
+  const lower = cleaned.toLowerCase();
+  if (
+    !cleaned ||
+    lower.includes('fetch failed') ||
+    lower.includes('econnrefused') ||
+    lower.includes('enotfound') ||
+    lower.includes('etimedout') ||
+    lower.includes('econnreset') ||
+    lower.includes('socket') ||
+    lower.includes('networkerror') ||
+    lower.includes('aborted') ||
+    cleaned.includes('[địa chỉ máy chủ]') ||
+    cleaned.includes('[máy chủ dữ liệu]')
+  ) {
+    return fallback;
+  }
+  return cleaned;
+}
+
 export function classifySheetsError(err: any): {
   code: SheetsErrorCode;
   message: string;
@@ -138,7 +167,7 @@ export function classifySheetsError(err: any): {
   if (err instanceof SheetsDbError) {
     return {
       code: err.code,
-      message: err.message,
+      message: sanitizeSheetsErrorMessage(err.message),
       needsUpgrade: err.code === 'SHEETS_LEGACY_SCRIPT',
       notConfigured: err.code === 'SHEETS_NOT_CONFIGURED',
     };
@@ -147,7 +176,7 @@ export function classifySheetsError(err: any): {
   if (msg.includes('SHEETS_NOT_CONFIGURED') || msg.includes('Chưa cấu hình')) {
     return {
       code: 'SHEETS_NOT_CONFIGURED',
-      message: 'Chưa kết nối URL Google Apps Script Web App.',
+      message: 'Hệ thống chưa được cấu hình kết nối cơ sở dữ liệu.',
       needsUpgrade: false,
       notConfigured: true,
     };
@@ -155,14 +184,14 @@ export function classifySheetsError(err: any): {
   if (msg.includes('SHEETS_LEGACY_SCRIPT') || msg.includes('phiên bản cũ')) {
     return {
       code: 'SHEETS_LEGACY_SCRIPT',
-      message: 'Google Apps Script hiện tại đang dùng mã cũ (v1/v2). Vui lòng cập nhật mã Apps Script v3 và Triển khai lại.',
+      message: 'Phiên bản dịch vụ dữ liệu hiện tại đã cũ. Vui lòng cập nhật và thử lại.',
       needsUpgrade: true,
       notConfigured: false,
     };
   }
   return {
     code: 'SHEETS_UNAVAILABLE',
-    message: msg || 'Không thể kết nối đến Google Sheets (Apps Script Web App).',
+    message: sanitizeSheetsErrorMessage(msg, 'Không thể kết nối đến máy chủ cơ sở dữ liệu.'),
     needsUpgrade: false,
     notConfigured: false,
   };
@@ -176,7 +205,7 @@ async function callAppsScriptGet(
 ): Promise<any> {
   const cfg = getActiveSheetsConfig(overrideUrl);
   if (!cfg.appsScriptUrl) {
-    throw new SheetsDbError('SHEETS_NOT_CONFIGURED', 'Chưa cấu hình đường dẫn Google Apps Script Web App.');
+    throw new SheetsDbError('SHEETS_NOT_CONFIGURED', 'Hệ thống chưa được cấu hình kết nối cơ sở dữ liệu.');
   }
 
   const url = new URL(cfg.appsScriptUrl);
@@ -199,38 +228,35 @@ async function callAppsScriptGet(
     try {
       json = JSON.parse(text);
     } catch {
+      console.warn(`[SheetsDb GET ${action}] non-JSON response HTTP ${res.status}`);
       if (text.includes('accounts.google.com') || text.includes('Sign in')) {
         throw new SheetsDbError(
           'SHEETS_UNAVAILABLE',
-          'Google Apps Script đang yêu cầu đăng nhập. Vui lòng chọn quyền truy cập "Bất kỳ ai (Anyone)" khi Triển khai (Deploy).'
-        );
-      }
-      if (res.status === 404) {
-        throw new SheetsDbError(
-          'SHEETS_UNAVAILABLE',
-          'URL Google Apps Script không tồn tại hoặc đã bị xóa (HTTP 404). Vui lòng kiểm tra lại link Triển khai Web App (/exec).'
+          'Kết nối cơ sở dữ liệu chưa được cấp quyền truy cập công khai.'
         );
       }
       throw new SheetsDbError(
         'SHEETS_UNAVAILABLE',
-        `Google Apps Script trả về dữ liệu không hợp lệ (HTTP ${res.status}). Hãy kiểm tra lại URL Web App.`
+        'Không thể nhận phản hồi hợp lệ từ máy chủ cơ sở dữ liệu.'
       );
     }
 
     if (!res.ok || json?.success === false) {
+      console.warn(`[SheetsDb GET ${action}] upstream error HTTP ${res.status}:`, json?.error || json?.message);
       throw new SheetsDbError(
         'SHEETS_UNAVAILABLE',
-        json?.error || json?.message || `Lỗi phản hồi từ Google Apps Script (HTTP ${res.status})`
+        sanitizeSheetsErrorMessage(json?.error || json?.message, 'Không thể tải dữ liệu từ máy chủ cơ sở dữ liệu.')
       );
     }
 
     return json;
   } catch (err: any) {
     if (err instanceof SheetsDbError) throw err;
+    console.warn(`[SheetsDb GET ${action}] fetch failed:`, err?.message || err);
     if (err?.name === 'AbortError') {
-      throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Hết thời gian chờ kết nối Google Sheets (Timeout).');
+      throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Hết thời gian chờ kết nối đến máy chủ cơ sở dữ liệu.');
     }
-    throw new SheetsDbError('SHEETS_UNAVAILABLE', err?.message || 'Không thể kết nối Google Apps Script.');
+    throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Không thể kết nối đến máy chủ cơ sở dữ liệu.');
   } finally {
     clearTimeout(timer);
   }
@@ -243,7 +269,7 @@ async function callAppsScriptPost(
 ): Promise<any> {
   const cfg = getActiveSheetsConfig(overrideUrl);
   if (!cfg.appsScriptUrl) {
-    throw new SheetsDbError('SHEETS_NOT_CONFIGURED', 'Chưa cấu hình đường dẫn Google Apps Script Web App.');
+    throw new SheetsDbError('SHEETS_NOT_CONFIGURED', 'Hệ thống chưa được cấu hình kết nối cơ sở dữ liệu.');
   }
 
   const controller = new AbortController();
@@ -265,38 +291,35 @@ async function callAppsScriptPost(
     try {
       json = JSON.parse(text);
     } catch {
+      console.warn(`[SheetsDb POST ${payload?.action || 'SYNC'}] non-JSON response HTTP ${res.status}`);
       if (text.includes('accounts.google.com') || text.includes('Sign in')) {
         throw new SheetsDbError(
           'SHEETS_UNAVAILABLE',
-          'Google Apps Script từ chối quyền ghi. Vui lòng đặt "Ai có quyền truy cập" là "Bất kỳ ai (Anyone)".'
-        );
-      }
-      if (res.status === 404) {
-        throw new SheetsDbError(
-          'SHEETS_UNAVAILABLE',
-          'URL Google Apps Script không tồn tại hoặc đã bị xóa (HTTP 404). Vui lòng kiểm tra lại link Triển khai Web App (/exec).'
+          'Kết nối cơ sở dữ liệu chưa được cấp quyền ghi công khai.'
         );
       }
       throw new SheetsDbError(
         'SHEETS_UNAVAILABLE',
-        `Google Apps Script trả về lỗi định dạng khi lưu dữ liệu (HTTP ${res.status}).`
+        'Không thể nhận phản hồi hợp lệ từ máy chủ cơ sở dữ liệu khi lưu.'
       );
     }
 
     if (!res.ok || json?.success === false) {
+      console.warn(`[SheetsDb POST ${payload?.action || 'SYNC'}] upstream error HTTP ${res.status}:`, json?.error || json?.message);
       throw new SheetsDbError(
         'SHEETS_UNAVAILABLE',
-        json?.error || json?.message || `Lỗi ghi dữ liệu lên Google Sheets (HTTP ${res.status})`
+        sanitizeSheetsErrorMessage(json?.error || json?.message, 'Không thể lưu dữ liệu lên máy chủ cơ sở dữ liệu.')
       );
     }
 
     return json;
   } catch (err: any) {
     if (err instanceof SheetsDbError) throw err;
+    console.warn(`[SheetsDb POST ${payload?.action || 'SYNC'}] fetch failed:`, err?.message || err);
     if (err?.name === 'AbortError') {
-      throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Hết thời gian chờ ghi dữ liệu vào Google Sheets.');
+      throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Hết thời gian chờ ghi dữ liệu lên máy chủ cơ sở dữ liệu.');
     }
-    throw new SheetsDbError('SHEETS_UNAVAILABLE', err?.message || 'Không thể ghi dữ liệu lên Google Apps Script.');
+    throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Không thể ghi dữ liệu lên máy chủ cơ sở dữ liệu.');
   } finally {
     clearTimeout(timer);
   }
@@ -377,7 +400,7 @@ export async function testSheetsConnection(customUrl?: string): Promise<{
       needsUpgrade: false,
       source: cfg.source,
       googleSheetUrl: cfg.googleSheetUrl,
-      error: err?.message || 'Không thể kết nối Google Apps Script',
+      error: sanitizeSheetsErrorMessage(err?.message, 'Không thể kết nối đến máy chủ cơ sở dữ liệu.'),
     };
   }
 }
