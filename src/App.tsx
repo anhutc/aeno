@@ -942,27 +942,94 @@ export default function App() {
                       </div>
                     </>
                   ) : (
-                    <>
-                      <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 mx-auto flex items-center justify-center">
-                        <RefreshCw className="w-7 h-7 animate-spin" />
+                    <div className="py-2 space-y-6">
+                      {/* Orbital ripple & dual-ring spinner */}
+                      <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                        <motion.div
+                          className="absolute inset-0 rounded-full bg-emerald-400/20"
+                          animate={{ scale: [1, 1.45, 1], opacity: [0.55, 0, 0.55] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                        <motion.div
+                          className="absolute inset-1 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 border-r-teal-400"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1.35, repeat: Infinity, ease: 'linear' }}
+                        />
+                        <motion.div
+                          className="absolute inset-3.5 rounded-full border-2 border-teal-500/15 border-b-emerald-600 border-l-emerald-400"
+                          animate={{ rotate: -360 }}
+                          transition={{ duration: 1.9, repeat: Infinity, ease: 'linear' }}
+                        />
+                        <motion.div
+                          className="w-7 h-7 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/30"
+                          animate={{ scale: [0.92, 1.08, 0.92], rotate: [0, 90, 180, 270, 360] }}
+                          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                        />
                       </div>
-                      <div className="space-y-1.5">
-                        <h2 className="text-lg sm:text-xl font-black text-slate-900">
-                          Đang tải dữ liệu...
-                        </h2>
-                        <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-                          Hệ thống đang đồng bộ dữ liệu an toàn. Giao diện sẽ mở khóa ngay khi hoàn tất.
-                        </p>
+
+                      {/* Staggered wave equalizer dots */}
+                      <div className="flex items-center justify-center gap-2" aria-hidden="true">
+                        {[0, 1, 2, 3, 4].map((idx) => (
+                          <motion.span
+                            key={idx}
+                            className="w-2 h-2 rounded-full bg-gradient-to-t from-emerald-600 to-teal-400"
+                            animate={{
+                              y: [0, -7, 0],
+                              scaleY: [1, 1.4, 1],
+                              opacity: [0.4, 1, 0.4],
+                            }}
+                            transition={{
+                              duration: 1.1,
+                              repeat: Infinity,
+                              delay: idx * 0.12,
+                              ease: 'easeInOut',
+                            }}
+                          />
+                        ))}
                       </div>
+
+                      {/* Shimmer ledger card skeleton */}
+                      <div className="space-y-2.5 text-left" aria-hidden="true">
+                        {[0, 1, 2].map((row) => (
+                          <div
+                            key={row}
+                            className="relative overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/90 p-3 flex items-center gap-3"
+                          >
+                            <div className="w-9 h-9 rounded-xl bg-slate-200/80 shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div
+                                className="h-2.5 rounded-full bg-slate-200/90"
+                                style={{ width: row === 0 ? '62%' : row === 1 ? '48%' : '56%' }}
+                              />
+                              <div
+                                className="h-2 rounded-full bg-slate-200/60"
+                                style={{ width: row === 0 ? '38%' : row === 1 ? '30%' : '42%' }}
+                              />
+                            </div>
+                            <div className="w-14 h-4 rounded-lg bg-emerald-100/80 shrink-0" />
+                            <motion.div
+                              className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-white/75 to-transparent"
+                              animate={{ x: ['0%', '300%'] }}
+                              transition={{
+                                duration: 1.5,
+                                repeat: Infinity,
+                                delay: row * 0.18,
+                                ease: 'easeInOut',
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
                       <button
                         type="button"
                         onClick={handleOwnerLogout}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-rose-600 cursor-pointer transition-colors"
                       >
                         <LogOut className="w-3.5 h-3.5" />
                         <span>Hủy &amp; Đăng xuất</span>
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </motion.div>
