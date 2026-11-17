@@ -474,6 +474,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
             <div className="relative">
               <input
                 id="unified-passcode-input"
+                name="passcode"
                 type={showPasscode ? 'text' : 'password'}
                 value={passcode}
                 onChange={(e) => {
@@ -482,7 +483,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 }}
                 placeholder="Nhập mật khẩu tra cứu..."
                 autoFocus
-                autoComplete="new-password"
+                autoComplete="current-password"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}

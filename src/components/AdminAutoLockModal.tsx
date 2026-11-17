@@ -223,6 +223,7 @@ export const AdminAutoLockModal: React.FC<AdminAutoLockModalProps> = ({
                 }}
                 placeholder="Nhập mật khẩu quản lý..."
                 autoFocus={!isEnrolled}
+                autoComplete="current-password"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
