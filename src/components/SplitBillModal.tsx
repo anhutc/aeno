@@ -210,8 +210,8 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
         setShowAddDebtorForm(false);
         resetNewDebtorForm();
       }
-    } catch {
-      setAddDebtorError('Không thể tạo người mới. Vui lòng thử lại.');
+    } catch (err: any) {
+      setAddDebtorError(err?.message || 'Không thể tạo người mới. Vui lòng thử lại.');
     } finally {
       isAddingDebtorRef.current = false;
       setIsAddingDebtor(false);

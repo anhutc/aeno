@@ -672,6 +672,26 @@ function generateInitialAuditLogs(): AuditLog[] {
   ];
 }
 
+export function isAutoSyncAuditLog(log: Partial<AuditLog> | null | undefined): boolean {
+  if (!log || typeof log !== 'object') return false;
+  const meta = (log.metadata || {}) as Record<string, any>;
+  if (meta.isAutoSync === true || meta.autoSync === true || meta.source === 'auto-sync') {
+    return true;
+  }
+  if (log.action === 'SYNC_SHEETS' || log.action === 'CLOUD_SYNC') {
+    const text = `${log.title || ''} ${log.description || ''}`.toLowerCase();
+    if (
+      text.includes('tự động') ||
+      text.includes('đồng bộ ngầm') ||
+      text.includes('auto-sync') ||
+      text.includes('autosync')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function loadAuditLogs(): AuditLog[] {
   try {
     const isCleared = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED);
@@ -679,7 +699,7 @@ export function loadAuditLogs(): AuditLog[] {
       const raw = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.filter((item) => !isAutoSyncAuditLog(item)) : [];
     }
 
     const raw = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
@@ -689,7 +709,7 @@ export function loadAuditLogs(): AuditLog[] {
       return initialLogs;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.filter((item) => !isAutoSyncAuditLog(item)) : [];
   } catch (err) {
     console.error('Failed to load audit logs:', err);
     return [];
@@ -828,6 +848,10 @@ export function recordAuditLog(
     },
   };
 
+  if (isAutoSyncAuditLog(newLog)) {
+    return newLog;
+  }
+
   try {
     const currentLogs = loadAuditLogs();
     const updated = [newLog, ...currentLogs];
@@ -877,7 +901,7 @@ export function mergeRemoteAuditLogs(
   let newCount = 0;
   let hiddenByClearCount = 0;
   for (const r of remoteLogs) {
-    if (!r || !r.id || r.id.startsWith('log-init-')) continue;
+    if (!r || !r.id || r.id.startsWith('log-init-') || isAutoSyncAuditLog(r)) continue;
     if (!includeCleared && clearedAt && r.timestamp && r.timestamp <= clearedAt) {
       hiddenByClearCount++;
       continue;

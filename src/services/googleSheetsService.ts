@@ -884,7 +884,7 @@ function formatHeader(sheet, bgColor) {
 export async function syncViaAppsScript(
   payload: SyncDataPayload,
   appsScriptUrl: string,
-  options?: { skipAuditLog?: boolean }
+  options?: { skipAuditLog?: boolean; recordManualLog?: boolean }
 ): Promise<SyncResult> {
   const url = appsScriptUrl.trim();
   if (!url || !url.startsWith('https://script.google.com/')) {
@@ -913,7 +913,8 @@ export async function syncViaAppsScript(
 
   const now = new Date().toISOString();
   const logsCount = (payload.auditLogs || loadAuditLogs()).length;
-  if (!options?.skipAuditLog) {
+  // Đồng bộ Google Sheets tự động KHÔNG ghi vào nhật ký; chỉ ghi khi thao tác thủ công được yêu cầu rõ ràng
+  if (options?.recordManualLog === true && !options?.skipAuditLog) {
     try {
       recordAuditLog({
         action: 'SYNC_SHEETS',
@@ -994,7 +995,10 @@ export function triggerDebouncedAutoSync(
         window.dispatchEvent(new CustomEvent('googlesheets-autosync-start'));
       }
 
-      const result: SyncResult = await syncViaAppsScript(payload, appsScriptUrl, { skipAuditLog: true });
+      const result: SyncResult = await syncViaAppsScript(payload, appsScriptUrl, {
+        skipAuditLog: true,
+        recordManualLog: false,
+      });
       try {
         const currentSaved = loadSettings();
         if (currentSaved) {

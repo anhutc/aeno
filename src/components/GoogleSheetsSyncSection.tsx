@@ -27,7 +27,6 @@ import { formatVND } from '../utils/vietqr';
 import {
   GOOGLE_APPS_SCRIPT_TEMPLATE,
   exportGoogleSheetsCsvFile,
-  triggerDebouncedAutoSync,
   SyncResult,
 } from '../services/googleSheetsService';
 import { apiTestSheetsConnection, apiSyncAllNow } from '../utils/api';
@@ -38,7 +37,7 @@ interface GoogleSheetsSyncSectionProps {
   transactions: Transaction[];
   parties?: PartySplit[];
   settings: AppSettings;
-  onSaveSettings: (newSettings: AppSettings) => void;
+  onSaveSettings: (newSettings: AppSettings) => Promise<boolean | void> | void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -297,21 +296,15 @@ export const GoogleSheetsSyncSection: React.FC<GoogleSheetsSyncSectionProps> = (
       ...settings,
       autoSyncGoogleSheets: nextVal,
     };
-    await onSaveSettings(updatedSettings);
-
-    if (nextVal && settings.googleAppsScriptUrl) {
-      triggerDebouncedAutoSync({
-        debtors,
-        transactions,
-        parties,
-        settings: updatedSettings,
-        auditLogs: loadAuditLogs(),
-      });
+    const ok = await onSaveSettings(updatedSettings);
+    if (ok === false) {
+      showToast('Không thể cập nhật cài đặt đồng bộ lên máy chủ. Vui lòng thử lại.', 'error');
+      return;
     }
 
     showToast(
       nextVal
-        ? 'Đã BẬT tự động đồng bộ ngầm: Mọi biến động (thêm, sửa, xóa) sẽ tự đồng bộ sang Google Sheets sau 2 giây!'
+        ? 'Đã BẬT tự động đồng bộ ngầm: Mọi biến động (thêm, sửa, xóa) sẽ tự đồng bộ sang Google Sheets!'
         : 'Đã TẮT tự động đồng bộ Google Sheets.',
       'success'
     );

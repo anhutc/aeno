@@ -10,13 +10,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RefreshCw, AlertCircle, LogOut } from 'lucide-react';
+import { RefreshCw, AlertCircle, LogOut, CheckCircle2, X } from 'lucide-react';
 import { Debtor, Transaction, PartySplit, AppSettings, AuditLog } from './types';
 import {
   fetchOwnerData,
-  smartMergeTransactions,
-  smartMergeDebtors,
-  smartMergeParties,
+  hasInFlightMutation,
+  getClientMutationSeq,
+  getLastClientMutationAt,
   apiSaveDebtor,
   apiDeleteDebtor,
   apiSaveTransaction,
@@ -136,6 +136,29 @@ export default function App() {
 
   // Track timestamp of recent user actions to protect against race condition overwrites
   const lastActionTimeRef = useRef<number>(0);
+  const lastFocusRefreshRef = useRef<number>(0);
+
+  // Non-blocking toast notification
+  const [appToast, setAppToast] = useState<{ text: string; type: 'error' | 'success' | 'info' } | null>(null);
+  const appToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showAppToast = useCallback((text: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setAppToast({ text, type });
+    if (appToastTimerRef.current) {
+      clearTimeout(appToastTimerRef.current);
+    }
+    appToastTimerRef.current = setTimeout(() => {
+      setAppToast(null);
+    }, type === 'error' ? 6000 : 3500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (appToastTimerRef.current) {
+        clearTimeout(appToastTimerRef.current);
+      }
+    };
+  }, []);
 
   // Keep ref of open modals so interval/focus listeners don't re-trigger the sync effect on modal toggle
   const isAnyModalOpenRef = useRef<boolean>(false);
@@ -206,10 +229,17 @@ export default function App() {
       return;
     }
 
-    // If a user action happened in the last 4 seconds and this isn't a forced sync, skip to avoid race condition overwrite
-    if (!force && Date.now() - lastActionTimeRef.current < 4000) {
+    // Skip automatic background polling while a mutation is in flight or ran very recently
+    if (
+      !force &&
+      (hasInFlightMutation() ||
+        Date.now() - Math.max(lastActionTimeRef.current, getLastClientMutationAt()) < 4000)
+    ) {
       return;
     }
+
+    const startMutationSeq = getClientMutationSeq();
+    const fetchStartedAt = Date.now();
 
     if (ownerDataStatusRef.current !== 'READY') {
       setOwnerDataStatus('LOADING');
@@ -217,6 +247,20 @@ export default function App() {
 
     try {
       const data = await fetchOwnerData(force);
+
+      // Ignore stale GET responses if owner logged out or any mutation ran while this GET was in flight
+      if (!getStoredOwnerToken()) {
+        return;
+      }
+      if (
+        getClientMutationSeq() !== startMutationSeq ||
+        hasInFlightMutation() ||
+        lastActionTimeRef.current > fetchStartedAt ||
+        getLastClientMutationAt() > fetchStartedAt
+      ) {
+        return;
+      }
+
       const isCloudOk = Boolean(data?.cloudStatus?.connected === true);
 
       if (data?.cloudStatus) {
@@ -243,15 +287,15 @@ export default function App() {
         return;
       }
 
-      if (force || ownerDataStatusRef.current !== 'READY') {
-        setDebtors(data.debtors || []);
-        setParties(data.parties || []);
-        setTransactions(data.transactions || []);
-      } else {
-        setDebtors((prevDebtors) => smartMergeDebtors(data.debtors || [], prevDebtors));
-        setParties((prevParties) => smartMergeParties(data.parties || [], prevParties));
-        setTransactions((prevTxs) => smartMergeTransactions(data.transactions || [], prevTxs));
-      }
+      const nextDebtors = Array.isArray(data.debtors) ? data.debtors : [];
+      const nextParties = Array.isArray(data.parties) ? data.parties : [];
+      const nextTransactions = Array.isArray(data.transactions) ? data.transactions : [];
+
+      setDebtors(nextDebtors);
+      setParties(nextParties);
+      setTransactions(nextTransactions);
+      setSelectedDetailDebtor((prev) => (prev ? nextDebtors.find((d) => d.id === prev.id) || null : null));
+      setGuestInitialDebtor((prev) => (prev ? nextDebtors.find((d) => d.id === prev.id) || null : null));
 
       if (data.settings) {
         const existingLocal = loadSettings();
@@ -301,26 +345,54 @@ export default function App() {
     }
   }, [settings?.appTitle]);
 
-  // Đồng bộ nền định kỳ cho Chủ Nợ đang đăng nhập (mỗi 25 giây khi đang mở tab và không mở modal)
+  // Đồng bộ nền định kỳ & khi chuyển lại tab/thiết bị cho Chủ Nợ đang đăng nhập
   useEffect(() => {
     if (!isOwnerAuthenticated) return;
 
-    const handleFocusRefresh = () => {
-      if (document.visibilityState === 'visible' && !isAnyModalOpenRef.current) {
-        refreshDataFromServer(false);
+    let focusDeferTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerImmediateSync = () => {
+      if (focusDeferTimer) clearTimeout(focusDeferTimer);
+      focusDeferTimer = setTimeout(() => {
+        if (!getStoredOwnerToken()) return;
+        if (
+          document.visibilityState === 'visible' &&
+          !isAnyModalOpenRef.current &&
+          !hasInFlightMutation()
+        ) {
+          const now = Date.now();
+          if (now - lastFocusRefreshRef.current < 3000) return;
+          lastFocusRefreshRef.current = now;
+          refreshDataFromServer(true);
+        }
+      }, 60);
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        triggerImmediateSync();
       }
     };
 
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible' && !isAnyModalOpenRef.current) {
+      if (
+        document.visibilityState === 'visible' &&
+        !isAnyModalOpenRef.current &&
+        !hasInFlightMutation()
+      ) {
         refreshDataFromServer(false);
       }
-    }, 25000);
+    }, 18000);
 
-    window.addEventListener('focus', handleFocusRefresh);
+    window.addEventListener('focus', triggerImmediateSync);
+    window.addEventListener('online', triggerImmediateSync);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
     return () => {
+      if (focusDeferTimer) clearTimeout(focusDeferTimer);
       clearInterval(interval);
-      window.removeEventListener('focus', handleFocusRefresh);
+      window.removeEventListener('focus', triggerImmediateSync);
+      window.removeEventListener('online', triggerImmediateSync);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
   }, [isOwnerAuthenticated, refreshDataFromServer]);
 
@@ -630,14 +702,19 @@ export default function App() {
         setSelectedDetailDebtor(res.debtor);
       }
       return res.debtor;
-    } else {
-      alert(res.message || 'Lỗi khi lưu người nợ');
-      return null;
     }
+
+    const errMsg = res.message || 'Không thể lưu thông tin người nợ lên máy chủ.';
+    showAppToast(errMsg, 'error');
+    throw new Error(errMsg);
   };
 
   const handleDeleteDebtor = async (debtorId: string) => {
     lastActionTimeRef.current = Date.now();
+    const prevDebtors = debtors;
+    const prevTransactions = transactions;
+    const prevSelected = selectedDetailDebtor;
+
     // Optimistic local state update for instant UI feedback
     setDebtors((prev) => prev.filter((d) => d.id !== debtorId));
     setTransactions((prev) => prev.filter((t) => t.debtorId !== debtorId));
@@ -649,6 +726,17 @@ export default function App() {
     if (res.success && res.debtors && res.transactions) {
       setDebtors(res.debtors);
       setTransactions(res.transactions);
+    } else {
+      // Roll back optimistic state on server/cloud failure
+      setDebtors(prevDebtors);
+      setTransactions(prevTransactions);
+      if (prevSelected?.id === debtorId) {
+        setSelectedDetailDebtor(prevSelected);
+      }
+      showAppToast(
+        res.message || 'Không thể xóa người nợ trên máy chủ. Dữ liệu đã được hoàn tác.',
+        'error'
+      );
     }
   };
 
@@ -664,14 +752,17 @@ export default function App() {
       if (prevBalance > 0 && newBalance <= 0) {
         triggerSettledCelebration();
       }
-    } else {
-      alert(res.message || 'Lỗi khi lưu giao dịch');
+      return;
     }
+    const errMsg = res.message || 'Không thể lưu giao dịch lên máy chủ.';
+    showAppToast(errMsg, 'error');
+    throw new Error(errMsg);
   };
 
   const handleUpdateTransaction = async (updatedTx: Transaction) => {
     lastActionTimeRef.current = Date.now();
-    const prevBalance = getDebtorBalance(updatedTx.debtorId, transactions);
+    const prevTransactions = transactions;
+    const prevBalance = getDebtorBalance(updatedTx.debtorId, prevTransactions);
     // Optimistic local state update
     setTransactions((prev) => prev.map((t) => (t.id === updatedTx.id ? updatedTx : t)));
     const res = await apiUpdateTransaction(updatedTx);
@@ -681,18 +772,30 @@ export default function App() {
       if (prevBalance > 0 && newBalance <= 0) {
         triggerSettledCelebration();
       }
-    } else if (!res.success) {
-      alert(res.message || 'Lỗi khi cập nhật giao dịch');
+      return;
     }
+
+    // Roll back optimistic state on failure and keep modal open with inline error
+    setTransactions(prevTransactions);
+    const errMsg = res.message || 'Không thể cập nhật giao dịch lên máy chủ.';
+    showAppToast(errMsg, 'error');
+    throw new Error(errMsg);
   };
 
   const handleDeleteTransaction = async (txId: string) => {
     lastActionTimeRef.current = Date.now();
+    const prevTransactions = transactions;
     // Optimistic local state update
     setTransactions((prev) => prev.filter((t) => t.id !== txId));
     const res = await apiDeleteTransaction(txId);
     if (res.success && res.transactions) {
       setTransactions(res.transactions);
+    } else {
+      setTransactions(prevTransactions);
+      showAppToast(
+        res.message || 'Không thể xóa giao dịch trên máy chủ. Dữ liệu đã được hoàn tác.',
+        'error'
+      );
     }
   };
 
@@ -706,9 +809,11 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
-    } else {
-      alert(res.message || 'Lỗi khi lưu nhóm chia tiền');
+      return;
     }
+    const errMsg = res.message || 'Không thể lưu nhóm chia tiền lên máy chủ.';
+    showAppToast(errMsg, 'error');
+    throw new Error(errMsg);
   };
 
   const handleUpdatePartySplit = async (
@@ -721,13 +826,17 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
-    } else {
-      alert(res.message || 'Lỗi khi cập nhật nhóm chia tiền');
+      return;
     }
+    const errMsg = res.message || 'Không thể cập nhật nhóm chia tiền lên máy chủ.';
+    showAppToast(errMsg, 'error');
+    throw new Error(errMsg);
   };
 
   const handleDeletePartySplit = async (partyId: string) => {
     lastActionTimeRef.current = Date.now();
+    const prevParties = parties;
+    const prevTransactions = transactions;
     // Optimistic local state update: remove party and cascade remove all related transactions
     setParties((prev) => prev.filter((p) => p.id !== partyId));
     setTransactions((prev) => prev.filter((t) => t.partyId !== partyId));
@@ -736,11 +845,21 @@ export default function App() {
     if (res.success && res.parties && res.transactions) {
       setParties(res.parties);
       setTransactions(res.transactions);
+    } else {
+      setParties(prevParties);
+      setTransactions(prevTransactions);
+      showAppToast(
+        res.message || 'Không thể xóa cuộc chia tiền trên máy chủ. Dữ liệu đã được hoàn tác.',
+        'error'
+      );
     }
   };
 
   // --- Settings Handlers (Synchronized & Instant UI Reaction) ---
-  const handleSaveSettings = async (newSettings: AppSettings) => {
+  const handleSaveSettings = async (newSettings: AppSettings): Promise<boolean> => {
+    lastActionTimeRef.current = Date.now();
+    const prevSettings = settings;
+
     // 1. Optimistic immediate local state update so the whole UI re-renders in 0ms
     setSettings(newSettings);
     saveSettings(newSettings);
@@ -750,16 +869,37 @@ export default function App() {
 
     // 2. Persist to server & Google Sheets
     try {
-      const res = await apiSaveSettings(newSettings);
-      if (res.success && res.settings) {
-        setSettings(res.settings);
-        saveSettings(res.settings);
-        if (res.settings.appTitle) {
-          document.title = res.settings.appTitle;
+      const res = await apiSaveSettings(newSettings, prevSettings);
+      if (res.success) {
+        const finalSettings = res.settings || newSettings;
+        setSettings(finalSettings);
+        saveSettings(finalSettings);
+        if (finalSettings.appTitle) {
+          document.title = finalSettings.appTitle;
         }
+        return true;
       }
+
+      // Roll back on server failure
+      setSettings(prevSettings);
+      saveSettings(prevSettings);
+      if (prevSettings.appTitle) {
+        document.title = prevSettings.appTitle;
+      }
+      showAppToast(
+        res.message || 'Không thể lưu cài đặt lên máy chủ. Đã hoàn tác.',
+        'error'
+      );
+      return false;
     } catch (err) {
       console.error('Lỗi khi đồng bộ cài đặt:', err);
+      setSettings(prevSettings);
+      saveSettings(prevSettings);
+      if (prevSettings.appTitle) {
+        document.title = prevSettings.appTitle;
+      }
+      showAppToast('Không thể lưu cài đặt lên máy chủ. Vui lòng thử lại.', 'error');
+      return false;
     }
   };
 
@@ -1273,6 +1413,45 @@ export default function App() {
         />
       )}
 
+
+      {/* Non-blocking App Toast */}
+      <AnimatePresence>
+        {appToast && (
+          <motion.div
+            key="app-toast"
+            initial={{ opacity: 0, y: -16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.96 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-4 right-4 z-[200] max-w-sm w-[calc(100vw-2rem)] pointer-events-auto"
+          >
+            <div
+              className={`rounded-2xl px-4 py-3 shadow-xl border flex items-start gap-2.5 text-xs sm:text-sm font-medium ${
+                appToast.type === 'error'
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : appToast.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-slate-800 border-slate-700 text-white'
+              }`}
+            >
+              {appToast.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              )}
+              <span className="flex-1 leading-snug">{appToast.text}</span>
+              <button
+                type="button"
+                onClick={() => setAppToast(null)}
+                className="p-0.5 rounded-lg opacity-70 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                aria-label="Đóng thông báo"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

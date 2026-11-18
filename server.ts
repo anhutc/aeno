@@ -268,6 +268,12 @@ const SKIP_FULL_HYDRATION_PREFIXES = [
   '/api/guest/lookup',
   '/api/guest/report-payment',
   '/api/owner/data',
+  '/api/owner/debtor',
+  '/api/owner/transaction',
+  '/api/owner/party-split',
+  '/api/owner/clean-orphans',
+  '/api/owner/clear-',
+  '/api/owner/reset-',
   '/api/owner/settings',
   '/api/owner/sync-all',
   '/api/owner/sync-now',
@@ -790,23 +796,29 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
     });
   }
 
-  const shouldFetchFull = force || !isSheetsDataLoaded || Date.now() - lastFullSyncAt > 8000;
+  const shouldFetchFull = force || !isSheetsDataLoaded || Date.now() - lastFullSyncAt > 2500;
   if (shouldFetchFull) {
     try {
-      const remote = await loadAllDataFromSheets(cfg.appsScriptUrl);
-      remote.settings = {
-        ...remote.settings,
-        googleAppsScriptUrl: cfg.appsScriptUrl,
-      };
-      inMemoryDb = remote;
-      isSheetsDataLoaded = true;
-      isSheetsSettingsLoaded = true;
-      lastFullSyncAt = Date.now();
-      lastSettingsSyncAt = Date.now();
-      clearSheetsError();
-      if (cfg.source === 'override') {
-        saveSheetsConfig(cfg.appsScriptUrl, remote.settings.googleSheetUrl || cfg.googleSheetUrl);
-      }
+      const remote = await withSheetsWriteLock(async () => {
+        if (!force && isSheetsDataLoaded && inMemoryDb && Date.now() - lastFullSyncAt <= 2500) {
+          return inMemoryDb;
+        }
+        const loaded = await loadAllDataFromSheets(cfg.appsScriptUrl);
+        loaded.settings = {
+          ...loaded.settings,
+          googleAppsScriptUrl: cfg.appsScriptUrl,
+        };
+        inMemoryDb = loaded;
+        isSheetsDataLoaded = true;
+        isSheetsSettingsLoaded = true;
+        lastFullSyncAt = Date.now();
+        lastSettingsSyncAt = Date.now();
+        clearSheetsError();
+        if (cfg.source === 'override') {
+          saveSheetsConfig(cfg.appsScriptUrl, loaded.settings.googleSheetUrl || cfg.googleSheetUrl);
+        }
+        return loaded;
+      });
       return res.json({
         success: true,
         sheetsConfigured: true,
@@ -853,12 +865,65 @@ app.get('/api/owner/data', authMiddleware, async (req, res) => {
   });
 });
 
+let sheetsWriteQueue: Promise<any> = Promise.resolve();
+
+function withSheetsWriteLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = sheetsWriteQueue.then(task, task);
+  sheetsWriteQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+class RouteValidationError extends Error {
+  status: number;
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function loadFreshDatabaseForMutation(overrideUrl?: string): Promise<{
+  db: SheetsDatabaseSchema;
+  targetUrl: string;
+}> {
+  const cfg = getActiveSheetsConfig(overrideUrl);
+  if (!cfg.appsScriptUrl) {
+    isSheetsDataLoaded = false;
+    isSheetsSettingsLoaded = false;
+    lastSheetsErrorCode = 'SHEETS_NOT_CONFIGURED';
+    lastSheetsError = 'Chưa cấu hình URL Google Apps Script Web App.';
+    needsScriptUpgrade = false;
+    throw new RouteValidationError(503, lastSheetsError, 'SHEETS_NOT_CONFIGURED');
+  }
+  const remote = await loadAllDataFromSheets(cfg.appsScriptUrl);
+  const db: SheetsDatabaseSchema = {
+    debtors: Array.isArray(remote.debtors) ? [...remote.debtors] : [],
+    transactions: Array.isArray(remote.transactions) ? [...remote.transactions] : [],
+    parties: Array.isArray(remote.parties) ? [...remote.parties] : [],
+    settings: {
+      ...remote.settings,
+      googleAppsScriptUrl: cfg.appsScriptUrl,
+    },
+  };
+  return { db, targetUrl: cfg.appsScriptUrl };
+}
+
 async function persistFullStateToSheets(db: SheetsDatabaseSchema, overrideUrl?: string) {
   const synced = await saveAllDataToSheets(db, overrideUrl);
-  db.debtors = synced.debtors;
-  db.transactions = synced.transactions;
-  db.parties = synced.parties;
-  saveDatabase(db);
+  const committed: SheetsDatabaseSchema = {
+    debtors: synced.debtors,
+    transactions: synced.transactions,
+    parties: synced.parties,
+    settings: { ...db.settings },
+  };
+  saveDatabase(committed);
+  db.debtors = committed.debtors;
+  db.transactions = committed.transactions;
+  db.parties = committed.parties;
   isSheetsDataLoaded = true;
   isSheetsSettingsLoaded = true;
   lastFullSyncAt = Date.now();
@@ -878,62 +943,71 @@ app.post('/api/owner/debtor', authMiddleware, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Mật khẩu phải từ 2 ký tự trở lên' });
   }
 
-  const db = getDatabase();
-  const duplicatePin = db.debtors.find(
-    (d) => d.id !== id && d.pin.trim().toLowerCase() === trimmedPin.toLowerCase()
-  );
-  if (duplicatePin) {
-    return res.status(400).json({
-      success: false,
-      message: `Mật khẩu "${trimmedPin}" đã được gán cho "${duplicatePin.name}". Mỗi người cần một pass riêng để tra cứu bảo mật.`,
-    });
-  }
-
-  const now = new Date().toISOString();
-  let savedDebtor: Debtor;
-
-  if (id) {
-    const existingIdx = db.debtors.findIndex((d) => d.id === id);
-    if (existingIdx !== -1) {
-      savedDebtor = {
-        ...db.debtors[existingIdx],
-        name: name.trim(),
-        phone: phone ? phone.trim() : undefined,
-        pin: trimmedPin,
-        note: note ? note.trim() : undefined,
-        updatedAt: now,
-      };
-      db.debtors[existingIdx] = savedDebtor;
-    } else {
-      savedDebtor = {
-        id,
-        name: name.trim(),
-        phone: phone ? phone.trim() : undefined,
-        pin: trimmedPin,
-        note: note ? note.trim() : undefined,
-        createdAt: now,
-        updatedAt: now,
-      };
-      db.debtors.push(savedDebtor);
-    }
-  } else {
-    savedDebtor = {
-      id: `debtor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: name.trim(),
-      phone: phone ? phone.trim() : undefined,
-      pin: trimmedPin,
-      note: note ? note.trim() : undefined,
-      createdAt: now,
-      updatedAt: now,
-    };
-    db.debtors.push(savedDebtor);
-  }
-
-  saveDatabase(db);
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    return res.json({ success: true, debtor: savedDebtor, debtors: db.debtors });
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const duplicatePin = db.debtors.find(
+        (d) => d.id !== id && d.pin.trim().toLowerCase() === trimmedPin.toLowerCase()
+      );
+      if (duplicatePin) {
+        throw new RouteValidationError(
+          400,
+          `Mật khẩu "${trimmedPin}" đã được gán cho "${duplicatePin.name}". Mỗi người cần một pass riêng để tra cứu bảo mật.`
+        );
+      }
+
+      const now = new Date().toISOString();
+      let savedDebtor: Debtor;
+
+      if (id) {
+        const existingIdx = db.debtors.findIndex((d) => d.id === id);
+        if (existingIdx !== -1) {
+          savedDebtor = {
+            ...db.debtors[existingIdx],
+            name: name.trim(),
+            phone: phone ? phone.trim() : undefined,
+            pin: trimmedPin,
+            note: note ? note.trim() : undefined,
+            updatedAt: now,
+          };
+          db.debtors[existingIdx] = savedDebtor;
+        } else {
+          savedDebtor = {
+            id,
+            name: name.trim(),
+            phone: phone ? phone.trim() : undefined,
+            pin: trimmedPin,
+            note: note ? note.trim() : undefined,
+            createdAt: now,
+            updatedAt: now,
+          };
+          db.debtors.push(savedDebtor);
+        }
+      } else {
+        savedDebtor = {
+          id: `debtor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: name.trim(),
+          phone: phone ? phone.trim() : undefined,
+          pin: trimmedPin,
+          note: note ? note.trim() : undefined,
+          createdAt: now,
+          updatedAt: now,
+        };
+        db.debtors.push(savedDebtor);
+      }
+
+      await persistFullStateToSheets(db, targetUrl);
+      return { debtor: savedDebtor, debtors: db.debtors };
+    });
+    return res.json({ success: true, debtor: result.debtor, debtors: result.debtors });
   } catch (err: any) {
+    if (err instanceof RouteValidationError) {
+      return res.status(err.status).json({
+        success: false,
+        ...(err.code ? { code: err.code } : {}),
+        message: err.message,
+      });
+    }
     const info = recordSheetsError(err);
     return res.status(503).json({
       success: false,
@@ -946,14 +1020,16 @@ app.post('/api/owner/debtor', authMiddleware, async (req, res) => {
 app.delete('/api/owner/debtor/:id', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { id } = req.params;
-  const db = getDatabase();
-  db.debtors = db.debtors.filter((d) => d.id !== id);
-  db.transactions = db.transactions.filter((tx) => tx.debtorId !== id);
-  saveDatabase(db);
 
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    return res.json({ success: true, debtors: db.debtors, transactions: db.transactions });
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      db.debtors = db.debtors.filter((d) => d.id !== id);
+      db.transactions = db.transactions.filter((tx) => tx.debtorId !== id);
+      await persistFullStateToSheets(db, targetUrl);
+      return { debtors: db.debtors, transactions: db.transactions };
+    });
+    return res.json({ success: true, debtors: result.debtors, transactions: result.transactions });
   } catch (err: any) {
     const info = recordSheetsError(err);
     return res.status(503).json({
@@ -972,7 +1048,6 @@ app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
   }
 
   const processedBillImage = await processAndOffloadBillImage(billImage, undefined, reqUrl);
-  const db = getDatabase();
   const txId = id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const newTx: Transaction = {
     id: txId,
@@ -987,14 +1062,29 @@ app.post('/api/owner/transaction', authMiddleware, async (req, res) => {
     createdAt: req.body?.createdAt || new Date().toISOString(),
   };
 
-  db.transactions = [newTx, ...db.transactions.filter((t) => t.id !== txId)];
-  saveDatabase(db);
-
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    const updatedTx = db.transactions.find((t) => t.id === txId) || newTx;
-    return res.json({ success: true, transaction: updatedTx, transactions: db.transactions });
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      if (!db.debtors.some((d) => d.id === debtorId)) {
+        throw new RouteValidationError(
+          404,
+          'Người nợ này không còn tồn tại (có thể đã bị xóa trên thiết bị khác). Hãy tải lại dữ liệu.'
+        );
+      }
+      db.transactions = [newTx, ...db.transactions.filter((t) => t.id !== txId)];
+      await persistFullStateToSheets(db, targetUrl);
+      const updatedTx = db.transactions.find((t) => t.id === txId) || newTx;
+      return { transaction: updatedTx, transactions: db.transactions };
+    });
+    return res.json({ success: true, transaction: result.transaction, transactions: result.transactions });
   } catch (err: any) {
+    if (err instanceof RouteValidationError) {
+      return res.status(err.status).json({
+        success: false,
+        ...(err.code ? { code: err.code } : {}),
+        message: err.message,
+      });
+    }
     const info = recordSheetsError(err);
     return res.status(503).json({
       success: false,
@@ -1008,47 +1098,71 @@ app.put('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { id } = req.params;
   const { type, amount, date, note, category, billImage, debtorId, partyId, customNote } = req.body || {};
-  const db = getDatabase();
-  const index = db.transactions.findIndex((t) => t.id === id);
 
-  const existing: Partial<Transaction> = index !== -1 ? db.transactions[index] : {};
-  const updatedTx: Transaction = {
-    ...existing,
-    id,
-    type: type || existing.type || 'ADD',
-    amount: amount !== undefined ? Number(amount) : Number(existing.amount || 0),
-    date: date || existing.date || new Date().toISOString().split('T')[0],
-    note: note !== undefined ? note : existing.note || '',
-    category: category !== undefined ? category : existing.category || 'SINGLE',
-    debtorId: debtorId || existing.debtorId || '',
-    createdAt: existing.createdAt || req.body?.createdAt || new Date().toISOString(),
-    ...(customNote !== undefined ? { customNote } : {}),
-  };
-
+  let processedNewBillImage: string | undefined;
+  let hasBillImageField = false;
   if (billImage !== undefined) {
-    if (billImage) {
-      updatedTx.billImage = await processAndOffloadBillImage(billImage, undefined, reqUrl);
-    } else {
-      delete updatedTx.billImage;
-    }
+    hasBillImageField = true;
+    processedNewBillImage = billImage ? await processAndOffloadBillImage(billImage, undefined, reqUrl) : undefined;
   }
-  if (partyId !== undefined) {
-    if (partyId) updatedTx.partyId = partyId;
-    else delete updatedTx.partyId;
-  }
-
-  if (index !== -1) {
-    db.transactions[index] = updatedTx;
-  } else {
-    db.transactions.unshift(updatedTx);
-  }
-  saveDatabase(db);
 
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    const savedTx = db.transactions.find((t) => t.id === id) || updatedTx;
-    return res.json({ success: true, transaction: savedTx, transactions: db.transactions });
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const index = db.transactions.findIndex((t) => t.id === id);
+      const existing: Partial<Transaction> = index !== -1 ? db.transactions[index] : {};
+      const targetDebtorId = debtorId || existing.debtorId || '';
+      if (targetDebtorId && !db.debtors.some((d) => d.id === targetDebtorId)) {
+        throw new RouteValidationError(
+          404,
+          'Không thể cập nhật vì người nợ không còn tồn tại (có thể đã bị xóa trên thiết bị khác).'
+        );
+      }
+
+      const updatedTx: Transaction = {
+        ...existing,
+        id,
+        type: type || existing.type || 'ADD',
+        amount: amount !== undefined ? Number(amount) : Number(existing.amount || 0),
+        date: date || existing.date || new Date().toISOString().split('T')[0],
+        note: note !== undefined ? note : existing.note || '',
+        category: category !== undefined ? category : existing.category || 'SINGLE',
+        debtorId: targetDebtorId,
+        createdAt: existing.createdAt || req.body?.createdAt || new Date().toISOString(),
+        ...(customNote !== undefined ? { customNote } : {}),
+      };
+
+      if (hasBillImageField) {
+        if (processedNewBillImage) {
+          updatedTx.billImage = processedNewBillImage;
+        } else {
+          delete updatedTx.billImage;
+        }
+      }
+      if (partyId !== undefined) {
+        if (partyId) updatedTx.partyId = partyId;
+        else delete updatedTx.partyId;
+      }
+
+      if (index !== -1) {
+        db.transactions[index] = updatedTx;
+      } else {
+        db.transactions.unshift(updatedTx);
+      }
+
+      await persistFullStateToSheets(db, targetUrl);
+      const savedTx = db.transactions.find((t) => t.id === id) || updatedTx;
+      return { transaction: savedTx, transactions: db.transactions };
+    });
+    return res.json({ success: true, transaction: result.transaction, transactions: result.transactions });
   } catch (err: any) {
+    if (err instanceof RouteValidationError) {
+      return res.status(err.status).json({
+        success: false,
+        ...(err.code ? { code: err.code } : {}),
+        message: err.message,
+      });
+    }
     const info = recordSheetsError(err);
     return res.status(503).json({
       success: false,
@@ -1061,13 +1175,15 @@ app.put('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
 app.delete('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { id } = req.params;
-  const db = getDatabase();
-  db.transactions = db.transactions.filter((t) => t.id !== id);
-  saveDatabase(db);
 
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    return res.json({ success: true, transactions: db.transactions });
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      db.transactions = db.transactions.filter((t) => t.id !== id);
+      await persistFullStateToSheets(db, targetUrl);
+      return { transactions: db.transactions };
+    });
+    return res.json({ success: true, transactions: result.transactions });
   } catch (err: any) {
     const info = recordSheetsError(err);
     return res.status(503).json({
@@ -1080,33 +1196,43 @@ app.delete('/api/owner/transaction/:id', authMiddleware, async (req, res) => {
 
 app.post('/api/owner/clean-orphans', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
-  const db = getDatabase();
-  const debtorIdSet = new Set(db.debtors.map((d) => d.id));
-  const orphans = db.transactions.filter((t) => !debtorIdSet.has(t.debtorId));
-
-  if (orphans.length === 0) {
-    return res.json({
-      success: true,
-      removedCount: 0,
-      message: 'Dữ liệu hoàn toàn sạch sẽ, không có giao dịch mồ côi nào!',
-      debtorsCount: db.debtors.length,
-      transactionsCount: db.transactions.length,
-    });
-  }
-
-  createSnapshotBackup(db, 'pre_clean_orphans');
-  db.transactions = db.transactions.filter((t) => debtorIdSet.has(t.debtorId));
-  saveDatabase(db);
 
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    return res.json({
-      success: true,
-      removedCount: orphans.length,
-      message: `Đã dọn dẹp thành công ${orphans.length} giao dịch mồ côi trên Google Sheets!`,
-      debtorsCount: db.debtors.length,
-      transactionsCount: db.transactions.length,
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const debtorIdSet = new Set(db.debtors.map((d) => d.id));
+      const orphans = db.transactions.filter((t) => !debtorIdSet.has(t.debtorId));
+
+      if (orphans.length === 0) {
+        saveDatabase(db);
+        isSheetsDataLoaded = true;
+        lastFullSyncAt = Date.now();
+        clearSheetsError();
+        return {
+          success: true,
+          removedCount: 0,
+          message: 'Dữ liệu hoàn toàn sạch sẽ, không có giao dịch mồ côi nào!',
+          debtorsCount: db.debtors.length,
+          transactionsCount: db.transactions.length,
+        };
+      }
+
+      try {
+        createSnapshotBackup(db, 'pre_clean_orphans');
+      } catch {
+        // ignore
+      }
+      db.transactions = db.transactions.filter((t) => debtorIdSet.has(t.debtorId));
+      await persistFullStateToSheets(db, targetUrl);
+      return {
+        success: true,
+        removedCount: orphans.length,
+        message: `Đã dọn dẹp thành công ${orphans.length} giao dịch mồ côi trên Google Sheets!`,
+        debtorsCount: db.debtors.length,
+        transactionsCount: db.transactions.length,
+      };
     });
+    return res.json(result);
   } catch (err: any) {
     const info = recordSheetsError(err);
     return res.status(503).json({
@@ -1124,18 +1250,7 @@ app.post('/api/owner/party-split', authMiddleware, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
   }
 
-  const db = getDatabase();
   const partyId = party.id || `party-${Date.now()}`;
-  const existingIndex = db.parties.findIndex((p) => p.id === partyId);
-  if (existingIndex >= 0) {
-    return res.json({
-      success: true,
-      party: db.parties[existingIndex],
-      parties: db.parties,
-      transactions: db.transactions,
-    });
-  }
-
   const processedPartyImage = party.billImage
     ? await processAndOffloadBillImage(party.billImage, undefined, reqUrl)
     : undefined;
@@ -1155,18 +1270,33 @@ app.post('/api/owner/party-split', authMiddleware, async (req, res) => {
     createdAt: tx.createdAt || new Date().toISOString(),
   }));
 
-  db.parties.unshift(savedParty);
-  const existingTxIds = new Set(savedTransactions.map((t) => t.id));
-  db.transactions = [...savedTransactions, ...db.transactions.filter((t) => !existingTxIds.has(t.id))];
-  saveDatabase(db);
-
   try {
-    await persistFullStateToSheets(db, reqUrl);
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const existingIndex = db.parties.findIndex((p) => p.id === partyId);
+      if (existingIndex >= 0) {
+        return {
+          party: db.parties[existingIndex],
+          parties: db.parties,
+          transactions: db.transactions,
+        };
+      }
+
+      db.parties.unshift(savedParty);
+      const existingTxIds = new Set(savedTransactions.map((t) => t.id));
+      db.transactions = [...savedTransactions, ...db.transactions.filter((t) => !existingTxIds.has(t.id))];
+      await persistFullStateToSheets(db, targetUrl);
+      return {
+        party: savedParty,
+        parties: db.parties,
+        transactions: db.transactions,
+      };
+    });
     return res.json({
       success: true,
-      party: savedParty,
-      parties: db.parties,
-      transactions: db.transactions,
+      party: result.party,
+      parties: result.parties,
+      transactions: result.transactions,
     });
   } catch (err: any) {
     const info = recordSheetsError(err);
@@ -1181,14 +1311,16 @@ app.post('/api/owner/party-split', authMiddleware, async (req, res) => {
 app.delete('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { id } = req.params;
-  const db = getDatabase();
-  db.parties = db.parties.filter((p) => p.id !== id);
-  db.transactions = db.transactions.filter((t) => t.partyId !== id);
-  saveDatabase(db);
 
   try {
-    await persistFullStateToSheets(db, reqUrl);
-    return res.json({ success: true, parties: db.parties, transactions: db.transactions });
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      db.parties = db.parties.filter((p) => p.id !== id);
+      db.transactions = db.transactions.filter((t) => t.partyId !== id);
+      await persistFullStateToSheets(db, targetUrl);
+      return { parties: db.parties, transactions: db.transactions };
+    });
+    return res.json({ success: true, parties: result.parties, transactions: result.transactions });
   } catch (err: any) {
     const info = recordSheetsError(err);
     return res.status(503).json({
@@ -1207,41 +1339,47 @@ app.put('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Dữ liệu chia tiền không hợp lệ' });
   }
 
-  const db = getDatabase();
-  const existingIndex = db.parties.findIndex((p) => p.id === id);
   const processedPartyImage = party.billImage
     ? await processAndOffloadBillImage(party.billImage, undefined, reqUrl)
     : undefined;
 
-  const updatedParty: PartySplit = {
-    ...party,
-    id,
-    ...(party.billImage !== undefined ? { billImage: processedPartyImage } : {}),
-    createdAt: existingIndex >= 0 ? db.parties[existingIndex].createdAt : new Date().toISOString(),
-  };
-
-  if (existingIndex >= 0) db.parties[existingIndex] = updatedParty;
-  else db.parties.unshift(updatedParty);
-
-  const filteredTxs = db.transactions.filter((t) => t.partyId !== id);
-  const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
-    ...tx,
-    id: tx.id || `tx-party-${id}-${tx.debtorId || idx}`,
-    partyId: id,
-    ...(processedPartyImage ? { billImage: processedPartyImage } : {}),
-    createdAt: tx.createdAt || new Date().toISOString(),
-  }));
-
-  db.transactions = [...savedTransactions, ...filteredTxs];
-  saveDatabase(db);
-
   try {
-    await persistFullStateToSheets(db, reqUrl);
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const existingIndex = db.parties.findIndex((p) => p.id === id);
+      const updatedParty: PartySplit = {
+        ...party,
+        id,
+        ...(party.billImage !== undefined ? { billImage: processedPartyImage } : {}),
+        createdAt: existingIndex >= 0 ? db.parties[existingIndex].createdAt : new Date().toISOString(),
+      };
+
+      if (existingIndex >= 0) db.parties[existingIndex] = updatedParty;
+      else db.parties.unshift(updatedParty);
+
+      const filteredTxs = db.transactions.filter((t) => t.partyId !== id);
+      const savedTransactions: Transaction[] = newTxs.map((tx: any, idx: number) => ({
+        ...tx,
+        id: tx.id || `tx-party-${id}-${tx.debtorId || idx}`,
+        partyId: id,
+        ...(processedPartyImage ? { billImage: processedPartyImage } : {}),
+        createdAt: tx.createdAt || new Date().toISOString(),
+      }));
+
+      const newTxIds = new Set(savedTransactions.map((t) => t.id));
+      db.transactions = [...savedTransactions, ...filteredTxs.filter((t) => !newTxIds.has(t.id))];
+      await persistFullStateToSheets(db, targetUrl);
+      return {
+        party: updatedParty,
+        parties: db.parties,
+        transactions: db.transactions,
+      };
+    });
     return res.json({
       success: true,
-      party: updatedParty,
-      parties: db.parties,
-      transactions: db.transactions,
+      party: result.party,
+      parties: result.parties,
+      transactions: result.transactions,
     });
   } catch (err: any) {
     const info = recordSheetsError(err);
@@ -1255,40 +1393,64 @@ app.put('/api/owner/party-split/:id', authMiddleware, async (req, res) => {
 
 app.put('/api/owner/settings', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
-  if (!isSheetsSettingsLoaded) {
-    await ensureSheetsSettingsSync(false, reqUrl);
-  }
   const newSettings = req.body || {};
-  const db = getDatabase();
   const { reminderMessageTemplate, ...cleanedNewSettings } = (newSettings || {}) as any;
 
-  const existingScriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
-  db.settings = {
-    ...db.settings,
-    ...cleanedNewSettings,
-    ...(existingScriptUrl && !cleanedNewSettings?.googleAppsScriptUrl
-      ? { googleAppsScriptUrl: existingScriptUrl }
-      : {}),
-  };
-  saveDatabase(db);
-
-  const targetUrl = db.settings.googleAppsScriptUrl?.trim() || reqUrl;
   try {
-    await saveSettingsToSheets(db.settings, targetUrl);
-    if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
-      saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
-    }
-    isSheetsSettingsLoaded = true;
-    lastSettingsSyncAt = Date.now();
-    clearSheetsError();
-    return res.json({ success: true, settings: db.settings });
+    const savedSettings = await withSheetsWriteLock(async () => {
+      const cfg = getActiveSheetsConfig(reqUrl);
+      const targetUrl =
+        (typeof cleanedNewSettings?.googleAppsScriptUrl === 'string' &&
+        cleanedNewSettings.googleAppsScriptUrl.trim().startsWith('https://script.google.com/')
+          ? cleanedNewSettings.googleAppsScriptUrl.trim()
+          : '') ||
+        cfg.appsScriptUrl ||
+        reqUrl;
+
+      let baseSettings: AppSettings = { ...getDatabase().settings };
+      if (targetUrl) {
+        try {
+          const remoteSettings = await loadSettingsFromSheets(targetUrl);
+          baseSettings = { ...baseSettings, ...remoteSettings };
+        } catch {
+          // If first-time setup or transient read notice, keep baseSettings unless write also fails
+        }
+      }
+
+      const existingScriptUrl = (baseSettings?.googleAppsScriptUrl || targetUrl || '').trim();
+      const existingPass = (baseSettings?.ownerPassword || '').trim();
+      const mergedSettings: AppSettings = {
+        ...baseSettings,
+        ...cleanedNewSettings,
+        ...(existingScriptUrl && !cleanedNewSettings?.googleAppsScriptUrl
+          ? { googleAppsScriptUrl: existingScriptUrl }
+          : {}),
+        ...(existingPass && !cleanedNewSettings?.ownerPassword
+          ? { ownerPassword: existingPass }
+          : {}),
+      };
+
+      await saveSettingsToSheets(mergedSettings, mergedSettings.googleAppsScriptUrl?.trim() || targetUrl);
+
+      const db = getDatabase();
+      db.settings = mergedSettings;
+      saveDatabase(db);
+      if (mergedSettings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+        saveSheetsConfig(mergedSettings.googleAppsScriptUrl.trim(), mergedSettings.googleSheetUrl);
+      }
+      isSheetsSettingsLoaded = true;
+      lastSettingsSyncAt = Date.now();
+      clearSheetsError();
+      return mergedSettings;
+    });
+    return res.json({ success: true, settings: savedSettings });
   } catch (err: any) {
     const info = recordSheetsError(err);
     return res.status(503).json({
       success: false,
       code: info.code,
       message: `Không thể lưu cài đặt lên Google Sheets: ${info.message}`,
-      settings: db.settings,
+      settings: getDatabase().settings,
     });
   }
 });
@@ -1296,8 +1458,6 @@ app.put('/api/owner/settings', authMiddleware, async (req, res) => {
 const handleClearAllSampleData = async (req: express.Request, res: express.Response) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { adminPassword, password } = req.body || {};
-  const db = getDatabase();
-  const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
   const inputPassword = (
     typeof adminPassword === 'string'
       ? adminPassword
@@ -1306,26 +1466,26 @@ const handleClearAllSampleData = async (req: express.Request, res: express.Respo
       : ''
   ).trim();
 
-  if (!inputPassword || inputPassword !== currentOwnerPassword) {
-    return res.status(401).json({
-      success: false,
-      message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!',
+  try {
+    await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
+      if (!inputPassword || inputPassword !== currentOwnerPassword) {
+        throw new RouteValidationError(
+          401,
+          'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!'
+        );
+      }
+      try {
+        createSnapshotBackup(db, 'pre_clear_sample');
+      } catch {
+        // ignore
+      }
+      db.debtors = [];
+      db.transactions = [];
+      db.parties = [];
+      await persistFullStateToSheets(db, targetUrl);
     });
-  }
-
-  try {
-    createSnapshotBackup(db, 'pre_clear_sample');
-  } catch {
-    // ignore
-  }
-
-  db.debtors = [];
-  db.transactions = [];
-  db.parties = [];
-  saveDatabase(db);
-
-  try {
-    await persistFullStateToSheets(db, reqUrl);
     return res.json({
       success: true,
       message: 'Đã xóa toàn bộ dữ liệu mẫu thành công trên Google Sheets và bộ nhớ!',
@@ -1334,6 +1494,9 @@ const handleClearAllSampleData = async (req: express.Request, res: express.Respo
       parties: [],
     });
   } catch (err: any) {
+    if (err instanceof RouteValidationError) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     const info = recordSheetsError(err);
     return res.status(503).json({
       success: false,
@@ -1349,8 +1512,6 @@ app.post('/api/owner/clear-sample-data', handleClearAllSampleData);
 const handleResetSampleData = async (req: express.Request, res: express.Response) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const { adminPassword, password } = req.body || {};
-  const db = getDatabase();
-  const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
   const inputPassword = (
     typeof adminPassword === 'string'
       ? adminPassword
@@ -1359,34 +1520,42 @@ const handleResetSampleData = async (req: express.Request, res: express.Response
       : ''
   ).trim();
 
-  if (!inputPassword || inputPassword !== currentOwnerPassword) {
-    return res.status(401).json({
-      success: false,
-      message: 'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!',
+  try {
+    const result = await withSheetsWriteLock(async () => {
+      const { db, targetUrl } = await loadFreshDatabaseForMutation(reqUrl);
+      const currentOwnerPassword = (db.settings?.ownerPassword || '123456').trim();
+      if (!inputPassword || inputPassword !== currentOwnerPassword) {
+        throw new RouteValidationError(
+          401,
+          'Mật khẩu quản trị chủ sổ không đúng. Vui lòng nhập đúng mật khẩu để xác nhận!'
+        );
+      }
+      try {
+        createSnapshotBackup(db, 'pre_reset_sample');
+      } catch {
+        // ignore
+      }
+      db.debtors = JSON.parse(JSON.stringify(INITIAL_DEBTORS));
+      db.transactions = JSON.parse(JSON.stringify(INITIAL_TRANSACTIONS));
+      db.parties = JSON.parse(JSON.stringify(INITIAL_PARTIES));
+      await persistFullStateToSheets(db, targetUrl);
+      return {
+        debtors: db.debtors,
+        transactions: db.transactions,
+        parties: db.parties,
+      };
     });
-  }
-
-  try {
-    createSnapshotBackup(db, 'pre_reset_sample');
-  } catch {
-    // ignore
-  }
-
-  db.debtors = JSON.parse(JSON.stringify(INITIAL_DEBTORS));
-  db.transactions = JSON.parse(JSON.stringify(INITIAL_TRANSACTIONS));
-  db.parties = JSON.parse(JSON.stringify(INITIAL_PARTIES));
-  saveDatabase(db);
-
-  try {
-    await persistFullStateToSheets(db, reqUrl);
     return res.json({
       success: true,
       message: 'Đã nạp lại toàn bộ dữ liệu mẫu ban đầu vào Google Sheets thành công!',
-      debtors: db.debtors,
-      transactions: db.transactions,
-      parties: db.parties,
+      debtors: result.debtors,
+      transactions: result.transactions,
+      parties: result.parties,
     });
   } catch (err: any) {
+    if (err instanceof RouteValidationError) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     const info = recordSheetsError(err);
     return res.status(503).json({
       success: false,
@@ -1402,53 +1571,54 @@ app.post('/api/owner/reset-sample-data', handleResetSampleData);
 const handleSyncAllData = async (req: express.Request, res: express.Response) => {
   const reqUrl = resolveRequestScriptUrl(req);
   try {
-    if (!isSheetsSettingsLoaded) {
-      await ensureSheetsSettingsSync(false, reqUrl);
-    }
-    const clientData = req.body || {};
-    const db = getDatabase();
-
-    if (Array.isArray(clientData.debtors)) {
-      db.debtors = clientData.debtors;
-    }
-    if (Array.isArray(clientData.transactions)) {
-      db.transactions = clientData.transactions;
-    }
-    if (Array.isArray(clientData.parties)) {
-      db.parties = clientData.parties;
-    }
-    if (clientData.settings && typeof clientData.settings === 'object') {
-      const existingScriptUrl = (db.settings?.googleAppsScriptUrl || '').trim();
-      const existingPass = (db.settings?.ownerPassword || '').trim();
-      db.settings = {
-        ...db.settings,
-        ...clientData.settings,
-        ...(existingScriptUrl && !clientData.settings.googleAppsScriptUrl
-          ? { googleAppsScriptUrl: existingScriptUrl }
-          : {}),
-        ...(existingPass && !clientData.settings.ownerPassword
-          ? { ownerPassword: existingPass }
-          : {}),
+    const result = await withSheetsWriteLock(async () => {
+      if (!isSheetsSettingsLoaded) {
+        await ensureSheetsSettingsSync(false, reqUrl);
+      }
+      const clientData = req.body || {};
+      const currentDb = getDatabase();
+      const nextDb: SheetsDatabaseSchema = {
+        debtors: Array.isArray(clientData.debtors) ? [...clientData.debtors] : [...currentDb.debtors],
+        transactions: Array.isArray(clientData.transactions)
+          ? [...clientData.transactions]
+          : [...currentDb.transactions],
+        parties: Array.isArray(clientData.parties) ? [...clientData.parties] : [...currentDb.parties],
+        settings: { ...currentDb.settings },
       };
-    }
 
-    saveDatabase(db);
-    await persistFullStateToSheets(db, reqUrl);
-    if (db.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
-      saveSheetsConfig(db.settings.googleAppsScriptUrl.trim(), db.settings.googleSheetUrl);
-    }
+      if (clientData.settings && typeof clientData.settings === 'object') {
+        const existingScriptUrl = (currentDb.settings?.googleAppsScriptUrl || '').trim();
+        const existingPass = (currentDb.settings?.ownerPassword || '').trim();
+        nextDb.settings = {
+          ...currentDb.settings,
+          ...clientData.settings,
+          ...(existingScriptUrl && !clientData.settings.googleAppsScriptUrl
+            ? { googleAppsScriptUrl: existingScriptUrl }
+            : {}),
+          ...(existingPass && !clientData.settings.ownerPassword
+            ? { ownerPassword: existingPass }
+            : {}),
+        };
+      }
+
+      await persistFullStateToSheets(nextDb, reqUrl);
+      if (nextDb.settings.googleAppsScriptUrl?.trim().startsWith('https://script.google.com/')) {
+        saveSheetsConfig(nextDb.settings.googleAppsScriptUrl.trim(), nextDb.settings.googleSheetUrl);
+      }
+      return nextDb;
+    });
 
     return res.json({
       success: true,
-      message: `Đã lưu và đồng bộ toàn bộ ${db.debtors.length} người nợ, ${db.transactions.length} giao dịch, ${db.parties.length} đợt chia tiền lên Google Sheets thành công!`,
-      debtors: db.debtors,
-      transactions: db.transactions,
-      parties: db.parties,
-      settings: db.settings,
+      message: `Đã lưu và đồng bộ toàn bộ ${result.debtors.length} người nợ, ${result.transactions.length} giao dịch, ${result.parties.length} đợt chia tiền lên Google Sheets thành công!`,
+      debtors: result.debtors,
+      transactions: result.transactions,
+      parties: result.parties,
+      settings: result.settings,
       stats: {
-        debtorsCount: db.debtors.length,
-        transactionsCount: db.transactions.length,
-        partiesCount: db.parties.length,
+        debtorsCount: result.debtors.length,
+        transactionsCount: result.transactions.length,
+        partiesCount: result.parties.length,
       },
       syncedAt: new Date().toISOString(),
     });
@@ -1692,20 +1862,25 @@ app.post(['/api/sheets/restore-backup', '/api/firestore/restore-backup'], authMi
     if (!backupData) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy tệp sao lưu hợp lệ!' });
     }
-    const currentDb = getDatabase();
-    createSnapshotBackup(currentDb, 'pre_restore_snapshot');
-    if (currentDb.settings?.ownerPassword) {
-      backupData.settings = { ...backupData.settings, ownerPassword: currentDb.settings.ownerPassword };
-    }
-    inMemoryDb = backupData;
-    await persistFullStateToSheets(backupData, reqUrl);
+    await withSheetsWriteLock(async () => {
+      const currentDb = getDatabase();
+      try {
+        createSnapshotBackup(currentDb, 'pre_restore_snapshot');
+      } catch {
+        // ignore
+      }
+      if (currentDb.settings?.ownerPassword) {
+        backupData.settings = { ...backupData.settings, ownerPassword: currentDb.settings.ownerPassword };
+      }
+      await persistFullStateToSheets(backupData, reqUrl);
+    });
     return res.json({
       success: true,
       message: `Đã khôi phục thành công từ bản sao lưu: ${backupData.debtors.length} người nợ, ${backupData.transactions.length} giao dịch!`,
       data: backupData,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, message: err?.message });
+    return res.status(500).json({ success: false, message: sanitizeSheetsErrorMessage(err?.message) });
   }
 });
 
@@ -1736,13 +1911,19 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
   }
 
   try {
-    if (mode === 'merge') {
-      await ensureSheetsDataSync(false, reqUrl);
-    } else if (!isSheetsSettingsLoaded) {
-      await ensureSheetsSettingsSync(false, reqUrl);
-    }
-
-    const currentDb = getDatabase();
+    const newState = await withSheetsWriteLock(async () => {
+      let liveDb: SheetsDatabaseSchema;
+      let targetUrl = cfg.appsScriptUrl;
+      if (mode === 'merge') {
+        const fresh = await loadFreshDatabaseForMutation(reqUrl);
+        liveDb = fresh.db;
+        targetUrl = fresh.targetUrl;
+      } else {
+        if (!isSheetsSettingsLoaded) {
+          await ensureSheetsSettingsSync(false, reqUrl);
+        }
+        liveDb = getDatabase();
+      }
     let inputDebtors: any[] = [];
     let inputTransactions: any[] = [];
     let inputParties: any[] = [];
@@ -1835,17 +2016,17 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
 
     if (mode === 'merge') {
       const debtorMap = new Map<string, Debtor>();
-      currentDb.debtors.forEach((d) => debtorMap.set(d.id, d));
+      liveDb.debtors.forEach((d) => debtorMap.set(d.id, d));
       cleanDebtors.forEach((d) => debtorMap.set(d.id, d));
       finalDebtors = Array.from(debtorMap.values());
 
       const txMap = new Map<string, Transaction>();
-      currentDb.transactions.forEach((t) => txMap.set(t.id, t));
+      liveDb.transactions.forEach((t) => txMap.set(t.id, t));
       cleanTransactions.forEach((t) => txMap.set(t.id, t));
       finalTransactions = Array.from(txMap.values());
 
       const partyMap = new Map<string, PartySplit>();
-      currentDb.parties.forEach((p) => partyMap.set(p.id, p));
+      liveDb.parties.forEach((p) => partyMap.set(p.id, p));
       cleanParties.forEach((p) => partyMap.set(p.id, p));
       finalParties = Array.from(partyMap.values());
     } else {
@@ -1854,8 +2035,8 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
       finalParties = cleanParties;
     }
 
-    const activeScriptUrl = cfg.appsScriptUrl || currentDb.settings?.googleAppsScriptUrl || '';
-    const activeSheetUrl = cfg.googleSheetUrl || currentDb.settings?.googleSheetUrl || '';
+    const activeScriptUrl = cfg.appsScriptUrl || liveDb.settings?.googleAppsScriptUrl || '';
+    const activeSheetUrl = cfg.googleSheetUrl || liveDb.settings?.googleSheetUrl || '';
 
     if (inputSettings) {
       const {
@@ -1867,15 +2048,15 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
         ...safeInputSettings
       } = inputSettings;
       finalSettings = {
-        ...currentDb.settings,
+        ...liveDb.settings,
         ...safeInputSettings,
-        ownerPassword: currentDb.settings.ownerPassword,
+        ownerPassword: liveDb.settings.ownerPassword,
         ...(activeScriptUrl ? { googleAppsScriptUrl: activeScriptUrl } : {}),
         ...(activeSheetUrl ? { googleSheetUrl: activeSheetUrl } : {}),
       };
     } else {
       finalSettings = {
-        ...currentDb.settings,
+        ...liveDb.settings,
         ...(activeScriptUrl ? { googleAppsScriptUrl: activeScriptUrl } : {}),
         ...(activeSheetUrl ? { googleSheetUrl: activeSheetUrl } : {}),
       };
@@ -1884,23 +2065,25 @@ app.post(['/api/sheets/upload-json', '/api/firestore/upload-json'], authMiddlewa
     const validDebtorIds = new Set(finalDebtors.map((d) => d.id));
     finalTransactions = finalTransactions.filter((t) => validDebtorIds.has(t.debtorId));
 
-    const newState: SheetsDatabaseSchema = {
+    const uploadedState: SheetsDatabaseSchema = {
       debtors: finalDebtors,
       transactions: finalTransactions,
       parties: finalParties,
       settings: finalSettings,
     };
 
-    await persistFullStateToSheets(newState, reqUrl || activeScriptUrl);
+    await persistFullStateToSheets(uploadedState, reqUrl || targetUrl || activeScriptUrl);
+    return uploadedState;
+    });
 
     return res.json({
       success: true,
-      message: `Khôi phục thành công ${finalDebtors.length} người nợ, ${finalTransactions.length} giao dịch, ${finalParties.length} đợt chia tiền lên Google Sheets!`,
+      message: `Khôi phục thành công ${newState.debtors.length} người nợ, ${newState.transactions.length} giao dịch, ${newState.parties.length} đợt chia tiền lên Google Sheets!`,
       data: newState,
       stats: {
-        debtorsCount: finalDebtors.length,
-        transactionsCount: finalTransactions.length,
-        partiesCount: finalParties.length,
+        debtorsCount: newState.debtors.length,
+        transactionsCount: newState.transactions.length,
+        partiesCount: newState.parties.length,
       },
     });
   } catch (err: any) {
@@ -1919,21 +2102,27 @@ app.post(['/api/sheets/force-sync', '/api/firestore/force-sync'], authMiddleware
   const { direction } = req.body || {};
   try {
     if (direction === 'PUSH') {
-      const current = getDatabase();
-      await persistFullStateToSheets(current, reqUrl);
+      const current = await withSheetsWriteLock(async () => {
+        const db = getDatabase();
+        await persistFullStateToSheets(db, reqUrl);
+        return db;
+      });
       return res.json({
         success: true,
         message: 'Đã ghi đè toàn bộ dữ liệu từ máy lên Google Sheets thành công!',
         data: current,
       });
     } else {
-      const fresh = await loadAllDataFromSheets(reqUrl);
-      inMemoryDb = fresh;
-      isSheetsDataLoaded = true;
-      isSheetsSettingsLoaded = true;
-      lastFullSyncAt = Date.now();
-      lastSettingsSyncAt = Date.now();
-      clearSheetsError();
+      const fresh = await withSheetsWriteLock(async () => {
+        const loaded = await loadAllDataFromSheets(reqUrl);
+        inMemoryDb = loaded;
+        isSheetsDataLoaded = true;
+        isSheetsSettingsLoaded = true;
+        lastFullSyncAt = Date.now();
+        lastSettingsSyncAt = Date.now();
+        clearSheetsError();
+        return loaded;
+      });
       return res.json({
         success: true,
         message: 'Đã tải toàn bộ dữ liệu mới nhất từ Google Sheets về máy!',
@@ -1961,7 +2150,24 @@ function sanitizeAuditLogInput(raw: any): AuditLog | null {
   if (!id || id.startsWith('log-init-')) return null;
   const action = typeof raw.action === 'string' ? raw.action.trim().slice(0, 64) : '';
   const title = typeof raw.title === 'string' ? raw.title.slice(0, 300) : '';
+  const description = typeof raw.description === 'string' ? raw.description.slice(0, 2000) : '';
   if (!action || !title) return null;
+
+  const meta = raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
+  if (meta.isAutoSync === true || meta.autoSync === true || meta.source === 'auto-sync') {
+    return null;
+  }
+  if (action === 'SYNC_SHEETS' || action === 'CLOUD_SYNC') {
+    const combined = `${title} ${description}`.toLowerCase();
+    if (
+      combined.includes('tự động') ||
+      combined.includes('đồng bộ ngầm') ||
+      combined.includes('auto-sync') ||
+      combined.includes('autosync')
+    ) {
+      return null;
+    }
+  }
 
   const timestamp =
     typeof raw.timestamp === 'string' && raw.timestamp.trim()
@@ -2187,7 +2393,7 @@ app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
 app.post('/api/guest/lookup', async (req, res) => {
   try {
     const reqUrl = resolveRequestScriptUrl(req);
-    const { pin } = req.body || {};
+    const { pin, fresh } = req.body || {};
     if (!pin || typeof pin !== 'string') {
       return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu (pass) tra cứu.' });
     }
@@ -2210,7 +2416,14 @@ app.post('/api/guest/lookup', async (req, res) => {
     let sourceDebtorsMap: Array<{ id: string; name: string }> = [];
     let sourceSettings: AppSettings = DEFAULT_SETTINGS;
 
-    if (isSheetsDataLoaded && inMemoryDb && Date.now() - lastFullSyncAt < 8000) {
+    const canUseWarmCache =
+      !IS_VERCEL &&
+      !fresh &&
+      isSheetsDataLoaded &&
+      inMemoryDb &&
+      Date.now() - lastFullSyncAt < 1500;
+
+    if (canUseWarmCache && inMemoryDb) {
       targetDebtor = inMemoryDb.debtors.find((d) => d.pin.trim().toLowerCase() === trimmedPin);
       sourceTransactions = inMemoryDb.transactions;
       sourceParties = inMemoryDb.parties || [];
@@ -2345,11 +2558,17 @@ app.post('/api/guest/report-payment', async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    const result = await guestReportPaymentToSheets(trimmedPin, newTx, reqUrl);
-    if (isSheetsDataLoaded && inMemoryDb) {
-      inMemoryDb.transactions = [result.transaction, ...inMemoryDb.transactions];
-      lastFullSyncAt = Date.now();
-    }
+    const result = await withSheetsWriteLock(async () => {
+      const resData = await guestReportPaymentToSheets(trimmedPin, newTx, reqUrl);
+      if (isSheetsDataLoaded && inMemoryDb) {
+        inMemoryDb.transactions = [
+          resData.transaction,
+          ...inMemoryDb.transactions.filter((t) => t.id !== resData.transaction.id),
+        ];
+        lastFullSyncAt = Date.now();
+      }
+      return resData;
+    });
     return res.json({
       success: true,
       transaction: result.transaction,

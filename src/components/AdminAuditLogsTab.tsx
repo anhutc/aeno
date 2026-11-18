@@ -216,7 +216,8 @@ export const AdminAuditLogsTab: React.FC<AdminAuditLogsTabProps> = ({
           settings,
           auditLogs,
         },
-        settings.googleAppsScriptUrl
+        settings.googleAppsScriptUrl,
+        { recordManualLog: true }
       );
 
       const updatedSettings: AppSettings = {

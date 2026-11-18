@@ -72,7 +72,7 @@ interface SettingsViewProps {
   debtors?: Debtor[];
   transactions?: Transaction[];
   parties?: PartySplit[];
-  onSaveSettings: (settings: AppSettings) => void;
+  onSaveSettings: (settings: AppSettings) => Promise<boolean | void> | void;
   onDataReload: () => void;
   onApplyRestoredData?: (payload: {
     debtors?: Debtor[];
@@ -283,7 +283,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     isSavingRef.current = true;
     setIsSaving(true);
     try {
-      await onSaveSettings(formData);
+      const ok = await onSaveSettings(formData);
+      if (ok === false) {
+        showToast('Không thể lưu cài đặt lên máy chủ. Vui lòng thử lại.', 'error');
+        return;
+      }
       const normalized = normalizeSettings(formData);
       setSavedSnapshot(normalized);
       setFormData(normalized);

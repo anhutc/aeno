@@ -97,12 +97,16 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
 
   // Sync if prop changes
   useEffect(() => {
-    const active = propDebtor || initialDebtor || null;
-    setDebtor(active);
-    if (active) {
-      setTransactions(allTransactions.filter((t) => t.debtorId === active.id));
+    const base = propDebtor || initialDebtor || null;
+    const resolved =
+      base && allDebtors && allDebtors.length > 0
+        ? allDebtors.find((d) => d.id === base.id) || base
+        : base;
+    setDebtor(resolved);
+    if (resolved) {
+      setTransactions(allTransactions.filter((t) => t.debtorId === resolved.id));
     }
-  }, [propDebtor, initialDebtor, allTransactions]);
+  }, [propDebtor, initialDebtor, allTransactions, allDebtors]);
 
   // Local settings state so GuestPortal always reflects the newest settings
   const [liveSettings, setLiveSettings] = useState<AppSettings>(() => {
@@ -117,16 +121,24 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     }
   }, [appSettings]);
 
-  // Background polling: tự cập nhật giao dịch & cài đặt mỗi 30s khi khách đang xem sổ (silent để không ghi trùng log tra cứu)
+  // Background polling & focus/visibility/online refresh for live guest view
   useEffect(() => {
     if (!debtor?.pin || isOwnerAuthenticated) return;
 
     let cancelled = false;
-    const poll = async () => {
+    let lastPollAt = 0;
+
+    const poll = async (forceFresh = false) => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (forceFresh && now - lastPollAt < 2500) return;
+      lastPollAt = now;
       try {
-        const res = await apiGuestLookup(debtor.pin, { silent: true });
+        const res = await apiGuestLookup(debtor.pin, { silent: true, fresh: true });
         if (!cancelled && res.success) {
+          if (res.debtor) {
+            setDebtor(res.debtor);
+          }
           if (Array.isArray(res.transactions)) {
             setTransactions(res.transactions);
           }
@@ -139,10 +151,23 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       }
     };
 
-    const interval = setInterval(poll, 30000);
+    const handleTriggerPoll = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        poll(true);
+      }
+    };
+
+    const interval = setInterval(() => poll(false), 20000);
+    window.addEventListener('focus', handleTriggerPoll);
+    window.addEventListener('online', handleTriggerPoll);
+    document.addEventListener('visibilitychange', handleTriggerPoll);
+
     return () => {
       cancelled = true;
       clearInterval(interval);
+      window.removeEventListener('focus', handleTriggerPoll);
+      window.removeEventListener('online', handleTriggerPoll);
+      document.removeEventListener('visibilitychange', handleTriggerPoll);
     };
   }, [debtor?.pin, isOwnerAuthenticated]);
 

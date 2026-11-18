@@ -160,8 +160,8 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         const existingPins = [...debtors.map((d) => d.pin), created.pin];
         setNewPin(createAlphanumericPin(existingPins, 4));
       }
-    } catch {
-      setError('Không thể tạo người mới. Vui lòng thử lại.');
+    } catch (err: any) {
+      setError(err?.message || 'Không thể tạo người mới. Vui lòng thử lại.');
     } finally {
       setIsAddingDebtorInline(false);
     }

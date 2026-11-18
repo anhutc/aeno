@@ -23,10 +23,13 @@ import {
   saveParties,
   saveSettings,
   markSampleDataCleared,
+  getDeletedTxIds,
   markTxDeleted,
   unmarkTxDeleted,
+  getDeletedDebtorIds,
   markDebtorDeleted,
   unmarkDebtorDeleted,
+  getDeletedPartyIds,
   markPartyDeleted,
   unmarkPartyDeleted,
   recordAuditLog,
@@ -486,16 +489,45 @@ export async function loginOwner(
   };
 }
 
+let _inFlightMutationCount = 0;
+let _mutationSeq = 0;
+let _lastMutationAt = 0;
+
+export function beginClientMutation(): void {
+  _inFlightMutationCount++;
+  _mutationSeq++;
+  _lastMutationAt = Date.now();
+}
+
+export function endClientMutation(): void {
+  _inFlightMutationCount = Math.max(0, _inFlightMutationCount - 1);
+  _mutationSeq++;
+  _lastMutationAt = Date.now();
+}
+
+export function hasInFlightMutation(): boolean {
+  return _inFlightMutationCount > 0;
+}
+
+export function getClientMutationSeq(): number {
+  return _mutationSeq;
+}
+
+export function getLastClientMutationAt(): number {
+  return _lastMutationAt;
+}
+
 export function smartMergeTransactions(remoteTxs: Transaction[], _localTxs?: Transaction[]): Transaction[] {
+  const deletedIds = getDeletedTxIds();
   const map = new Map<string, Transaction>();
   if (Array.isArray(_localTxs)) {
     for (const t of _localTxs) {
-      if (t && t.id) map.set(t.id, t);
+      if (t && t.id && !deletedIds.has(t.id)) map.set(t.id, t);
     }
   }
   if (Array.isArray(remoteTxs)) {
     for (const t of remoteTxs) {
-      if (t && t.id) map.set(t.id, t);
+      if (t && t.id && !deletedIds.has(t.id)) map.set(t.id, t);
     }
   }
   return Array.from(map.values()).sort(
@@ -504,30 +536,32 @@ export function smartMergeTransactions(remoteTxs: Transaction[], _localTxs?: Tra
 }
 
 export function smartMergeDebtors(remoteDebtors: Debtor[], _localDebtors?: Debtor[]): Debtor[] {
+  const deletedIds = getDeletedDebtorIds();
   const map = new Map<string, Debtor>();
   if (Array.isArray(_localDebtors)) {
     for (const d of _localDebtors) {
-      if (d && d.id) map.set(d.id, d);
+      if (d && d.id && !deletedIds.has(d.id)) map.set(d.id, d);
     }
   }
   if (Array.isArray(remoteDebtors)) {
     for (const d of remoteDebtors) {
-      if (d && d.id) map.set(d.id, d);
+      if (d && d.id && !deletedIds.has(d.id)) map.set(d.id, d);
     }
   }
   return Array.from(map.values());
 }
 
 export function smartMergeParties(remoteParties: PartySplit[], _localParties?: PartySplit[]): PartySplit[] {
+  const deletedIds = getDeletedPartyIds();
   const map = new Map<string, PartySplit>();
   if (Array.isArray(_localParties)) {
     for (const p of _localParties) {
-      if (p && p.id) map.set(p.id, p);
+      if (p && p.id && !deletedIds.has(p.id)) map.set(p.id, p);
     }
   }
   if (Array.isArray(remoteParties)) {
     for (const p of remoteParties) {
-      if (p && p.id) map.set(p.id, p);
+      if (p && p.id && !deletedIds.has(p.id)) map.set(p.id, p);
     }
   }
   return Array.from(map.values()).sort((a, b) => {
@@ -646,9 +680,19 @@ export async function fetchOwnerData(force = false): Promise<{
           };
         }
 
-        const finalDebtors = data.debtors || [];
-        const finalTransactions = smartMergeTransactions(data.transactions || []);
-        const finalParties = data.parties || [];
+        const finalDebtors: Debtor[] = Array.isArray(data.debtors) ? data.debtors : [];
+        const finalTransactions: Transaction[] = [...(Array.isArray(data.transactions) ? data.transactions : [])].sort(
+          (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+        );
+        const finalParties: PartySplit[] = [...(Array.isArray(data.parties) ? data.parties : [])].sort((a, b) => {
+          const dateA = a.date || (a.createdAt ? a.createdAt.slice(0, 10) : '');
+          const dateB = b.date || (b.createdAt ? b.createdAt.slice(0, 10) : '');
+          if (dateB !== dateA) return dateB.localeCompare(dateA);
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          if (timeB !== timeA) return timeB - timeA;
+          return (b.id || '').localeCompare(a.id || '');
+        });
         const prevLocal = loadSettings();
         const finalSettings = data.settings
           ? {
@@ -810,6 +854,7 @@ export async function apiSaveDebtor(
     },
   });
 
+  beginClientMutation();
   try {
     const res = await fetch('/api/owner/debtor', {
       method: 'POST',
@@ -819,12 +864,12 @@ export async function apiSaveDebtor(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success) {
-        const mergedDebtors = data.debtors ? smartMergeDebtors(data.debtors) : loadDebtors();
-        saveDebtors(mergedDebtors);
+        const syncedDebtors: Debtor[] = Array.isArray(data.debtors) ? data.debtors : loadDebtors();
+        saveDebtors(syncedDebtors);
         recordAuditLog(buildDebtorSuccessLog());
-        return { success: true, debtor: data.debtor, debtors: mergedDebtors };
+        return { success: true, debtor: data.debtor, debtors: syncedDebtors };
       }
-      const errMsg = data.message || 'Không thể lưu người nợ lên Google Sheets';
+      const errMsg = sanitizeClientError(data.message, 'Không thể lưu người nợ lên Google Sheets');
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
@@ -844,19 +889,23 @@ export async function apiSaveDebtor(
       success: false,
       message: sanitizeClientError(err?.message, 'Lỗi kết nối khi lưu người nợ. Vui lòng thử lại.'),
     };
+  } finally {
+    endClientMutation();
   }
 }
 
 export async function apiDeleteDebtor(
   id: string
-): Promise<{ success: boolean; debtors?: Debtor[]; transactions?: Transaction[] }> {
-  markDebtorDeleted(id);
-  const currentTxs = loadTransactions();
-  currentTxs.filter((t) => t.debtorId === id).forEach((t) => markTxDeleted(t.id));
-  const debtorToDelete = loadDebtors().find((d) => d.id === id);
+): Promise<{ success: boolean; debtors?: Debtor[]; transactions?: Transaction[]; message?: string }> {
+  const prevDebtors = loadDebtors();
+  const prevTxs = loadTransactions();
+  const debtorToDelete = prevDebtors.find((d) => d.id === id);
+  const debtorTxs = prevTxs.filter((t) => t.debtorId === id);
 
-  const debtorTxs = currentTxs.filter((t) => t.debtorId === id);
-  const stats = getDebtorAuditStats(id, currentTxs);
+  markDebtorDeleted(id);
+  debtorTxs.forEach((t) => markTxDeleted(t.id));
+
+  const stats = getDebtorAuditStats(id, prevTxs);
   const recentTxSummary = debtorTxs
     .slice(0, 5)
     .map((t) => `${t.date || ''} ${t.type === 'ADD' ? '+' : '-'}${fmtMoney(t.amount)}${t.note ? ` (${t.note})` : ''}`)
@@ -894,34 +943,48 @@ export async function apiDeleteDebtor(
     },
   });
 
+  const rollbackDelete = () => {
+    unmarkDebtorDeleted(id);
+    debtorTxs.forEach((t) => unmarkTxDeleted(t.id));
+    saveDebtors(prevDebtors);
+    saveTransactions(prevTxs);
+  };
+
+  beginClientMutation();
   try {
     const res = await fetch(`/api/owner/debtor/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
-      if (res.ok && data.success) {
-        const filteredDebtors = (data.debtors || []).filter((d: Debtor) => d.id !== id);
-        const filteredTxs = (data.transactions || []).filter((t: Transaction) => t.debtorId !== id);
-        saveDebtors(filteredDebtors);
-        saveTransactions(filteredTxs);
-        recordAuditLog(buildDeleteDebtorLog());
-        return { success: true, debtors: filteredDebtors, transactions: filteredTxs };
-      }
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (res.ok && data?.success) {
+      const filteredDebtors = (data.debtors || []).filter((d: Debtor) => d.id !== id);
+      const filteredTxs = (data.transactions || []).filter((t: Transaction) => t.debtorId !== id);
+      saveDebtors(filteredDebtors);
+      saveTransactions(filteredTxs);
+      recordAuditLog(buildDeleteDebtorLog());
+      return { success: true, debtors: filteredDebtors, transactions: filteredTxs };
     }
-  } catch {
-    // ignore
+    rollbackDelete();
+    const errMsg = sanitizeClientError(data?.message || errorMessage, 'Không thể xóa người nợ trên máy chủ. Dữ liệu đã được giữ nguyên.');
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi xóa người nợ',
+      description: `Không thể xóa "${debtorToDelete?.name || id}": ${errMsg}`,
+      debtorId: id,
+      debtorName: debtorToDelete?.name,
+      beforeState: debtorDeleteBeforeState,
+      afterState: `Thất bại (Đã hoàn tác): ${errMsg}`,
+    });
+    return { success: false, debtors: prevDebtors, transactions: prevTxs, message: errMsg };
+  } catch (err: any) {
+    rollbackDelete();
+    const errMsg = sanitizeClientError(err?.message, 'Lỗi kết nối khi xóa người nợ. Dữ liệu đã được giữ nguyên.');
+    return { success: false, debtors: prevDebtors, transactions: prevTxs, message: errMsg };
+  } finally {
+    endClientMutation();
   }
-
-  // Fallback local cleanup if offline
-  const allDebtors = loadDebtors().filter((d) => d.id !== id);
-  const allTxs = loadTransactions().filter((t) => t.debtorId !== id);
-  saveDebtors(allDebtors);
-  saveTransactions(allTxs);
-  recordAuditLog(buildDeleteDebtorLog());
-  return { success: true, debtors: allDebtors, transactions: allTxs };
 }
 
 export async function apiSaveTransaction(
@@ -1035,6 +1098,7 @@ export async function apiSaveTransaction(
     console.warn('Optimistic local storage save skipped:', err);
   }
 
+  beginClientMutation();
   try {
     const res = await fetch('/api/owner/transaction', {
       method: 'POST',
@@ -1044,14 +1108,16 @@ export async function apiSaveTransaction(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success) {
-        const merged = smartMergeTransactions(data.transactions || currentLocal);
+        const synced = [...(Array.isArray(data.transactions) ? data.transactions : currentLocal)].sort(
+          (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+        );
         try {
-          saveTransactions(merged);
+          saveTransactions(synced);
         } catch {
           // ignore
         }
         recordAuditLog(buildSaveTxLog());
-        return { success: true, transaction: data.transaction || localNewTx, transactions: merged };
+        return { success: true, transaction: data.transaction || localNewTx, transactions: synced };
       }
       // Server rejected or Google Sheets failed: roll back optimistic local state
       try {
@@ -1059,7 +1125,7 @@ export async function apiSaveTransaction(
       } catch {
         // ignore
       }
-      const errMsg = data.message || 'Không thể lưu giao dịch lên Google Sheets';
+      const errMsg = sanitizeClientError(data.message, 'Không thể lưu giao dịch lên Google Sheets');
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
@@ -1081,10 +1147,17 @@ export async function apiSaveTransaction(
     }
     return { success: false, message: errorMessage };
   } catch (err: any) {
+    try {
+      saveTransactions(prevSnapshot);
+    } catch {
+      // ignore
+    }
     return {
       success: false,
       message: sanitizeClientError(err?.message, 'Lỗi kết nối khi lưu giao dịch. Vui lòng thử lại.'),
     };
+  } finally {
+    endClientMutation();
   }
 }
 
@@ -1221,6 +1294,7 @@ export async function apiUpdateTransaction(
   }
   saveTransactions(allTxs);
 
+  beginClientMutation();
   try {
     const res = await fetch(`/api/owner/transaction/${tx.id}`, {
       method: 'PUT',
@@ -1230,13 +1304,15 @@ export async function apiUpdateTransaction(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success) {
-        const merged = smartMergeTransactions(data.transactions || allTxs);
-        saveTransactions(merged);
+        const synced = [...(Array.isArray(data.transactions) ? data.transactions : allTxs)].sort(
+          (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+        );
+        saveTransactions(synced);
         recordAuditLog(buildUpdateTxLog());
-        return { success: true, transaction: data.transaction || tx, transactions: merged };
+        return { success: true, transaction: data.transaction || tx, transactions: synced };
       }
       saveTransactions(prevAllTxs);
-      const errMsg = data.message || 'Không thể cập nhật giao dịch lên Google Sheets';
+      const errMsg = sanitizeClientError(data.message, 'Không thể cập nhật giao dịch lên Google Sheets');
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
@@ -1254,13 +1330,19 @@ export async function apiUpdateTransaction(
     saveTransactions(prevAllTxs);
     return { success: false, message: errorMessage };
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi kết nối khi cập nhật giao dịch' };
+    saveTransactions(prevAllTxs);
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi cập nhật giao dịch'),
+    };
+  } finally {
+    endClientMutation();
   }
 }
 
 export async function apiDeleteTransaction(
   id: string
-): Promise<{ success: boolean; transactions?: Transaction[] }> {
+): Promise<{ success: boolean; transactions?: Transaction[]; message?: string }> {
   markTxDeleted(id);
   const prevAllTxs = loadTransactions();
   const oldTx = prevAllTxs.find((t) => t.id === id);
@@ -1331,27 +1413,45 @@ export async function apiDeleteTransaction(
     },
   });
 
+  const rollbackDelete = () => {
+    unmarkTxDeleted(id);
+    saveTransactions(prevAllTxs);
+  };
+
+  beginClientMutation();
   try {
     const res = await fetch(`/api/owner/transaction/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
-      if (res.ok && data.success) {
-        const filtered = (data.transactions || []).filter((t: Transaction) => t.id !== id);
-        saveTransactions(filtered);
-        recordAuditLog(buildDeleteTxLog());
-        return { success: true, transactions: filtered };
-      }
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (res.ok && data?.success) {
+      const filtered = (data.transactions || []).filter((t: Transaction) => t.id !== id);
+      saveTransactions(filtered);
+      recordAuditLog(buildDeleteTxLog());
+      return { success: true, transactions: filtered };
     }
-  } catch {
-    // ignore
+    rollbackDelete();
+    const errMsg = sanitizeClientError(data?.message || errorMessage, 'Không thể xóa giao dịch trên máy chủ. Dữ liệu đã được giữ nguyên.');
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi xóa giao dịch',
+      description: `Không thể xóa giao dịch: ${errMsg}`,
+      debtorId: oldTx?.debtorId,
+      debtorName: debtorObj?.name,
+      amount: oldTx?.amount,
+      beforeState: deleteBeforeState,
+      afterState: `Thất bại (Đã hoàn tác): ${errMsg}`,
+    });
+    return { success: false, transactions: prevAllTxs, message: errMsg };
+  } catch (err: any) {
+    rollbackDelete();
+    const errMsg = sanitizeClientError(err?.message, 'Lỗi kết nối khi xóa giao dịch. Dữ liệu đã được giữ nguyên.');
+    return { success: false, transactions: prevAllTxs, message: errMsg };
+  } finally {
+    endClientMutation();
   }
-
-  recordAuditLog(buildDeleteTxLog());
-  return { success: true, transactions: allTxs };
 }
 
 export async function apiSavePartySplit(
@@ -1393,7 +1493,9 @@ export async function apiSavePartySplit(
     createdAt: (party as any).createdAt || new Date().toISOString(),
   };
 
-  const allParties = loadParties();
+  const prevParties = loadParties();
+  const prevTxs = loadTransactions();
+  const allParties = [...prevParties];
   const existingPartyIdx = allParties.findIndex((p) => p.id === partyId);
   if (existingPartyIdx >= 0) {
     allParties[existingPartyIdx] = newParty;
@@ -1401,9 +1503,9 @@ export async function apiSavePartySplit(
     allParties.unshift(newParty);
   }
 
-  // Remove any stale or duplicate transactions for this party before merging
-  const oldTxs = loadTransactions().filter((t) => t.partyId !== partyId);
-  const updatedTxs = smartMergeTransactions(createdTxs, oldTxs);
+  const oldTxs = prevTxs.filter((t) => t.partyId !== partyId);
+  const createdTxIds = new Set(createdTxs.map((t) => t.id));
+  const updatedTxs = [...createdTxs, ...oldTxs.filter((t) => !createdTxIds.has(t.id))];
   saveParties(allParties);
   saveTransactions(updatedTxs);
 
@@ -1452,6 +1554,12 @@ export async function apiSavePartySplit(
     },
   });
 
+  const rollbackSave = () => {
+    saveParties(prevParties);
+    saveTransactions(prevTxs);
+  };
+
+  beginClientMutation();
   try {
     const res = await fetch('/api/owner/party-split', {
       method: 'POST',
@@ -1461,14 +1569,17 @@ export async function apiSavePartySplit(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success) {
-        const mergedParties = smartMergeParties(data.parties || allParties);
-        const mergedTxs = smartMergeTransactions(data.transactions || updatedTxs);
-        saveParties(mergedParties);
-        saveTransactions(mergedTxs);
+        const syncedParties = smartMergeParties(data.parties || allParties);
+        const syncedTxs = [...(Array.isArray(data.transactions) ? data.transactions : updatedTxs)].sort(
+          (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+        );
+        saveParties(syncedParties);
+        saveTransactions(syncedTxs);
         recordAuditLog(buildSavePartyLog());
-        return { success: true, parties: mergedParties, transactions: mergedTxs };
+        return { success: true, parties: syncedParties, transactions: syncedTxs };
       }
-      const errMsg = data.message || 'Không thể lưu chia tiền lên Google Sheets';
+      rollbackSave();
+      const errMsg = sanitizeClientError(data.message, 'Không thể lưu chia tiền lên Google Sheets');
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
@@ -1481,9 +1592,16 @@ export async function apiSavePartySplit(
       });
       return { success: false, message: errMsg };
     }
+    rollbackSave();
     return { success: false, message: errorMessage };
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi kết nối khi lưu chia tiền' };
+    rollbackSave();
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi lưu chia tiền'),
+    };
+  } finally {
+    endClientMutation();
   }
 }
 
@@ -1528,36 +1646,54 @@ export async function apiDeletePartySplit(
     },
   });
 
-  // 1. Optimistic update local storage
-  const currentParties = loadParties().filter((p) => p.id !== partyId);
-  const filteredTxs = currentTxs.filter((t) => t.partyId !== partyId);
+  const prevParties = loadParties();
+  const prevTxs = loadTransactions();
+  const currentParties = prevParties.filter((p) => p.id !== partyId);
+  const filteredTxs = prevTxs.filter((t) => t.partyId !== partyId);
   saveParties(currentParties);
   saveTransactions(filteredTxs);
 
-  // 2. Try server API
+  const rollbackDelete = () => {
+    unmarkPartyDeleted(partyId);
+    removedTxs.forEach((t) => unmarkTxDeleted(t.id));
+    saveParties(prevParties);
+    saveTransactions(prevTxs);
+  };
+
+  beginClientMutation();
   try {
     const res = await fetch(`/api/owner/party-split/${partyId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
-      if (res.ok && data.success) {
-        const finalParties = (data.parties || []).filter((p: PartySplit) => p.id !== partyId);
-        const finalTxs = (data.transactions || []).filter((t: Transaction) => t.partyId !== partyId);
-        saveParties(finalParties);
-        saveTransactions(finalTxs);
-        recordAuditLog(buildDeletePartyLog());
-        return { success: true, parties: finalParties, transactions: finalTxs };
-      }
+    const { data, errorMessage } = await parseApiJsonSafely(res);
+    if (res.ok && data?.success) {
+      const finalParties = (data.parties || []).filter((p: PartySplit) => p.id !== partyId);
+      const finalTxs = (data.transactions || []).filter((t: Transaction) => t.partyId !== partyId);
+      saveParties(finalParties);
+      saveTransactions(finalTxs);
+      recordAuditLog(buildDeletePartyLog());
+      return { success: true, parties: finalParties, transactions: finalTxs };
     }
-  } catch {
-    // ignore
+    rollbackDelete();
+    const errMsg = sanitizeClientError(data?.message || errorMessage, 'Không thể xóa cuộc chia tiền trên máy chủ. Dữ liệu đã được giữ nguyên.');
+    recordAuditLog({
+      action: 'OPERATION_FAILED',
+      actor: 'Chủ Sổ (Admin)',
+      title: 'Lỗi xóa cuộc chia tiền',
+      description: `Không thể xóa cuộc chia bill "${oldParty?.name || partyId}": ${errMsg}`,
+      amount: oldParty?.totalAmount,
+      beforeState: partyDeleteBeforeState,
+      afterState: `Thất bại (Đã hoàn tác): ${errMsg}`,
+    });
+    return { success: false, parties: prevParties, transactions: prevTxs, message: errMsg };
+  } catch (err: any) {
+    rollbackDelete();
+    const errMsg = sanitizeClientError(err?.message, 'Lỗi kết nối khi xóa cuộc chia tiền. Dữ liệu đã được giữ nguyên.');
+    return { success: false, parties: prevParties, transactions: prevTxs, message: errMsg };
+  } finally {
+    endClientMutation();
   }
-
-  recordAuditLog(buildDeletePartyLog());
-  return { success: true, parties: currentParties, transactions: filteredTxs };
 }
 
 export async function apiUpdatePartySplit(
@@ -1566,11 +1702,12 @@ export async function apiUpdatePartySplit(
   transactions: Omit<Transaction, 'id' | 'createdAt'>[]
 ): Promise<{ success: boolean; parties?: PartySplit[]; transactions?: Transaction[]; message?: string }> {
   unmarkPartyDeleted(partyId);
-  // Mark old split transactions for this party as deleted, replace with updated ones
-  const oldTxs = loadTransactions().filter((t) => t.partyId === partyId);
+  const prevParties = loadParties();
+  const prevTxs = loadTransactions();
+  const oldTxs = prevTxs.filter((t) => t.partyId === partyId);
   oldTxs.forEach((t) => markTxDeleted(t.id));
 
-  const allParties = loadParties();
+  const allParties = [...prevParties];
   const existingIndex = allParties.findIndex((p) => p.id === partyId);
   const oldParty = existingIndex >= 0 ? allParties[existingIndex] : undefined;
 
@@ -1597,8 +1734,9 @@ export async function apiUpdatePartySplit(
     };
   });
 
-  const baseTxs = loadTransactions().filter((t) => t.partyId !== partyId);
-  const updatedTxs = smartMergeTransactions(createdTxs, baseTxs);
+  const baseTxs = prevTxs.filter((t) => t.partyId !== partyId);
+  const createdIds = new Set(createdTxs.map((t) => t.id));
+  const updatedTxs = [...createdTxs, ...baseTxs.filter((t) => !createdIds.has(t.id))];
   saveParties(allParties);
   saveTransactions(updatedTxs);
 
@@ -1709,7 +1847,13 @@ export async function apiUpdatePartySplit(
     },
   });
 
-  // 1. Try server API
+  const rollbackUpdate = () => {
+    oldTxs.forEach((t) => unmarkTxDeleted(t.id));
+    saveParties(prevParties);
+    saveTransactions(prevTxs);
+  };
+
+  beginClientMutation();
   try {
     const res = await fetch(`/api/owner/party-split/${partyId}`, {
       method: 'PUT',
@@ -1719,14 +1863,17 @@ export async function apiUpdatePartySplit(
     const { data, errorMessage } = await parseApiJsonSafely(res);
     if (data) {
       if (res.ok && data.success) {
-        const mergedParties = smartMergeParties(data.parties || [], allParties);
-        const mergedTxs = smartMergeTransactions(data.transactions || [], updatedTxs);
-        saveParties(mergedParties);
-        saveTransactions(mergedTxs);
+        const syncedParties = smartMergeParties(data.parties || allParties);
+        const syncedTxs = [...(Array.isArray(data.transactions) ? data.transactions : updatedTxs)].sort(
+          (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+        );
+        saveParties(syncedParties);
+        saveTransactions(syncedTxs);
         recordAuditLog(buildUpdatePartyLog());
-        return { success: true, parties: mergedParties, transactions: mergedTxs };
+        return { success: true, parties: syncedParties, transactions: syncedTxs };
       }
-      const errMsg = data.message || 'Không thể cập nhật chia tiền lên Google Sheets';
+      rollbackUpdate();
+      const errMsg = sanitizeClientError(data.message, 'Không thể cập nhật chia tiền lên Google Sheets');
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
@@ -1739,17 +1886,25 @@ export async function apiUpdatePartySplit(
       });
       return { success: false, message: errMsg };
     }
+    rollbackUpdate();
     return { success: false, message: errorMessage };
   } catch (err: any) {
-    return { success: false, message: err?.message || 'Lỗi kết nối khi cập nhật chia tiền' };
+    rollbackUpdate();
+    return {
+      success: false,
+      message: sanitizeClientError(err?.message, 'Lỗi kết nối khi cập nhật chia tiền'),
+    };
+  } finally {
+    endClientMutation();
   }
 }
 
 export async function apiSaveSettings(
-  settings: AppSettings
+  settings: AppSettings,
+  prevSettingsSnapshot?: AppSettings
 ): Promise<{ success: boolean; settings?: AppSettings; message?: string }> {
   // Lấy cài đặt cũ để so sánh trước và sau khi lưu toàn diện mọi trường
-  const oldSettings = loadSettings();
+  const oldSettings = prevSettingsSnapshot || loadSettings();
   const settingsChanges: AuditChangeDetail[] = [];
 
   const diffStr = (key: keyof AppSettings, label: string, emptyVal = '(Trống)') => {
@@ -1840,6 +1995,7 @@ export async function apiSaveSettings(
   saveSettings(settings);
 
   // 2. Try server API with auth headers and optional admin password header
+  beginClientMutation();
   try {
     const res = await fetch('/api/owner/settings', {
       method: 'PUT',
@@ -1859,27 +2015,41 @@ export async function apiSaveSettings(
         recordSettingsLogIfChanged(data.settings);
         return { success: true, settings: data.settings };
       }
+      saveSettings(oldSettings);
+      if (oldSettings.googleAppsScriptUrl !== undefined) {
+        setMemoryAppsScriptUrl(oldSettings.googleAppsScriptUrl);
+      }
       return {
         success: false,
-        settings: data.settings || settings,
-        message: data.message || 'Không thể lưu cài đặt lúc này.',
+        settings: oldSettings,
+        message: sanitizeClientError(data.message, 'Không thể lưu cài đặt lúc này.'),
       };
+    }
+    saveSettings(oldSettings);
+    if (oldSettings.googleAppsScriptUrl !== undefined) {
+      setMemoryAppsScriptUrl(oldSettings.googleAppsScriptUrl);
     }
     return {
       success: false,
-      settings,
+      settings: oldSettings,
       message: errorMessage,
     };
   } catch (err: any) {
     console.warn('Server saveSettings notice:', err);
-    return { success: false, settings, message: 'Lỗi kết nối khi lưu cài đặt. Vui lòng thử lại.' };
+    saveSettings(oldSettings);
+    if (oldSettings.googleAppsScriptUrl !== undefined) {
+      setMemoryAppsScriptUrl(oldSettings.googleAppsScriptUrl);
+    }
+    return { success: false, settings: oldSettings, message: 'Lỗi kết nối khi lưu cài đặt. Vui lòng thử lại.' };
+  } finally {
+    endClientMutation();
   }
 }
 
 // --- GUEST APIS (LOOKUP BY PIN) ---
 export async function apiGuestLookup(
   pin: string,
-  options?: { silent?: boolean }
+  options?: { silent?: boolean; fresh?: boolean }
 ): Promise<{
   success: boolean;
   debtor?: Debtor;
@@ -1944,7 +2114,7 @@ export async function apiGuestLookup(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ pin: cleanPin }),
+      body: JSON.stringify({ pin: cleanPin, ...(options?.fresh ? { fresh: true } : {}) }),
     });
     const contentType = res.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
