@@ -215,18 +215,15 @@ export function classifySheetsError(err: any): {
   };
 }
 
-async function callAppsScriptGet(
-  action: string,
-  params: Record<string, string> = {},
-  overrideUrl?: string,
-  timeoutMs = 15000
-): Promise<any> {
-  const cfg = getActiveSheetsConfig(overrideUrl);
-  if (!cfg.appsScriptUrl) {
-    throw new SheetsDbError('SHEETS_NOT_CONFIGURED', 'Hệ thống chưa được cấu hình kết nối cơ sở dữ liệu.');
-  }
+const inFlightGetRequests = new Map<string, Promise<any>>();
 
-  const url = new URL(cfg.appsScriptUrl);
+async function callAppsScriptGetOnce(
+  action: string,
+  params: Record<string, string>,
+  appsScriptUrl: string,
+  timeoutMs: number
+): Promise<any> {
+  const url = new URL(appsScriptUrl);
   if (action) url.searchParams.set('action', action);
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
@@ -270,14 +267,54 @@ async function callAppsScriptGet(
     return json;
   } catch (err: any) {
     if (err instanceof SheetsDbError) throw err;
-    console.warn(`[SheetsDb GET ${action}] fetch failed:`, err?.message || err);
-    if (err?.name === 'AbortError') {
+    if (err?.name === 'AbortError' || String(err?.message || '').toLowerCase().includes('aborted')) {
       throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Hết thời gian chờ kết nối đến máy chủ cơ sở dữ liệu.');
     }
     throw new SheetsDbError('SHEETS_UNAVAILABLE', 'Không thể kết nối đến máy chủ cơ sở dữ liệu.');
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callAppsScriptGet(
+  action: string,
+  params: Record<string, string> = {},
+  overrideUrl?: string,
+  timeoutMs = 18000,
+  retries = IS_VERCEL ? 0 : 1
+): Promise<any> {
+  const cfg = getActiveSheetsConfig(overrideUrl);
+  if (!cfg.appsScriptUrl) {
+    throw new SheetsDbError('SHEETS_NOT_CONFIGURED', 'Hệ thống chưa được cấu hình kết nối cơ sở dữ liệu.');
+  }
+
+  const dedupeKey = `${cfg.appsScriptUrl}::${action}::${JSON.stringify(params)}`;
+  const existing = inFlightGetRequests.get(dedupeKey);
+  if (existing) return existing;
+
+  const task = (async () => {
+    let lastErr: any = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await callAppsScriptGetOnce(action, params, cfg.appsScriptUrl, timeoutMs);
+      } catch (err: any) {
+        lastErr = err;
+        const canRetry = attempt < retries && (!(err instanceof SheetsDbError) || err.code === 'SHEETS_UNAVAILABLE');
+        if (canRetry) {
+          await new Promise((r) => setTimeout(r, 350));
+          continue;
+        }
+        console.info(`[SheetsDb GET ${action}] sync notice:`, err?.message || err);
+        throw err;
+      }
+    }
+    throw lastErr;
+  })().finally(() => {
+    inFlightGetRequests.delete(dedupeKey);
+  });
+
+  inFlightGetRequests.set(dedupeKey, task);
+  return task;
 }
 
 async function callAppsScriptPost(
@@ -425,7 +462,7 @@ export async function testSheetsConnection(customUrl?: string): Promise<{
 
 export async function loadSettingsFromSheets(overrideUrl?: string): Promise<AppSettings> {
   const cfg = getActiveSheetsConfig(overrideUrl);
-  const data = await callAppsScriptGet('GET_SETTINGS', {}, cfg.appsScriptUrl, IS_VERCEL ? 8000 : 9000);
+  const data = await callAppsScriptGet('GET_SETTINGS', {}, cfg.appsScriptUrl, IS_VERCEL ? 8500 : 16000);
   if (Number(data.version || 0) < 3 && data.status === 'ok') {
     throw new SheetsDbError(
       'SHEETS_LEGACY_SCRIPT',
@@ -437,7 +474,7 @@ export async function loadSettingsFromSheets(overrideUrl?: string): Promise<AppS
 
 export async function loadAllDataFromSheets(overrideUrl?: string): Promise<SheetsDatabaseSchema> {
   const cfg = getActiveSheetsConfig(overrideUrl);
-  const data = await callAppsScriptGet('LOAD_ALL', {}, cfg.appsScriptUrl, IS_VERCEL ? 8800 : 12000);
+  const data = await callAppsScriptGet('LOAD_ALL', {}, cfg.appsScriptUrl, IS_VERCEL ? 9200 : 24000);
   if (!Array.isArray(data.debtors) && data.status === 'ok') {
     throw new SheetsDbError(
       'SHEETS_LEGACY_SCRIPT',
@@ -463,7 +500,7 @@ export async function lookupGuestInSheets(
   settings: AppSettings;
 }> {
   const cfg = getActiveSheetsConfig(overrideUrl);
-  const data = await callAppsScriptGet('GUEST_LOOKUP', { pin: pin.trim() }, cfg.appsScriptUrl, IS_VERCEL ? 8500 : 9500);
+  const data = await callAppsScriptGet('GUEST_LOOKUP', { pin: pin.trim() }, cfg.appsScriptUrl, IS_VERCEL ? 8800 : 18000);
   if (data.status === 'ok' && data.found === undefined && data.debtor === undefined) {
     throw new SheetsDbError(
       'SHEETS_LEGACY_SCRIPT',

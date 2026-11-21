@@ -913,31 +913,6 @@ export async function syncViaAppsScript(
 
   const now = new Date().toISOString();
   const logsCount = (payload.auditLogs || loadAuditLogs()).length;
-  // Đồng bộ Google Sheets tự động KHÔNG ghi vào nhật ký; chỉ ghi khi thao tác thủ công được yêu cầu rõ ràng
-  if (options?.recordManualLog === true && !options?.skipAuditLog) {
-    try {
-      recordAuditLog({
-        action: 'SYNC_SHEETS',
-        actor: 'Chủ Sổ (Admin)',
-        title: 'Đồng bộ Google Sheets (Apps Script)',
-        description: `Đã đồng bộ toàn bộ 5 bảng (${payload.debtors.length} người nợ, ${payload.transactions.length} giao dịch, ${payload.parties.length} cuộc vui, ${logsCount} nhật ký) lên Google Sheets qua Apps Script Web App.`,
-        beforeState: 'Bắt đầu gửi dữ liệu sang Google Sheet',
-        afterState: 'Đã hoàn tất đồng bộ 5 bảng qua Apps Script Web App',
-        changes: [
-          { fieldLabel: 'Phương thức', before: '-', after: 'Google Apps Script Web App v3' },
-          { fieldLabel: 'Quy mô đồng bộ', before: '-', after: `${payload.debtors.length} người nợ · ${payload.transactions.length} GD · ${payload.parties.length} cuộc vui · ${logsCount} nhật ký` },
-        ],
-        metadata: {
-          debtorsCount: payload.debtors.length,
-          transactionsCount: payload.transactions.length,
-          partiesCount: payload.parties.length,
-          auditLogsCount: logsCount,
-        },
-      });
-    } catch {
-      // ignore
-    }
-  }
 
   return {
     success: true,

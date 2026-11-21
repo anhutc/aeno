@@ -21,8 +21,9 @@ import {
 } from 'lucide-react';
 import { AppSettings, Debtor, Transaction } from '../types';
 import { loginOwner, apiGuestLookup } from '../utils/api';
-import { loadDebtors, loadTransactions, loadSettings, recordAuditLog } from '../utils/storage';
+import { loadDebtors, loadTransactions, loadSettings, recordAuditLog, getAuditEnvironmentContext } from '../utils/storage';
 import { PWAInstallButton } from './PWAInstallButton';
+import { LedgerWaveBars } from './DataPulseLoader';
 import {
   isBiometricsAvailable,
   isBiometricsEnrolled,
@@ -31,23 +32,12 @@ import {
 
 interface UnifiedLoginViewProps {
   settings: AppSettings;
-  cloudStatus?: {
-    checked?: boolean;
-    configured?: boolean;
-    connected?: boolean;
-    needsUpgrade?: boolean;
-    error: string | null;
-    errorCode?: string | null;
-  };
-  onRefreshCloudStatus?: () => Promise<void> | void;
   onLoginOwnerSuccess: () => void;
   onLoginGuestSuccess: (debtor: Debtor, transactions: Transaction[], settings: AppSettings) => void;
 }
 
 export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   settings,
-  cloudStatus,
-  onRefreshCloudStatus,
   onLoginOwnerSuccess,
   onLoginGuestSuccess,
 }) => {
@@ -63,15 +53,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [canUseBiometrics, setCanUseBiometrics] = useState(false);
   const [isBiometricEnrolled, setIsBiometricEnrolled] = useState(false);
   const [isBiometricLoading, setIsBiometricLoading] = useState(false);
-
-  // Trạng thái thử kết nối lại máy chủ
-  const [isRetryingCloud, setIsRetryingCloud] = useState(false);
-
-  const isCheckingInitialCloud = cloudStatus?.checked === false;
-  const isCloudDisconnected = Boolean(
-    cloudStatus?.checked && (cloudStatus?.configured === false || cloudStatus?.connected === false || cloudStatus?.error)
-  );
-  const isLoginBlockedByCloud = isCheckingInitialCloud || isCloudDisconnected;
 
   useEffect(() => {
     isBiometricsAvailable().then((avail) => {
@@ -114,39 +95,56 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         if (res.passcode) {
           await executeAuthentication(res.passcode, 'FACE_ID');
         } else {
+          const env = getAuditEnvironmentContext();
           recordAuditLog({
             action: 'BIOMETRIC_AUTH',
             actor: `Chủ Sổ (${settings.ownerName || 'Admin'})`,
             title: 'Đăng nhập bằng FaceID / Vân tay',
-            description: 'Chủ sổ đã mở khóa nhanh thành công bằng sinh trắc học (FaceID / Touch ID) trên thiết bị này.',
+            description: `Chủ sổ "${settings.ownerName || 'Admin'}" mở khóa nhanh thành công bằng sinh trắc học (FaceID / Touch ID) trên ${env.device || 'thiết bị hiện tại'}.`,
             beforeState: 'Màn hình khóa đăng nhập',
             afterState: 'Đã xác thực phiên quản trị qua Sinh trắc học',
-            changes: [{ fieldLabel: 'Phương thức xác thực', before: 'Khóa', after: 'FaceID / Touch ID' }],
+            changes: [
+              { fieldLabel: 'Phương thức xác thực', before: 'Khóa', after: 'FaceID / Touch ID (WebAuthn)' },
+              { fieldLabel: 'Thiết bị & Trình duyệt', before: '-', after: `${env.device || 'Web'} (${env.appMode || 'Web'})` },
+              ...(env.networkInfo ? [{ fieldLabel: 'Kết nối mạng', before: '-', after: env.networkInfo }] : []),
+            ],
+            metadata: {
+              loginMethod: 'FaceID / Touch ID (WebAuthn)',
+              authChannel: 'Thiết bị cục bộ (Sinh trắc học)',
+            },
           });
           onLoginOwnerSuccess();
         }
       } else if (res.message) {
+        const env = getAuditEnvironmentContext();
         recordAuditLog({
           action: 'LOGIN_FAILED',
           actor: 'Chủ Sổ (Admin)',
           title: 'Sinh trắc học thất bại',
-          description: `Xác thực FaceID / Vân tay thất bại: ${res.message}`,
+          description: `Xác thực FaceID / Vân tay thất bại trên ${env.device || 'thiết bị'}: ${res.message}`,
           beforeState: 'Yêu cầu quét FaceID / Vân tay',
-          afterState: 'Thất bại',
-          changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: `Thất bại (${res.message})` }],
-          metadata: { method: 'FACE_ID', reason: res.message },
+          afterState: `Thất bại (${res.message})`,
+          changes: [
+            { fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: `Thất bại (${res.message})` },
+            { fieldLabel: 'Thiết bị & Trình duyệt', before: '-', after: `${env.device || 'Web'} (${env.appMode || 'Web'})` },
+          ],
+          metadata: { method: 'FACE_ID', loginMethod: 'FaceID / Touch ID', reason: res.message },
         });
         setError(res.message);
       }
     } catch (err: any) {
+      const env = getAuditEnvironmentContext();
       recordAuditLog({
         action: 'OPERATION_FAILED',
         actor: 'Chủ Sổ (Admin)',
         title: 'Lỗi sinh trắc học',
-        description: `Lỗi quét FaceID / Vân tay: ${err?.message || 'Thiết bị không hỗ trợ hoặc bị hủy'}`,
+        description: `Lỗi quét FaceID / Vân tay trên ${env.device || 'thiết bị'}: ${err?.message || 'Thiết bị không hỗ trợ hoặc bị hủy'}`,
         beforeState: 'Yêu cầu quét FaceID / Vân tay',
-        afterState: 'Lỗi',
-        changes: [{ fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: 'Lỗi' }],
+        afterState: 'Lỗi sinh trắc học',
+        changes: [
+          { fieldLabel: 'Sinh trắc học', before: 'Đang quét', after: 'Lỗi' },
+          { fieldLabel: 'Thiết bị', before: '-', after: env.device || 'Web' },
+        ],
         metadata: { method: 'FACE_ID', error: err?.message },
       });
       setError(err?.message || 'Lỗi quét FaceID / Vân tay');
@@ -157,14 +155,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
   const executeAuthentication = useCallback(
     async (codeToVerify: string, methodHint?: 'PASSWORD' | 'FACE_ID') => {
-      if (isCheckingInitialCloud) {
-        setError('Đang kết nối hệ thống, vui lòng chờ giây lát...');
-        return;
-      }
-      if (isCloudDisconnected) {
-        setError('Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau hoặc liên hệ quản lý.');
-        return;
-      }
       const clean = codeToVerify.trim();
       if (!clean) {
         setError('Vui lòng nhập mật khẩu');
@@ -304,17 +294,33 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         }
 
         // 5. Nếu CSDL kết nối bình thường nhưng mã không khớp
-        const masked = clean.length > 2 ? `${clean.slice(0, 1)}***${clean.slice(-1)}` : '***';
-        recordAuditLog({
-          action: 'LOOKUP_FAILED',
-          actor: 'Khách / Người dùng',
-          title: 'Đăng nhập / Tra cứu thất bại',
-          description: `Đã nhập mã không hợp lệ "${masked}" (độ dài ${clean.length} ký tự — sai mật khẩu quản trị hoặc mã PIN tra cứu không tồn tại).`,
-          beforeState: 'Chưa xác thực',
-          afterState: 'Từ chối đăng nhập (Sai mã)',
-          changes: [{ fieldLabel: 'Kết quả đối chiếu', before: 'Chờ xác thực', after: `Thất bại (${masked})` }],
-          metadata: { maskedInput: masked, inputLength: clean.length },
-        });
+        // (apiGuestLookup đã tự ghi LOOKUP_FAILED kèm clientIp nếu trả về INVALID_CREDENTIALS)
+        if (guestRes?.errorCode !== 'INVALID_CREDENTIALS') {
+          const env = getAuditEnvironmentContext();
+          const masked = clean.length > 2 ? `${clean.slice(0, 1)}***${clean.slice(-1)}` : '***';
+          const ipStr = guestRes?.clientMeta?.clientIp || ownerRes?.clientMeta?.clientIp || 'Không xác định';
+          const locStr = guestRes?.clientMeta?.locationHint || ownerRes?.clientMeta?.locationHint || '';
+          recordAuditLog({
+            action: 'LOOKUP_FAILED',
+            actor: 'Khách / Người dùng',
+            title: 'Đăng nhập / Tra cứu thất bại',
+            description: `Đã nhập mã không hợp lệ "${masked}" (độ dài ${clean.length} ký tự) · IP: ${ipStr}${locStr ? ` (${locStr})` : ''} · Thiết bị: ${env.device || 'Web'}.`,
+            beforeState: 'Chưa xác thực',
+            afterState: `Từ chối đăng nhập (Sai mã · IP ${ipStr})`,
+            changes: [
+              { fieldLabel: 'Kết quả đối chiếu', before: 'Chờ xác thực', after: `Thất bại (${masked}, ${clean.length} ký tự)` },
+              { fieldLabel: 'Địa chỉ IP', before: '-', after: ipStr },
+              ...(locStr ? [{ fieldLabel: 'Vị trí / Khu vực', before: '-', after: locStr }] : []),
+              { fieldLabel: 'Thiết bị & Mạng', before: '-', after: `${env.device || 'Web'} · ${env.networkInfo || 'Online'}` },
+            ],
+            metadata: {
+              maskedInput: masked,
+              inputLength: clean.length,
+              clientIp: ipStr,
+              ...(locStr ? { locationHint: locStr } : {}),
+            },
+          });
+        }
         setError('Mã tra cứu hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc liên hệ quản lý.');
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 500);
@@ -335,19 +341,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         setIsLoading(false);
       }
     },
-    [onLoginOwnerSuccess, onLoginGuestSuccess, settings, isCheckingInitialCloud, isCloudDisconnected, cloudStatus?.error]
+    [onLoginOwnerSuccess, onLoginGuestSuccess, settings]
   );
-
-  const handleRetryCloudCheck = async () => {
-    if (!onRefreshCloudStatus || isRetryingCloud) return;
-    setIsRetryingCloud(true);
-    setError('');
-    try {
-      await onRefreshCloudStatus();
-    } finally {
-      setIsRetryingCloud(false);
-    }
-  };
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -398,41 +393,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
         {/* 2. Form Nhập Mật Khẩu */}
         <form onSubmit={handleFormSubmit} autoComplete="off" data-lpignore="true" data-1p-ignore="true" className="p-5 sm:p-6 space-y-4">
-          {isCheckingInitialCloud && (
-            <div className="p-3 sm:p-3.5 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs flex items-center gap-2.5">
-              <RefreshCw className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
-              <div>
-                <p className="font-bold text-slate-800">Đang kết nối hệ thống...</p>
-                <p className="text-[11px] text-slate-500">Vui lòng chờ giây lát trong khi kiểm tra sẵn sàng.</p>
-              </div>
-            </div>
-          )}
-
-          {!isCheckingInitialCloud && isCloudDisconnected && (
-            <div className="p-3 sm:p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-2.5">
-              <div className="flex items-start gap-2.5 leading-relaxed">
-                <AlertCircle className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600 shrink-0 mt-0.5" />
-                <div className="flex-1 space-y-1">
-                  <p className="font-bold">Hệ thống đang tạm gián đoạn kết nối</p>
-                  <p className="text-[11.5px] text-amber-800/90 leading-snug">
-                    Không thể kết nối tới máy chủ lúc này. Vui lòng thử kết nối lại sau ít phút hoặc liên hệ quản lý.
-                  </p>
-                </div>
-              </div>
-
-              <div className="pt-1.5 border-t border-amber-200/70 flex items-center justify-end">
-                <button
-                  type="button"
-                  onClick={handleRetryCloudCheck}
-                  disabled={isRetryingCloud}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-amber-100/70 border border-amber-300 text-[11px] font-bold text-amber-900 cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3 h-3 ${isRetryingCloud ? 'animate-spin' : ''}`} />
-                  <span>{isRetryingCloud ? 'Đang thử...' : 'Thử kết nối lại'}</span>
-                </button>
-              </div>
-            </div>
-          )}
 
           <AnimatePresence>
             {error && (
@@ -489,7 +449,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 spellCheck={false}
                 data-lpignore="true"
                 data-1p-ignore="true"
-                disabled={isLoading || isLoginBlockedByCloud}
+                disabled={isLoading}
                 className="w-full pl-3.5 sm:pl-4 pr-11 py-3 sm:py-3.5 text-base sm:text-lg font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl placeholder:text-slate-400 placeholder:text-xs sm:placeholder:text-sm placeholder:font-normal focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner disabled:opacity-60"
               />
 
@@ -513,23 +473,13 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
           <button
             type="submit"
             id="btn-unified-login-submit"
-            disabled={isLoading || isLoginBlockedByCloud || !passcode.trim()}
+            disabled={isLoading || !passcode.trim()}
             className="w-full py-3 sm:py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-black text-sm sm:text-base rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
           >
             {isLoading ? (
               <>
-                <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-white" />
-                <span>Đang kiểm tra...</span>
-              </>
-            ) : isCheckingInitialCloud ? (
-              <>
-                <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-white" />
-                <span>Đang kết nối...</span>
-              </>
-            ) : isCloudDisconnected ? (
-              <>
-                <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                <span>Tạm ngưng kết nối</span>
+                <LedgerWaveBars size="sm" tone="light" />
+                <span>Đang xác thực & kết nối...</span>
               </>
             ) : (
               <>
@@ -547,16 +497,18 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 type="button"
                 id="btn-faceid-login"
                 onClick={handleBiometricLogin}
-                disabled={isLoading || isBiometricLoading || isLoginBlockedByCloud}
+                disabled={isLoading || isBiometricLoading}
                 className="w-full py-2.5 sm:py-3 px-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 hover:from-emerald-100 hover:to-teal-100 active:from-emerald-200 active:to-teal-200 border border-emerald-300/80 text-emerald-950 font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] shadow-2xs disabled:opacity-50"
                 title="Đăng nhập bằng FaceID / Vân tay bảo mật"
               >
                 {isBiometricLoading ? (
-                  <RefreshCw className="w-4 h-4 text-emerald-700 animate-spin" />
+                  <LedgerWaveBars size="sm" tone="emerald" />
                 ) : (
                   <ScanFace className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700 shrink-0" />
                 )}
-                <span>Đăng Nhập Bằng FaceID / Vân Tay</span>
+                <span>
+                  {isBiometricLoading ? 'Đang mở khóa FaceID / Vân tay...' : 'Đăng Nhập Bằng FaceID / Vân Tay'}
+                </span>
               </button>
             </div>
           )}

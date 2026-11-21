@@ -91,6 +91,7 @@ export interface AppSettings {
   // Trạng thái hệ thống & đồng bộ
   isInitialized?: boolean;
   lastClearedAt?: string;
+  auditLogsClearedAt?: string;
   autoLockTimeout?: 'IMMEDIATE' | '30_SEC' | '1_MIN' | '5_MIN' | 'OFF'; // Tự động đăng xuất khi rời ứng dụng
 
   // Cài đặt đồng bộ máy chủ & đám mây (Cloud Sync Server)

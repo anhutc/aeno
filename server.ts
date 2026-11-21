@@ -663,6 +663,7 @@ app.get('/api/settings', async (req, res) => {
       autoSyncGoogleSheets: _aSync,
       lastGoogleSheetSyncAt: _lSync,
       lastClearedAt: _lClear,
+      auditLogsClearedAt: _aClear,
       ...publicSettings
     } = (db.settings || {}) as any;
 
@@ -681,8 +682,55 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
+function extractRequestClientInfo(req: express.Request) {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const rawIp =
+    fwd ||
+    String(req.headers['x-real-ip'] || '').trim() ||
+    String(req.headers['cf-connecting-ip'] || '').trim() ||
+    String(req.socket?.remoteAddress || req.ip || '').trim();
+  const normalizedIp = rawIp.replace(/^::ffff:/, '');
+  const clientIp =
+    normalizedIp === '::1' || normalizedIp === '127.0.0.1'
+      ? '127.0.0.1 (Local)'
+      : normalizedIp || 'Không xác định';
+
+  let city = '';
+  try {
+    city = decodeURIComponent(
+      String(req.headers['x-vercel-ip-city'] || req.headers['x-appengine-city'] || '').trim()
+    );
+  } catch {
+    city = '';
+  }
+  const region = String(req.headers['x-vercel-ip-country-region'] || '').trim();
+  const country = String(
+    req.headers['x-vercel-ip-country'] ||
+      req.headers['cf-ipcountry'] ||
+      req.headers['x-appengine-country'] ||
+      ''
+  ).trim();
+  const locationParts = [city, region, country].filter(Boolean);
+  const locationHint = locationParts.length > 0 ? locationParts.join(', ') : '';
+
+  const acceptLang = String(req.headers['accept-language'] || '').split(',')[0].trim();
+  const platformHint = String(req.headers['sec-ch-ua-platform'] || '').replace(/"/g, '').trim();
+  const serverOrigin = String(req.headers['origin'] || req.headers['host'] || '').trim();
+
+  return {
+    clientIp,
+    ...(locationHint ? { locationHint } : {}),
+    ...(acceptLang ? { acceptLanguage: acceptLang } : {}),
+    ...(platformHint ? { platformHint } : {}),
+    ...(serverOrigin ? { serverOrigin } : {}),
+    serverTime: new Date().toISOString(),
+  };
+}
+
 // --- OWNER LOGIN ---
 app.post('/api/auth/login', async (req, res) => {
+  const startedAt = Date.now();
+  const clientMeta = extractRequestClientInfo(req);
   try {
     const { password } = req.body || {};
     const inputPass = String(password || '').trim();
@@ -693,6 +741,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Vui lòng nhập mật khẩu quản trị',
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
       });
     }
 
@@ -701,6 +751,8 @@ app.post('/api/auth/login', async (req, res) => {
         success: false,
         code: 'SERVICE_UNAVAILABLE',
         message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
       });
     }
 
@@ -711,6 +763,8 @@ app.post('/api/auth/login', async (req, res) => {
         success: false,
         code: 'SERVICE_UNAVAILABLE',
         message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
       });
     }
 
@@ -719,12 +773,12 @@ app.post('/api/auth/login', async (req, res) => {
     let ownerPhone = (db.settings?.ownerPhone || '').trim();
 
     const cleanInput = inputPass.toLowerCase();
-    const cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
+    let cleanPhone = ownerPhone.replace(/[\s.-]+/g, '');
     const cleanInputPhone = inputPass.replace(/[\s.-]+/g, '');
 
-    let isMatched =
-      (correctPassword && (inputPass === correctPassword || cleanInput === correctPassword.toLowerCase())) ||
-      (ownerPhone && cleanInputPhone === cleanPhone);
+    let isPasswordMatch = Boolean(correctPassword && (inputPass === correctPassword || cleanInput === correctPassword.toLowerCase()));
+    let isPhoneMatch = Boolean(ownerPhone && cleanInputPhone === cleanPhone);
+    let isMatched = isPasswordMatch || isPhoneMatch;
 
     if (!isMatched && Date.now() - lastSettingsSyncAt > 8000) {
       try {
@@ -735,10 +789,10 @@ app.post('/api/auth/login', async (req, res) => {
         clearSheetsError();
         const rPass = (freshSettings.ownerPassword || '').trim();
         const rPhone = (freshSettings.ownerPhone || '').trim();
-        if (
-          (rPass && (inputPass === rPass || cleanInput === rPass.toLowerCase())) ||
-          (rPhone && cleanInputPhone === rPhone.replace(/[\s.-]+/g, ''))
-        ) {
+        cleanPhone = rPhone.replace(/[\s.-]+/g, '');
+        isPasswordMatch = Boolean(rPass && (inputPass === rPass || cleanInput === rPass.toLowerCase()));
+        isPhoneMatch = Boolean(rPhone && cleanInputPhone === cleanPhone);
+        if (isPasswordMatch || isPhoneMatch) {
           isMatched = true;
         }
         correctPassword = rPass;
@@ -749,6 +803,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!isMatched && (!correctPassword || correctPassword === '123456') && inputPass === '123456') {
       isMatched = true;
+      isPasswordMatch = true;
     }
 
     if (isMatched) {
@@ -756,6 +811,14 @@ app.post('/api/auth/login', async (req, res) => {
         success: true,
         token: OWNER_TOKEN,
         settings: db.settings,
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
+        matchedBy: isPhoneMatch ? 'Số điện thoại chủ sổ' : 'Mật khẩu quản trị',
+        loginStats: {
+          debtorsCount: Array.isArray(db.debtors) ? db.debtors.length : 0,
+          transactionsCount: Array.isArray(db.transactions) ? db.transactions.length : 0,
+          partiesCount: Array.isArray(db.parties) ? db.parties.length : 0,
+        },
       });
     }
 
@@ -763,6 +826,8 @@ app.post('/api/auth/login', async (req, res) => {
       success: false,
       code: 'INVALID_CREDENTIALS',
       message: 'Mật khẩu hoặc mã xác thực không đúng. Vui lòng thử lại.',
+      clientMeta,
+      authLatencyMs: Date.now() - startedAt,
     });
   } catch (err: any) {
     recordSheetsError(err);
@@ -1419,6 +1484,12 @@ app.put('/api/owner/settings', authMiddleware, async (req, res) => {
 
       const existingScriptUrl = (baseSettings?.googleAppsScriptUrl || targetUrl || '').trim();
       const existingPass = (baseSettings?.ownerPassword || '').trim();
+      const existingClearedMs = parseServerAuditTimestampMs(baseSettings?.auditLogsClearedAt) || 0;
+      const incomingClearedMs = parseServerAuditTimestampMs(cleanedNewSettings?.auditLogsClearedAt) || 0;
+      const preservedClearedAt =
+        Math.max(existingClearedMs, incomingClearedMs) > 0
+          ? new Date(Math.max(existingClearedMs, incomingClearedMs)).toISOString()
+          : undefined;
       const mergedSettings: AppSettings = {
         ...baseSettings,
         ...cleanedNewSettings,
@@ -1428,6 +1499,7 @@ app.put('/api/owner/settings', authMiddleware, async (req, res) => {
         ...(existingPass && !cleanedNewSettings?.ownerPassword
           ? { ownerPassword: existingPass }
           : {}),
+        ...(preservedClearedAt ? { auditLogsClearedAt: preservedClearedAt } : {}),
       };
 
       await saveSettingsToSheets(mergedSettings, mergedSettings.googleAppsScriptUrl?.trim() || targetUrl);
@@ -2143,6 +2215,72 @@ app.post(['/api/sheets/force-sync', '/api/firestore/force-sync'], authMiddleware
 let serverAuditLogs: AuditLog[] = [];
 let pendingAppsScriptLogs: AuditLog[] = [];
 let appsScriptFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let serverAuditLogsClearedAtMs = 0;
+
+function parseServerAuditTimestampMs(ts?: unknown, id?: string): number | null {
+  if (typeof ts === 'number' && Number.isFinite(ts) && ts > 0) {
+    return ts;
+  }
+  if (typeof ts === 'string') {
+    const trimmed = ts.trim();
+    if (trimmed) {
+      if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        const parsedIso = Date.parse(trimmed);
+        if (!Number.isNaN(parsedIso)) return parsedIso;
+      }
+
+      const timeFirst = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[, ]?\s*(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (timeFirst) {
+        const [, hh, mm, ss = '0', dd, mo, yyyy] = timeFirst;
+        const d = new Date(Number(yyyy), Number(mo) - 1, Number(dd), Number(hh), Number(mm), Number(ss)).getTime();
+        if (!Number.isNaN(d)) return d;
+      }
+
+      const dateFirst = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[\s,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+      if (dateFirst) {
+        const [, dd, mo, yyyy, hh = '0', mm = '0', ss = '0'] = dateFirst;
+        const d = new Date(Number(yyyy), Number(mo) - 1, Number(dd), Number(hh), Number(mm), Number(ss)).getTime();
+        if (!Number.isNaN(d)) return d;
+      }
+
+      if (!/^\d{1,2}\/\d{1,2}\/\d{4}/.test(trimmed)) {
+        const parsed = Date.parse(trimmed);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+    }
+  }
+
+  if (typeof id === 'string') {
+    const idMatch = id.match(/^log-(\d{10,15})-/);
+    if (idMatch) {
+      const ms = Number(idMatch[1]);
+      if (Number.isFinite(ms) && ms > 0) return ms;
+    }
+  }
+  return null;
+}
+
+function getEffectiveServerAuditClearedAtMs(): number {
+  const settingsMs = parseServerAuditTimestampMs(getDatabase().settings?.auditLogsClearedAt) || 0;
+  return Math.max(serverAuditLogsClearedAtMs, settingsMs);
+}
+
+function filterLogsAfterClear(logs: AuditLog[], clearedAtMs: number): { visible: AuditLog[]; hiddenCount: number } {
+  if (!clearedAtMs || clearedAtMs <= 0) {
+    return { visible: logs, hiddenCount: 0 };
+  }
+  const visible: AuditLog[] = [];
+  let hiddenCount = 0;
+  for (const log of logs) {
+    const ms = parseServerAuditTimestampMs(log.timestamp, log.id);
+    if (ms === null || ms <= clearedAtMs) {
+      hiddenCount++;
+    } else {
+      visible.push(log);
+    }
+  }
+  return { visible, hiddenCount };
+}
 
 function sanitizeAuditLogInput(raw: any): AuditLog | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -2157,7 +2295,10 @@ function sanitizeAuditLogInput(raw: any): AuditLog | null {
   if (meta.isAutoSync === true || meta.autoSync === true || meta.source === 'auto-sync') {
     return null;
   }
-  if (action === 'SYNC_SHEETS' || action === 'CLOUD_SYNC') {
+  if (action === 'SYNC_SHEETS') {
+    return null;
+  }
+  if (action === 'CLOUD_SYNC') {
     const combined = `${title} ${description}`.toLowerCase();
     if (
       combined.includes('tự động') ||
@@ -2169,8 +2310,11 @@ function sanitizeAuditLogInput(raw: any): AuditLog | null {
     }
   }
 
+  const parsedMs = parseServerAuditTimestampMs(raw.timestamp, id);
   const timestamp =
-    typeof raw.timestamp === 'string' && raw.timestamp.trim()
+    parsedMs !== null
+      ? new Date(parsedMs).toISOString()
+      : typeof raw.timestamp === 'string' && raw.timestamp.trim()
       ? raw.timestamp.trim().slice(0, 64)
       : new Date().toISOString();
 
@@ -2202,7 +2346,12 @@ function mergeIntoServerAuditLogs(incoming: AuditLog[]): AuditLog[] {
     if (item?.id) map.set(item.id, item);
   }
   serverAuditLogs = Array.from(map.values())
-    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+    .sort((a, b) => {
+      const msA = parseServerAuditTimestampMs(a.timestamp, a.id) ?? -Infinity;
+      const msB = parseServerAuditTimestampMs(b.timestamp, b.id) ?? -Infinity;
+      if (msB !== msA) return msB - msA;
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
+    })
     .slice(0, 500);
   return newlyAdded;
 }
@@ -2285,10 +2434,26 @@ app.post('/api/audit-logs/push', async (req, res) => {
       ? [req.body.log]
       : [];
 
+    const reqClientInfo = extractRequestClientInfo(req);
+    const clearedAtMs = getEffectiveServerAuditClearedAtMs();
     const validLogs: AuditLog[] = [];
     for (const raw of rawList.slice(0, 50)) {
       const clean = sanitizeAuditLogInput(raw);
-      if (clean) validLogs.push(clean);
+      if (clean) {
+        const cleanMs = parseServerAuditTimestampMs(clean.timestamp, clean.id);
+        // Ignore stale delayed logs from before the user cleared audit logs
+        if (clearedAtMs > 0 && (cleanMs === null || cleanMs <= clearedAtMs)) {
+          continue;
+        }
+        clean.metadata = {
+          ...(clean.metadata || {}),
+          clientIp: (clean.metadata as any)?.clientIp || reqClientInfo.clientIp,
+          ...(reqClientInfo.locationHint && !(clean.metadata as any)?.locationHint
+            ? { locationHint: reqClientInfo.locationHint }
+            : {}),
+        };
+        validLogs.push(clean);
+      }
     }
 
     if (validLogs.length === 0) {
@@ -2320,18 +2485,101 @@ app.post('/api/audit-logs/push', async (req, res) => {
   }
 });
 
+app.post('/api/owner/audit-logs/clear', authMiddleware, async (req, res) => {
+  try {
+    const reqUrl = resolveRequestScriptUrl(req);
+    const requestedMs = parseServerAuditTimestampMs(req.body?.clearedAt) || 0;
+    const clearedMs = Math.max(Date.now(), requestedMs, getEffectiveServerAuditClearedAtMs());
+    const clearedIso = new Date(clearedMs).toISOString();
+
+    serverAuditLogsClearedAtMs = clearedMs;
+    serverAuditLogs = serverAuditLogs.filter((item) => {
+      const ms = parseServerAuditTimestampMs(item.timestamp, item.id);
+      return ms !== null && ms > clearedMs;
+    });
+    pendingAppsScriptLogs = pendingAppsScriptLogs.filter((item) => {
+      const ms = parseServerAuditTimestampMs(item.timestamp, item.id);
+      return ms !== null && ms > clearedMs;
+    });
+
+    const scriptUrl = resolveLogScriptUrl(reqUrl);
+    // Optional permanent audit marker sent ONLY to Google Sheets Tab 4 (not kept above watermark in server memory)
+    if (req.body?.clearAuditRecord && typeof req.body.clearAuditRecord === 'object' && scriptUrl) {
+      const reqClientInfo = extractRequestClientInfo(req);
+      const cleanMarker = sanitizeAuditLogInput({
+        ...req.body.clearAuditRecord,
+        id: `log-${clearedMs}-clear`,
+        timestamp: clearedIso,
+        metadata: {
+          ...(req.body.clearAuditRecord.metadata || {}),
+          clientIp: reqClientInfo.clientIp,
+          ...(reqClientInfo.locationHint ? { locationHint: reqClientInfo.locationHint } : {}),
+        },
+      });
+      if (cleanMarker) {
+        queueLogsForAppsScript([cleanMarker], scriptUrl);
+      }
+    }
+
+    const db = getDatabase();
+    db.settings = {
+      ...db.settings,
+      auditLogsClearedAt: clearedIso,
+    };
+    saveDatabase(db);
+
+    if (scriptUrl) {
+      Promise.allSettled([
+        pendingAppsScriptLogs.length > 0 ? flushPendingLogsToAppsScript(scriptUrl) : Promise.resolve(),
+        saveSettingsToSheets(db.settings, scriptUrl),
+      ]).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      clearedAt: clearedIso,
+    });
+  } catch (err: any) {
+    console.warn('Error in /api/owner/audit-logs/clear:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi làm sạch nhật ký trên máy chủ',
+    });
+  }
+});
+
 app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
   const reqUrl = resolveRequestScriptUrl(req);
   const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
+  const includeCleared = req.query.includeCleared === '1' || req.query.includeCleared === 'true';
   const scriptUrl = resolveLogScriptUrl(reqUrl);
 
+  if (includeCleared) {
+    serverAuditLogsClearedAtMs = 0;
+    const db = getDatabase();
+    if (db.settings?.auditLogsClearedAt) {
+      const { auditLogsClearedAt: _removed, ...restSettings } = db.settings as any;
+      db.settings = restSettings;
+      saveDatabase(db);
+      if (scriptUrl) {
+        saveSettingsToSheets(db.settings, scriptUrl).catch(() => {});
+      }
+    }
+  }
+
+  const clearedMs = includeCleared ? 0 : getEffectiveServerAuditClearedAtMs();
+  const clearedAtIso = clearedMs > 0 ? new Date(clearedMs).toISOString() : undefined;
+
   if (!scriptUrl) {
+    const filteredMem = filterLogsAfterClear(serverAuditLogs, clearedMs);
     return res.json({
       success: true,
-      logs: serverAuditLogs.slice(0, limit),
+      logs: filteredMem.visible.slice(0, limit),
       source: 'server_memory',
       hasAppsScriptUrl: false,
       needsAppsScriptUpgrade: false,
+      clearedAt: clearedAtIso,
+      hiddenByClearCount: filteredMem.hiddenCount,
     });
   }
 
@@ -2339,7 +2587,7 @@ app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
     const separator = scriptUrl.includes('?') ? '&' : '?';
     const fetchUrl = `${scriptUrl}${separator}action=GET_LOGS&limit=${limit}`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => controller.abort(), 20000);
 
     const response = await fetch(fetchUrl, { method: 'GET', redirect: 'follow', signal: controller.signal });
     clearTimeout(timer);
@@ -2359,31 +2607,40 @@ app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
         if (clean) sanitizedRemote.push(clean);
       }
       mergeIntoServerAuditLogs(sanitizedRemote);
+      const filteredAll = filterLogsAfterClear(serverAuditLogs, clearedMs);
       return res.json({
         success: true,
-        logs: serverAuditLogs.slice(0, limit),
+        logs: filteredAll.visible.slice(0, limit),
         source: 'google_sheets',
         hasAppsScriptUrl: true,
         needsAppsScriptUpgrade: false,
         totalSheetRows: data.totalRows ?? sanitizedRemote.length,
+        clearedAt: clearedAtIso,
+        hiddenByClearCount: filteredAll.hiddenCount,
       });
     }
 
     const isOldScript = Boolean(data && data.status === 'ok' && !Array.isArray(data.logs));
+    const filteredMem = filterLogsAfterClear(serverAuditLogs, clearedMs);
     return res.json({
       success: true,
-      logs: serverAuditLogs.slice(0, limit),
+      logs: filteredMem.visible.slice(0, limit),
       source: 'server_memory',
       hasAppsScriptUrl: true,
       needsAppsScriptUpgrade: isOldScript,
+      clearedAt: clearedAtIso,
+      hiddenByClearCount: filteredMem.hiddenCount,
     });
   } catch (err: any) {
+    const filteredMem = filterLogsAfterClear(serverAuditLogs, clearedMs);
     return res.json({
       success: true,
-      logs: serverAuditLogs.slice(0, limit),
+      logs: filteredMem.visible.slice(0, limit),
       source: 'server_memory',
       hasAppsScriptUrl: true,
       needsAppsScriptUpgrade: false,
+      clearedAt: clearedAtIso,
+      hiddenByClearCount: filteredMem.hiddenCount,
       sheetsError: sanitizeSheetsErrorMessage(err?.message, 'Không thể kết nối máy chủ nhật ký.'),
     });
   }
@@ -2391,11 +2648,18 @@ app.get('/api/owner/audit-logs', authMiddleware, async (req, res) => {
 
 // --- GUEST APIS (STRICT PRIVACY) ---
 app.post('/api/guest/lookup', async (req, res) => {
+  const startedAt = Date.now();
+  const clientMeta = extractRequestClientInfo(req);
   try {
     const reqUrl = resolveRequestScriptUrl(req);
     const { pin, fresh } = req.body || {};
     if (!pin || typeof pin !== 'string') {
-      return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu (pass) tra cứu.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng nhập mật khẩu (pass) tra cứu.',
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
+      });
     }
 
     const cfg = getActiveSheetsConfig(reqUrl);
@@ -2404,6 +2668,8 @@ app.post('/api/guest/lookup', async (req, res) => {
         success: false,
         code: 'SERVICE_UNAVAILABLE',
         message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
       });
     }
 
@@ -2446,6 +2712,8 @@ app.post('/api/guest/lookup', async (req, res) => {
           success: false,
           code: 'SERVICE_UNAVAILABLE',
           message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+          clientMeta,
+          authLatencyMs: Date.now() - startedAt,
         });
       }
     }
@@ -2455,6 +2723,8 @@ app.post('/api/guest/lookup', async (req, res) => {
         success: false,
         code: 'INVALID_CREDENTIALS',
         message: 'Mật khẩu (pass) không tồn tại hoặc không chính xác. Vui lòng liên hệ chủ sổ.',
+        clientMeta,
+        authLatencyMs: Date.now() - startedAt,
       });
     }
 
@@ -2496,6 +2766,8 @@ app.post('/api/guest/lookup', async (req, res) => {
 
     return res.json({
       success: true,
+      clientMeta,
+      authLatencyMs: Date.now() - startedAt,
       debtor: {
         id: targetDebtor.id,
         name: targetDebtor.name,

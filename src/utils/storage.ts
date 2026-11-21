@@ -674,11 +674,18 @@ function generateInitialAuditLogs(): AuditLog[] {
 
 export function isAutoSyncAuditLog(log: Partial<AuditLog> | null | undefined): boolean {
   if (!log || typeof log !== 'object') return false;
+  if (log.action === 'SYNC_SHEETS') {
+    return true;
+  }
+  const titleLower = (log.title || '').toLowerCase();
+  if (titleLower.includes('đồng bộ google sheets (apps script)')) {
+    return true;
+  }
   const meta = (log.metadata || {}) as Record<string, any>;
   if (meta.isAutoSync === true || meta.autoSync === true || meta.source === 'auto-sync') {
     return true;
   }
-  if (log.action === 'SYNC_SHEETS' || log.action === 'CLOUD_SYNC') {
+  if (log.action === 'CLOUD_SYNC') {
     const text = `${log.title || ''} ${log.description || ''}`.toLowerCase();
     if (
       text.includes('tự động') ||
@@ -726,34 +733,127 @@ export function saveAuditLogs(logs: AuditLog[]): void {
   }
 }
 
-function getAuditEnvironmentContext(): Record<string, any> {
+export function getAuditEnvironmentContext(): Record<string, any> {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return { environment: 'Server / Node' };
   }
   try {
     const ua = navigator.userAgent || '';
-    let os = 'Không rõ OS';
-    if (/iPhone|iPad|iPod/i.test(ua)) os = 'iOS';
-    else if (/Android/i.test(ua)) os = 'Android';
-    else if (/Mac OS X/i.test(ua)) os = 'macOS';
-    else if (/Windows/i.test(ua)) os = 'Windows';
-    else if (/Linux/i.test(ua)) os = 'Linux';
 
-    let browser = 'Trình duyệt';
-    if (/Edg\//i.test(ua)) browser = 'Edge';
-    else if (/CriOS|Chrome\//i.test(ua)) browser = 'Chrome';
-    else if (/FxiOS|Firefox\//i.test(ua)) browser = 'Firefox';
-    else if (/Safari\//i.test(ua)) browser = 'Safari';
+    // 1. OS & Device detection
+    let osName = 'Không rõ OS';
+    let deviceType = 'Máy tính';
+    if (/iPhone/i.test(ua)) {
+      const ver = ua.match(/OS (\d+[_.]\d+(?:[_.]\d+)?)/i)?.[1]?.replace(/_/g, '.');
+      osName = ver ? `iOS ${ver} (iPhone)` : 'iOS (iPhone)';
+      deviceType = 'Điện thoại';
+    } else if (/iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+      const ver = ua.match(/OS (\d+[_.]\d+(?:[_.]\d+)?)/i)?.[1]?.replace(/_/g, '.');
+      osName = ver ? `iPadOS ${ver}` : 'iPadOS (iPad)';
+      deviceType = 'Máy tính bảng';
+    } else if (/Android/i.test(ua)) {
+      const ver = ua.match(/Android\s+([0-9.]+)/i)?.[1];
+      const model = ua.match(/Android[^;)]+;\s*([^;)]+?)\s*(?:Build|\))/i)?.[1]?.trim();
+      osName = `Android${ver ? ` ${ver}` : ''}${model && model !== 'K' ? ` (${model})` : ''}`;
+      deviceType = /Mobile/i.test(ua) ? 'Điện thoại' : 'Máy tính bảng';
+    } else if (/Mac OS X/i.test(ua)) {
+      const ver = ua.match(/Mac OS X (\d+[_.]\d+)/i)?.[1]?.replace(/_/g, '.');
+      osName = ver ? `macOS ${ver}` : 'macOS';
+    } else if (/Windows NT/i.test(ua)) {
+      const nt = ua.match(/Windows NT ([0-9.]+)/i)?.[1];
+      osName = nt === '10.0' ? 'Windows 10/11' : `Windows${nt ? ` (${nt})` : ''}`;
+    } else if (/Linux/i.test(ua)) {
+      osName = 'Linux';
+    }
+
+    // 2. Browser detection
+    let browserName = 'Trình duyệt';
+    if (/Zalo/i.test(ua)) browserName = 'Zalo In-App Browser';
+    else if (/FBAN|FBAV/i.test(ua)) browserName = 'Facebook In-App Browser';
+    else if (/coc_coc_browser/i.test(ua)) browserName = 'Cốc Cốc';
+    else if (/Edg(?:A|iOS)?\/([0-9]+)/i.test(ua)) {
+      const v = ua.match(/Edg(?:A|iOS)?\/([0-9]+)/i)?.[1];
+      browserName = v ? `Edge ${v}` : 'Edge';
+    } else if (/CriOS\/([0-9]+)/i.test(ua)) {
+      const v = ua.match(/CriOS\/([0-9]+)/i)?.[1];
+      browserName = v ? `Chrome iOS ${v}` : 'Chrome iOS';
+    } else if (/Chrome\/([0-9]+)/i.test(ua)) {
+      const v = ua.match(/Chrome\/([0-9]+)/i)?.[1];
+      browserName = v ? `Chrome ${v}` : 'Chrome';
+    } else if (/FxiOS\/([0-9]+)|Firefox\/([0-9]+)/i.test(ua)) {
+      const m = ua.match(/(?:FxiOS|Firefox)\/([0-9]+)/i)?.[1];
+      browserName = m ? `Firefox ${m}` : 'Firefox';
+    } else if (/Safari\//i.test(ua)) {
+      const v = ua.match(/Version\/([0-9.]+)/i)?.[1];
+      browserName = v ? `Safari ${v}` : 'Safari';
+    }
 
     const isStandalone =
       (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
       (navigator as any).standalone === true;
 
+    // 3. Timezone & Screen & Network
+    let timezone = '';
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const offsetMin = -new Date().getTimezoneOffset();
+      const sign = offsetMin >= 0 ? '+' : '-';
+      const absH = Math.floor(Math.abs(offsetMin) / 60);
+      const absM = Math.abs(offsetMin) % 60;
+      const utcLabel = absM > 0 ? `UTC${sign}${absH}:${String(absM).padStart(2, '0')}` : `UTC${sign}${absH}`;
+      timezone = tz ? `${tz} (${utcLabel})` : utcLabel;
+    } catch {
+      timezone = '';
+    }
+
+    const dpr = typeof window.devicePixelRatio === 'number' ? Math.round(window.devicePixelRatio * 10) / 10 : 1;
+    const screenResolution =
+      window.screen?.width && window.screen?.height
+        ? `${window.screen.width}×${window.screen.height}${dpr > 1 ? ` (${dpr}x)` : ''}`
+        : undefined;
+
+    const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+    let networkInfo = navigator.onLine ? 'Trực tuyến' : 'Ngoại tuyến';
+    if (conn) {
+      const netParts: string[] = [];
+      if (conn.type && conn.type !== 'unknown') netParts.push(String(conn.type).toUpperCase());
+      if (conn.effectiveType) netParts.push(String(conn.effectiveType).toUpperCase());
+      if (typeof conn.downlink === 'number' && conn.downlink > 0) netParts.push(`${conn.downlink} Mbps`);
+      if (typeof conn.rtt === 'number' && conn.rtt > 0) netParts.push(`RTT ${conn.rtt}ms`);
+      if (netParts.length > 0) {
+        networkInfo = `${navigator.onLine ? 'Online' : 'Offline'} (${netParts.join(' · ')})`;
+      }
+    }
+
+    const touchPoints = typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints : 0;
+    const touchSupport = touchPoints > 0 ? `Cảm ứng (${touchPoints} điểm)` : 'Chuột / Bàn phím';
+
+    const hwParts: string[] = [];
+    if (typeof navigator.hardwareConcurrency === 'number' && navigator.hardwareConcurrency > 0) {
+      hwParts.push(`${navigator.hardwareConcurrency} nhân CPU`);
+    }
+    if (typeof (navigator as any).deviceMemory === 'number' && (navigator as any).deviceMemory > 0) {
+      hwParts.push(`${(navigator as any).deviceMemory} GB RAM`);
+    }
+
+    const pageOrigin = `${window.location.origin}${window.location.pathname}`;
+
     return {
-      device: `${os} · ${browser}`,
+      device: `${osName} · ${browserName}`,
+      deviceType,
+      osName,
+      browserName,
       appMode: isStandalone ? 'PWA (Đã cài đặt)' : 'Trình duyệt Web',
       viewport: `${window.innerWidth}×${window.innerHeight}`,
+      ...(screenResolution ? { screenResolution } : {}),
+      ...(timezone ? { timezone } : {}),
+      ...(navigator.language ? { language: navigator.language } : {}),
+      networkInfo,
       online: navigator.onLine,
+      touchSupport,
+      ...(hwParts.length > 0 ? { hardwareSummary: hwParts.join(' · ') } : {}),
+      pageOrigin,
+      ...(document.referrer ? { referrer: document.referrer.slice(0, 120) } : {}),
     };
   } catch {
     return {};
@@ -824,11 +924,70 @@ function queueRemoteAuditLogPush(log: AuditLog): void {
   }
 }
 
+export function parseAuditTimestampMs(ts?: unknown, id?: string): number | null {
+  if (typeof ts === 'number' && Number.isFinite(ts) && ts > 0) {
+    return ts;
+  }
+  if (typeof ts === 'string') {
+    const trimmed = ts.trim();
+    if (trimmed) {
+      // 1. Standard ISO 8601 / RFC starting with YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        const parsedIso = Date.parse(trimmed);
+        if (!Number.isNaN(parsedIso)) return parsedIso;
+      }
+
+      // 2. Vietnamese locale formats from Google Sheets: "HH:mm:ss dd/MM/yyyy" or "dd/MM/yyyy, HH:mm:ss"
+      const timeFirst = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[, ]?\s*(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (timeFirst) {
+        const [, hh, mm, ss = '0', dd, mo, yyyy] = timeFirst;
+        const d = new Date(Number(yyyy), Number(mo) - 1, Number(dd), Number(hh), Number(mm), Number(ss)).getTime();
+        if (!Number.isNaN(d)) return d;
+      }
+
+      const dateFirst = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[\s,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+      if (dateFirst) {
+        const [, dd, mo, yyyy, hh = '0', mm = '0', ss = '0'] = dateFirst;
+        const d = new Date(Number(yyyy), Number(mo) - 1, Number(dd), Number(hh), Number(mm), Number(ss)).getTime();
+        if (!Number.isNaN(d)) return d;
+      }
+
+      // 3. Fallback native Date.parse for non-dd/MM strings (e.g. "Sat Nov 21 2026 ...")
+      if (!/^\d{1,2}\/\d{1,2}\/\d{4}/.test(trimmed)) {
+        const parsed = Date.parse(trimmed);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+    }
+  }
+
+  // 4. Fallback: extract exact millisecond timestamp embedded in log ID ("log-<ms>-...")
+  if (typeof id === 'string') {
+    const idMatch = id.match(/^log-(\d{10,15})-/);
+    if (idMatch) {
+      const ms = Number(idMatch[1]);
+      if (Number.isFinite(ms) && ms > 0) return ms;
+    }
+  }
+
+  return null;
+}
+
 export function recordAuditLog(
   log: Omit<AuditLog, 'id' | 'timestamp'> & { timestamp?: string },
   options?: { skipRemoteSync?: boolean }
 ): AuditLog {
-  const ts = log.timestamp || new Date().toISOString();
+  let ts = log.timestamp || new Date().toISOString();
+  try {
+    const clearedAtStr = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT);
+    const clearedMs = parseAuditTimestampMs(clearedAtStr);
+    const tsMs = parseAuditTimestampMs(ts);
+    if (clearedMs && tsMs !== null && tsMs <= clearedMs) {
+      ts = new Date(clearedMs + 1).toISOString();
+    }
+  } catch {
+    // ignore
+  }
+
   const envContext = getAuditEnvironmentContext();
   let localTimeStr = ts;
   try {
@@ -876,21 +1035,34 @@ export function recordAuditLog(
 
 export function mergeRemoteAuditLogs(
   remoteLogs: AuditLog[],
-  options?: { includeCleared?: boolean }
+  options?: { includeCleared?: boolean; serverClearedAt?: string }
 ): { logs: AuditLog[]; newCount: number; hiddenByClearCount: number } {
   const includeCleared = Boolean(options?.includeCleared);
-  let clearedAt = '';
+  let clearedAtMs = 0;
   try {
     if (includeCleared) {
       localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT);
     } else {
-      clearedAt = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT) || '';
+      const localClearedStr = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT) || '';
+      const localClearedMs = parseAuditTimestampMs(localClearedStr) || 0;
+      const serverClearedMs = parseAuditTimestampMs(options?.serverClearedAt) || 0;
+      clearedAtMs = Math.max(localClearedMs, serverClearedMs);
+      if (serverClearedMs > localClearedMs && serverClearedMs > 0) {
+        safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT, new Date(serverClearedMs).toISOString());
+      }
     }
   } catch {
-    clearedAt = '';
+    clearedAtMs = 0;
   }
 
-  const currentLocal = loadAuditLogs().filter((l) => l.id && !l.id.startsWith('log-init-'));
+  const currentLocal = loadAuditLogs().filter((l) => {
+    if (!l.id || l.id.startsWith('log-init-') || isAutoSyncAuditLog(l)) return false;
+    if (!includeCleared && clearedAtMs > 0) {
+      const lMs = parseAuditTimestampMs(l.timestamp, l.id);
+      if (lMs === null || lMs <= clearedAtMs) return false;
+    }
+    return true;
+  });
   const existingIds = new Set(currentLocal.map((l) => l.id));
   const mergedMap = new Map<string, AuditLog>();
 
@@ -902,21 +1074,27 @@ export function mergeRemoteAuditLogs(
   let hiddenByClearCount = 0;
   for (const r of remoteLogs) {
     if (!r || !r.id || r.id.startsWith('log-init-') || isAutoSyncAuditLog(r)) continue;
-    if (!includeCleared && clearedAt && r.timestamp && r.timestamp <= clearedAt) {
+    const rMs = parseAuditTimestampMs(r.timestamp, r.id);
+    if (!includeCleared && clearedAtMs > 0 && (rMs === null || rMs <= clearedAtMs)) {
       hiddenByClearCount++;
       continue;
     }
     if (!existingIds.has(r.id)) {
       newCount++;
     }
-    mergedMap.set(r.id, r);
+    mergedMap.set(r.id, rMs !== null && !/^\d{4}-\d{2}-\d{2}T/.test(r.timestamp || '') ? { ...r, timestamp: new Date(rMs).toISOString() } : r);
   }
 
   const merged = Array.from(mergedMap.values())
-    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+    .sort((a, b) => {
+      const msA = parseAuditTimestampMs(a.timestamp, a.id) ?? -Infinity;
+      const msB = parseAuditTimestampMs(b.timestamp, b.id) ?? -Infinity;
+      if (msB !== msA) return msB - msA;
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
+    })
     .slice(0, 500);
 
-  if (merged.length > 0 || localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED) === 'true') {
+  if (merged.length > 0 || localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED) === 'true' || clearedAtMs > 0) {
     saveAuditLogs(merged);
     safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED, 'true');
   }
@@ -924,11 +1102,19 @@ export function mergeRemoteAuditLogs(
   return { logs: merged, newCount, hiddenByClearCount };
 }
 
-export function clearAuditLogs(): void {
+export function clearAuditLogs(clearedAtIso?: string): string {
+  const effectiveIso = clearedAtIso || new Date().toISOString();
   try {
+    // Cancel any queued logs from before clearing so they never resurrect on the server afterwards
+    pendingRemoteAuditLogs = [];
+    if (remoteAuditPushTimer) {
+      clearTimeout(remoteAuditPushTimer);
+      remoteAuditPushTimer = null;
+    }
+
     safeSetItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify([]));
     safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED, 'true');
-    safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT, new Date().toISOString());
+    safeSetItem(STORAGE_KEYS.AUDIT_LOGS_CLEARED_AT, effectiveIso);
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('audit-logs-cleared'));
@@ -936,5 +1122,6 @@ export function clearAuditLogs(): void {
   } catch {
     // ignore
   }
+  return effectiveIso;
 }
 

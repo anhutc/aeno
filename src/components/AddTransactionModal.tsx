@@ -37,6 +37,7 @@ import { generateRandomPin as createAlphanumericPin } from '../utils/pinGenerato
 import { ThousandAmountInput } from './ThousandAmountInput';
 import { uploadBillImage, resolveBillImageFallback } from '../utils/imageUploader';
 import { cleanStorageIfQuotaBloated } from '../utils/storage';
+import { KineticScanBar, LedgerWaveBars } from './DataPulseLoader';
 
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -682,18 +683,21 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             />
 
             {isUploadingImage ? (
-              <div className="flex items-center justify-between gap-3 p-3.5 border border-emerald-200 bg-emerald-50/70 rounded-2xl text-emerald-900 text-xs font-semibold shadow-2xs">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
-                  <span className="truncate">Đang tối ưu & tải ảnh hóa đơn...</span>
+              <div className="border border-emerald-200/90 bg-white rounded-2xl overflow-hidden shadow-2xs">
+                <KineticScanBar tone="emerald" />
+                <div className="flex items-center justify-between gap-3 px-3.5 py-3 text-emerald-950 text-xs font-semibold">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <LedgerWaveBars size="sm" tone="emerald" />
+                    <span className="truncate">Đang tối ưu & tải ảnh hóa đơn...</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelUpload}
+                    className="px-2.5 py-1 text-[11px] font-bold text-rose-600 bg-rose-50/60 hover:bg-rose-100 border border-rose-200 rounded-lg shrink-0 cursor-pointer transition-colors"
+                  >
+                    Hủy
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCancelUpload}
-                  className="px-2.5 py-1 text-[11px] font-bold text-rose-600 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg shrink-0 cursor-pointer transition-colors"
-                >
-                  Hủy
-                </button>
               </div>
             ) : billImage ? (
               <div className="flex items-center gap-3 p-3 bg-emerald-50/50 border border-emerald-200 rounded-2xl shadow-2xs">

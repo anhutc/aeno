@@ -111,13 +111,21 @@ export const DebtorDetailModal: React.FC<DebtorDetailModalProps> = ({
         action: 'SHARE_REMINDER',
         actor: 'Chủ Sổ (Admin)',
         title: `Sao chép mã PIN tra cứu: ${debtor.name}`,
-        description: `Chủ sổ đã sao chép mã PIN tra cứu (${debtor.pin}) của "${debtor.name}" (Dư nợ hiện tại: ${formatVND(currentBalance)}).`,
+        description: `Chủ sổ đã sao chép mã PIN tra cứu (${debtor.pin}) của "${debtor.name}" để gửi đối soát. Dư nợ hiện tại: ${formatVND(currentBalance)} (${statement.length} giao dịch).`,
         debtorId: debtor.id,
         debtorName: debtor.name,
         amount: Math.abs(currentBalance),
-        beforeState: 'Chi tiết người nợ',
+        beforeState: `Chi tiết người nợ "${debtor.name}"`,
         afterState: `Đã sao chép PIN (${debtor.pin})`,
-        changes: [{ fieldLabel: 'Thao tác', before: '-', after: `Sao chép mã PIN (${debtor.pin})` }],
+        changes: [
+          { fieldLabel: 'Mã PIN đã chép', before: '-', after: debtor.pin },
+          { fieldLabel: 'Dư nợ hiện tại', before: '-', after: `${formatVND(currentBalance)} (${statement.length} GD)` },
+        ],
+        metadata: {
+          pin: debtor.pin,
+          balance: currentBalance,
+          txCount: statement.length,
+        },
       });
     } catch {
       // ignore

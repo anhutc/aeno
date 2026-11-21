@@ -38,6 +38,7 @@ import {
   clearAuditLogs,
   mergeRemoteAuditLogs,
   clearMemorySettings,
+  getAuditEnvironmentContext,
 } from './storage';
 
 // In-memory ONLY storage for active owner token & connection URL (never persisted to localStorage)
@@ -331,6 +332,15 @@ export type CloudErrorCode =
   | 'SHEETS_UNAVAILABLE'
   | 'INVALID_CREDENTIALS';
 
+export interface LoginClientMeta {
+  clientIp?: string;
+  locationHint?: string;
+  acceptLanguage?: string;
+  platformHint?: string;
+  serverOrigin?: string;
+  serverTime?: string;
+}
+
 export async function loginOwner(
   password: string,
   methodHint?: 'PASSWORD' | 'FACE_ID'
@@ -339,28 +349,50 @@ export async function loginOwner(
   errorCode?: CloudErrorCode;
   needsScriptUpgrade?: boolean;
   message?: string;
+  clientMeta?: LoginClientMeta;
+  authLatencyMs?: number;
 }> {
   const cleanPass = (password || '').trim();
   if (!cleanPass) {
     return { success: false, message: 'Vui lòng nhập mật khẩu quản lý' };
   }
 
-  const recordOwnerLoginSuccess = (authChannel: string, usedMethod: string) => {
+  const recordOwnerLoginSuccess = (
+    authChannel: string,
+    usedMethod: string,
+    extra?: {
+      clientMeta?: LoginClientMeta;
+      authLatencyMs?: number;
+      loginStats?: { debtorsCount?: number; transactionsCount?: number; partiesCount?: number };
+    }
+  ) => {
     try {
       const currentSettings = loadSettings();
-      const dCount = loadDebtors().length;
-      const tCount = loadTransactions().length;
+      const env = getAuditEnvironmentContext();
+      const dCount = extra?.loginStats?.debtorsCount ?? loadDebtors().length;
+      const tCount = extra?.loginStats?.transactionsCount ?? loadTransactions().length;
+      const pCount = extra?.loginStats?.partiesCount ?? loadParties().length;
+      const ipStr = extra?.clientMeta?.clientIp || 'Không xác định';
+      const locStr = extra?.clientMeta?.locationHint || '';
+      const latencyStr = typeof extra?.authLatencyMs === 'number' ? `${extra.authLatencyMs} ms` : undefined;
+
       recordAuditLog({
         action: methodHint === 'FACE_ID' ? 'BIOMETRIC_AUTH' : 'LOGIN_SUCCESS',
         actor: `Chủ Sổ (${currentSettings.ownerName || 'Admin'})`,
         title: methodHint === 'FACE_ID' ? 'Đăng nhập quản trị bằng FaceID / Vân tay' : 'Đăng nhập quản trị thành công',
-        description: `Chủ sổ đã xác thực thành công vào hệ thống quản lý công nợ qua ${usedMethod} (Kênh: ${authChannel}). Hiện có ${dCount} người nợ và ${tCount} giao dịch.`,
+        description: `Chủ sổ "${currentSettings.ownerName || 'Admin'}" xác thực thành công qua ${usedMethod} (${authChannel}). IP: ${ipStr}${locStr ? ` (${locStr})` : ''} · Thiết bị: ${env.device || 'Web'}${env.appMode ? ` (${env.appMode})` : ''}. Quy mô sổ: ${dCount} người nợ, ${tCount} giao dịch, ${pCount} cuộc chia bill.`,
         beforeState: 'Chưa đăng nhập (Phiên khóa)',
-        afterState: `Đã mở khóa phiên quản trị qua ${usedMethod}`,
+        afterState: `Đã mở khóa phiên quản trị qua ${usedMethod} · IP ${ipStr}${locStr ? ` (${locStr})` : ''}`,
         changes: [
           { fieldLabel: 'Phương thức xác thực', before: 'Chưa xác thực', after: usedMethod },
           { fieldLabel: 'Kênh kiểm tra', before: '-', after: authChannel },
-          { fieldLabel: 'Trạng thái phiên', before: 'Khóa', after: 'Đang hoạt động' },
+          { fieldLabel: 'Địa chỉ IP', before: '-', after: ipStr },
+          ...(locStr ? [{ fieldLabel: 'Vị trí / Khu vực', before: '-', after: locStr }] : []),
+          { fieldLabel: 'Thiết bị & Trình duyệt', before: '-', after: `${env.device || 'Không rõ'} (${env.appMode || 'Web'})` },
+          ...(env.timezone ? [{ fieldLabel: 'Múi giờ & Màn hình', before: '-', after: `${env.timezone}${env.screenResolution ? ` · ${env.screenResolution}` : ''}` }] : []),
+          ...(env.networkInfo ? [{ fieldLabel: 'Kết nối mạng', before: '-', after: env.networkInfo }] : []),
+          ...(latencyStr ? [{ fieldLabel: 'Độ trễ xác thực', before: '-', after: latencyStr }] : []),
+          { fieldLabel: 'Quy mô dữ liệu sổ', before: '-', after: `${dCount} người nợ · ${tCount} GD · ${pCount} cuộc vui` },
         ],
         metadata: {
           authChannel,
@@ -368,6 +400,12 @@ export async function loginOwner(
           ownerName: currentSettings.ownerName || 'Chủ Sổ',
           debtorsCount: dCount,
           transactionsCount: tCount,
+          partiesCount: pCount,
+          clientIp: ipStr,
+          ...(locStr ? { locationHint: locStr } : {}),
+          ...(typeof extra?.authLatencyMs === 'number' ? { authLatencyMs: extra.authLatencyMs } : {}),
+          ...(extra?.clientMeta?.serverOrigin ? { serverOrigin: extra.clientMeta.serverOrigin } : {}),
+          ...(extra?.clientMeta?.serverTime ? { serverTime: extra.clientMeta.serverTime } : {}),
         },
       });
     } catch (err) {
@@ -379,6 +417,8 @@ export async function loginOwner(
   let cloudErrorMessage: string | undefined;
   let needsScriptUpgrade = false;
   let serverResponded = false;
+  let serverClientMeta: LoginClientMeta | undefined;
+  let serverLatencyMs: number | undefined;
 
   // 1. Try server-side authentication (never send x-apps-script-url unauthenticated)
   try {
@@ -394,6 +434,9 @@ export async function loginOwner(
     if (contentType.includes('application/json')) {
       serverResponded = true;
       const data = await res.json();
+      serverClientMeta = data.clientMeta;
+      serverLatencyMs = typeof data.authLatencyMs === 'number' ? data.authLatencyMs : undefined;
+
       if (res.ok && data.success && data.token) {
         setStoredOwnerToken(data.token);
         if (data.settings) {
@@ -413,11 +456,17 @@ export async function loginOwner(
         const methodLabel =
           methodHint === 'FACE_ID'
             ? 'FaceID / Sinh trắc học'
-            : isPhoneMatch
-            ? 'Số điện thoại chủ sổ'
-            : 'Mật khẩu quản trị';
-        recordOwnerLoginSuccess('Cloud Server', methodLabel);
-        return { success: true };
+            : data.matchedBy || (isPhoneMatch ? 'Số điện thoại chủ sổ' : 'Mật khẩu quản trị');
+        recordOwnerLoginSuccess('Cloud Server', methodLabel, {
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
+          loginStats: data.loginStats,
+        });
+        return {
+          success: true,
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
+        };
       }
       if (
         data.code === 'SERVICE_UNAVAILABLE' ||
@@ -433,6 +482,8 @@ export async function loginOwner(
           success: false,
           errorCode: 'INVALID_CREDENTIALS',
           message: data.message || 'Mật khẩu quản trị không chính xác',
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
         };
       }
     } else if (res.status >= 500) {
@@ -450,6 +501,8 @@ export async function loginOwner(
       errorCode: cloudErrorCode,
       needsScriptUpgrade,
       message: cloudErrorMessage || 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+      clientMeta: serverClientMeta,
+      authLatencyMs: serverLatencyMs,
     };
   }
 
@@ -486,6 +539,8 @@ export async function loginOwner(
     success: false,
     errorCode: 'INVALID_CREDENTIALS',
     message: 'Mật khẩu quản trị không chính xác',
+    clientMeta: serverClientMeta,
+    authLatencyMs: serverLatencyMs,
   };
 }
 
@@ -1075,11 +1130,15 @@ export async function apiSaveTransaction(
       changes: txChanges,
       metadata: {
         transactionId: newId,
+        debtorPin: debtorObj?.pin || undefined,
         type: tx.type,
         date: tx.date,
         category: tx.category || 'DIRECT',
+        note: tx.note || undefined,
         prevBalance,
         newBalance,
+        totalAddAfter: prevStats.addTotal + (isAdd ? tx.amount : 0),
+        totalSubAfter: prevStats.subTotal + (!isAdd ? tx.amount : 0),
         prevTxCount: prevStats.txCount,
         newTxCount: prevStats.txCount + 1,
         hasBillImage: Boolean(tx.billImage),
@@ -1273,9 +1332,11 @@ export async function apiUpdateTransaction(
       changes: txChanges,
       metadata: {
         transactionId: tx.id,
+        debtorPin: newDebtorObj?.pin || undefined,
         date: tx.date,
         type: tx.type,
         category: tx.category || 'DIRECT',
+        note: tx.note || undefined,
         prevBalance,
         newBalance,
         hasBillImage: Boolean(tx.billImage),
@@ -2058,31 +2119,55 @@ export async function apiGuestLookup(
   errorCode?: CloudErrorCode;
   needsScriptUpgrade?: boolean;
   message?: string;
+  clientMeta?: LoginClientMeta;
+  authLatencyMs?: number;
 }> {
   const cleanPin = pin.trim();
   const cleanPinLower = cleanPin.toLowerCase();
   const isSilent = Boolean(options?.silent);
 
-  const recordLookupAudit = (debtor: Debtor, txs: Transaction[] = [], source: string) => {
+  const recordLookupAudit = (
+    debtor: Debtor,
+    txs: Transaction[] = [],
+    source: string,
+    extra?: { clientMeta?: LoginClientMeta; authLatencyMs?: number }
+  ) => {
     if (isSilent) return;
     try {
+      const env = getAuditEnvironmentContext();
       const stats = getDebtorAuditStats(debtor.id, txs);
       const balanceStr = fmtMoney(stats.balance);
       const safePin = (debtor.pin || cleanPin).trim();
+      const settledStatus = stats.balance <= 0 ? 'Đã tất toán (0đ)' : 'Còn dư nợ';
+      const sortedDates = txs
+        .map((t) => t.date || (t.createdAt ? t.createdAt.slice(0, 10) : ''))
+        .filter(Boolean)
+        .sort()
+        .reverse();
+      const latestTxDate = sortedDates[0] || undefined;
+      const ipStr = extra?.clientMeta?.clientIp || 'Không xác định';
+      const locStr = extra?.clientMeta?.locationHint || '';
+      const latencyStr = typeof extra?.authLatencyMs === 'number' ? `${extra.authLatencyMs} ms` : undefined;
+
       const lookupBeforeState = 'Trạng thái khách: Chưa đăng nhập tra cứu';
-      const lookupAfterState = `Đã xác thực mã PIN: ${safePin} (${source}), đối soát số dư ${balanceStr} (${stats.txCount} giao dịch)`;
+      const lookupAfterState = `Đã xác thực mã PIN: ${safePin} (${source}) · IP ${ipStr}${locStr ? ` (${locStr})` : ''} · Đối soát số dư ${balanceStr} (${stats.txCount} giao dịch)`;
       const lookupChanges: AuditChangeDetail[] = [
         { fieldLabel: 'Mã PIN tra cứu', before: 'Chưa nhập', after: `Khớp PIN (${safePin})` },
         { fieldLabel: 'Nguồn dữ liệu', before: '-', after: source },
+        { fieldLabel: 'Địa chỉ IP', before: '-', after: ipStr },
+        ...(locStr ? [{ fieldLabel: 'Vị trí / Khu vực', before: '-', after: locStr }] : []),
+        { fieldLabel: 'Thiết bị & Trình duyệt', before: '-', after: `${env.device || 'Không rõ'} (${env.appMode || 'Web'})` },
+        ...(env.networkInfo ? [{ fieldLabel: 'Kết nối mạng', before: '-', after: env.networkInfo }] : []),
+        ...(latencyStr ? [{ fieldLabel: 'Độ trễ tra cứu', before: '-', after: latencyStr }] : []),
         { fieldLabel: 'Dư nợ đối soát', before: 'Ẩn', after: `${balanceStr} (${stats.txCount} GD · Gồm ${stats.splitCount} bill nhóm)` },
-        { fieldLabel: 'Tổng nợ / Đã trả', before: '-', after: `Nợ ${fmtMoney(stats.addTotal)} · Đã trả ${fmtMoney(stats.subTotal)}` },
+        { fieldLabel: 'Tổng nợ / Đã trả', before: '-', after: `Nợ ${fmtMoney(stats.addTotal)} · Đã trả ${fmtMoney(stats.subTotal)} · ${settledStatus}` },
       ];
 
       recordAuditLog({
         action: 'GUEST_LOOKUP',
         actor: `Khách: ${debtor.name}`,
         title: `Khách tra cứu sổ nợ: ${debtor.name}`,
-        description: `Khách "${debtor.name}" đã tra cứu bảng đối soát (PIN: ${safePin}, Nguồn: ${source}). Dư nợ hiện tại: ${balanceStr} qua ${stats.txCount} giao dịch (Tổng vay ${fmtMoney(stats.addTotal)}, đã trả ${fmtMoney(stats.subTotal)}).`,
+        description: `Khách "${debtor.name}" đã tra cứu bảng đối soát (PIN: ${safePin}, Nguồn: ${source}). IP: ${ipStr}${locStr ? ` (${locStr})` : ''} · Thiết bị: ${env.device || 'Web'}. Dư nợ hiện tại: ${balanceStr} qua ${stats.txCount} giao dịch (Tổng vay ${fmtMoney(stats.addTotal)}, đã trả ${fmtMoney(stats.subTotal)}).`,
         debtorId: debtor.id,
         debtorName: debtor.name,
         amount: stats.balance,
@@ -2097,6 +2182,12 @@ export async function apiGuestLookup(
           totalSub: stats.subTotal,
           txCount: stats.txCount,
           splitCount: stats.splitCount,
+          settledStatus,
+          ...(latestTxDate ? { latestTxDate } : {}),
+          clientIp: ipStr,
+          ...(locStr ? { locationHint: locStr } : {}),
+          ...(typeof extra?.authLatencyMs === 'number' ? { authLatencyMs: extra.authLatencyMs } : {}),
+          ...(extra?.clientMeta?.serverOrigin ? { serverOrigin: extra.clientMeta.serverOrigin } : {}),
           lookupTime: new Date().toISOString(),
         },
       });
@@ -2106,6 +2197,8 @@ export async function apiGuestLookup(
   };
 
   let serverResponded = false;
+  let serverClientMeta: LoginClientMeta | undefined;
+  let serverLatencyMs: number | undefined;
 
   try {
     const res = await fetch('/api/guest/lookup', {
@@ -2120,13 +2213,21 @@ export async function apiGuestLookup(
     if (contentType.includes('application/json')) {
       serverResponded = true;
       const data = await res.json();
+      serverClientMeta = data.clientMeta;
+      serverLatencyMs = typeof data.authLatencyMs === 'number' ? data.authLatencyMs : undefined;
+
       if (res.ok && data.success && data.debtor) {
-        recordLookupAudit(data.debtor, data.transactions || [], 'Cloud Server');
+        recordLookupAudit(data.debtor, data.transactions || [], 'Cloud Server', {
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
+        });
         return {
           success: true,
           debtor: data.debtor,
           transactions: data.transactions,
           settings: data.settings,
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
         };
       }
       if (
@@ -2140,26 +2241,44 @@ export async function apiGuestLookup(
           errorCode: 'SHEETS_UNAVAILABLE',
           needsScriptUpgrade: false,
           message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
         };
       }
       if (res.status === 404 || res.status === 400) {
         if (!isSilent) {
+          const env = getAuditEnvironmentContext();
           const maskedPin = cleanPin.length > 2 ? `${cleanPin.slice(0, 1)}***${cleanPin.slice(-1)}` : '***';
+          const ipStr = serverClientMeta?.clientIp || 'Không xác định';
+          const locStr = serverClientMeta?.locationHint || '';
           recordAuditLog({
             action: 'LOOKUP_FAILED',
             actor: 'Khách vãng lai',
-            title: 'Khách tra cứu thất bại',
-            description: `Khách đã nhập mã tra cứu không hợp lệ hoặc không tồn tại (${maskedPin}).`,
-            beforeState: 'Chưa tra cứu',
-            afterState: 'Từ chối xem thông tin (Sai mã PIN)',
-            changes: [{ fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: `Không tìm thấy (${maskedPin})` }],
-            metadata: { maskedInput: maskedPin, inputLength: cleanPin.length },
+            title: 'Khách tra cứu / đăng nhập sai mã',
+            description: `Nhập mã không hợp lệ "${maskedPin}" (${cleanPin.length} ký tự) · IP: ${ipStr}${locStr ? ` (${locStr})` : ''} · Thiết bị: ${env.device || 'Web'}.`,
+            beforeState: 'Chưa xác thực',
+            afterState: `Từ chối xem thông tin (Sai mã PIN · IP ${ipStr})`,
+            changes: [
+              { fieldLabel: 'Kết quả tra cứu', before: 'Chờ nhập mã', after: `Không khớp (${maskedPin}, ${cleanPin.length} ký tự)` },
+              { fieldLabel: 'Địa chỉ IP', before: '-', after: ipStr },
+              ...(locStr ? [{ fieldLabel: 'Vị trí / Khu vực', before: '-', after: locStr }] : []),
+              { fieldLabel: 'Thiết bị & Mạng', before: '-', after: `${env.device || 'Không rõ'} · ${env.networkInfo || 'Online'}` },
+            ],
+            metadata: {
+              maskedInput: maskedPin,
+              inputLength: cleanPin.length,
+              clientIp: ipStr,
+              ...(locStr ? { locationHint: locStr } : {}),
+              ...(typeof serverLatencyMs === 'number' ? { authLatencyMs: serverLatencyMs } : {}),
+            },
           });
         }
         return {
           success: false,
           errorCode: 'INVALID_CREDENTIALS',
           message: data.message || 'Mã tra cứu không tồn tại hoặc không chính xác.',
+          clientMeta: serverClientMeta,
+          authLatencyMs: serverLatencyMs,
         };
       }
     } else if (res.status >= 500) {
@@ -2168,6 +2287,8 @@ export async function apiGuestLookup(
         success: false,
         errorCode: 'SHEETS_UNAVAILABLE',
         message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+        clientMeta: serverClientMeta,
+        authLatencyMs: serverLatencyMs,
       };
     }
   } catch {
@@ -2198,6 +2319,8 @@ export async function apiGuestLookup(
     success: false,
     errorCode: 'SHEETS_UNAVAILABLE',
     message: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
+    clientMeta: serverClientMeta,
+    authLatencyMs: serverLatencyMs,
   };
 }
 
@@ -3223,6 +3346,35 @@ export interface RemoteAuditLogsFetchResult {
   sheetsError?: string;
 }
 
+export async function apiClearRemoteAuditLogs(
+  clearedAt: string,
+  clearAuditRecord?: Omit<AuditLog, 'id' | 'timestamp'>
+): Promise<{ success: boolean; clearedAt?: string }> {
+  const token = getStoredOwnerToken();
+  if (!token) return { success: false };
+  try {
+    const res = await fetch('/api/owner/audit-logs/clear', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        clearedAt,
+        ...(clearAuditRecord ? { clearAuditRecord } : {}),
+      }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      return { success: false };
+    }
+    const data = await res.json();
+    return {
+      success: Boolean(data?.success),
+      clearedAt: typeof data?.clearedAt === 'string' ? data.clearedAt : clearedAt,
+    };
+  } catch {
+    return { success: false };
+  }
+}
+
 export async function apiFetchRemoteAuditLogs(
   limit = 500,
   includeCleared = false
@@ -3238,10 +3390,13 @@ export async function apiFetchRemoteAuditLogs(
   }
 
   try {
-    const res = await fetch(`/api/owner/audit-logs?limit=${limit}`, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-    });
+    const res = await fetch(
+      `/api/owner/audit-logs?limit=${limit}${includeCleared ? '&includeCleared=1' : ''}`,
+      {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      }
+    );
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !contentType.includes('application/json')) {
       return {
@@ -3254,13 +3409,16 @@ export async function apiFetchRemoteAuditLogs(
 
     const data = await res.json();
     const remoteLogs: AuditLog[] = Array.isArray(data.logs) ? data.logs : [];
-    const merged = mergeRemoteAuditLogs(remoteLogs, { includeCleared });
+    const merged = mergeRemoteAuditLogs(remoteLogs, {
+      includeCleared,
+      serverClearedAt: typeof data.clearedAt === 'string' ? data.clearedAt : undefined,
+    });
 
     return {
       success: true,
       logs: merged.logs,
       newCount: merged.newCount,
-      hiddenByClearCount: merged.hiddenByClearCount,
+      hiddenByClearCount: Math.max(merged.hiddenByClearCount, Number(data.hiddenByClearCount) || 0),
       source: data.source,
       hasAppsScriptUrl: data.hasAppsScriptUrl,
       needsAppsScriptUpgrade: Boolean(data.needsAppsScriptUpgrade),

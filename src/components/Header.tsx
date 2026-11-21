@@ -73,15 +73,15 @@ export const Header: React.FC<HeaderProps> = ({
                 <h1 className="font-bold text-base sm:text-lg text-slate-900 tracking-tight truncate group-hover:text-emerald-700 transition-colors leading-tight">
                   {settings.appTitle || 'AE Cây Khế'}
                 </h1>
-                <p className="text-[11px] text-slate-500 hidden sm:block truncate max-w-xs sm:max-w-sm lg:max-w-md mt-0.5 leading-none">
+                <p className="text-[11px] text-slate-500 truncate max-w-[180px] sm:max-w-sm lg:max-w-md mt-0.5 leading-none">
                   {isOwnerAuthenticated
                     ? currentView === 'SETTINGS'
-                      ? 'Cài đặt & Đồng bộ Cloud'
+                      ? 'Cài đặt hệ thống'
                       : currentView === 'LOGS'
-                      ? 'Nhật ký hoạt động & Kiểm vết'
-                      : `Quản lý • Chủ sổ: ${settings.ownerName}`
+                      ? 'Nhật ký kiểm vết'
+                      : `Chủ sổ · ${settings.ownerName}`
                     : activeGuestDebtor
-                    ? `Sao kê tài khoản: ${activeGuestDebtor.name}`
+                    ? `Sao kê · ${activeGuestDebtor.name}`
                     : 'Ghi chép & tra cứu sao kê'}
                 </p>
               </div>
@@ -98,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={copyGuestLink}
               title="Sao chép đường dẫn tra cứu"
-              className={`h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all border shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 shrink-0 ${
+              className={`h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all border shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 shrink-0 whitespace-nowrap ${
                 copiedLink
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                   : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border-slate-200/80'
@@ -117,25 +117,25 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* OWNER MODE: Unified Switcher & Logout */}
+            {/* OWNER MODE: Desktop-only Switcher & Logout (Mobile uses BottomNavBar) */}
             {isOwnerAuthenticated && (
               <>
                 {isOwnerDataReady && (
-                <div className="flex items-center bg-slate-100/90 p-0.5 sm:p-1 rounded-xl border border-slate-200/80 shrink-0">
+                <div className="hidden sm:flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/80 shrink-0">
                   <button
                     type="button"
                     id="nav-owner-mode-btn"
                     onClick={() => onViewChange('OWNER')}
                     title="Trang quản lý"
                     aria-label="Tổng quan"
-                    className={`flex items-center justify-center gap-1.5 h-8 sm:h-auto px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       currentView === 'OWNER'
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <LayoutDashboard className={`w-4 h-4 shrink-0 ${currentView === 'OWNER' ? 'text-emerald-600' : 'text-slate-500'}`} />
-                    <span className="hidden sm:inline">Tổng quan</span>
+                    <span>Tổng quan</span>
                   </button>
 
                   <button
@@ -147,14 +147,14 @@ export const Header: React.FC<HeaderProps> = ({
                     }}
                     title="Nhật ký thao tác & Kiểm vết"
                     aria-label="Nhật ký"
-                    className={`flex items-center justify-center gap-1.5 h-8 sm:h-auto px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       currentView === 'LOGS'
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <ClipboardList className={`w-4 h-4 shrink-0 ${currentView === 'LOGS' ? 'text-emerald-600' : 'text-slate-500'}`} />
-                    <span className="hidden sm:inline">Nhật ký</span>
+                    <span>Nhật ký</span>
                   </button>
 
                   <button
@@ -163,28 +163,28 @@ export const Header: React.FC<HeaderProps> = ({
                     onClick={() => onViewChange('SETTINGS')}
                     title="Cài đặt hệ thống"
                     aria-label="Cài Đặt"
-                    className={`flex items-center justify-center gap-1.5 h-8 sm:h-auto px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       currentView === 'SETTINGS'
                         ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <Settings className={`w-4 h-4 shrink-0 ${currentView === 'SETTINGS' ? 'text-emerald-600' : 'text-slate-500'}`} />
-                    <span className="hidden sm:inline">Cài Đặt</span>
+                    <span>Cài Đặt</span>
                   </button>
                 </div>
                 )}
 
-                {/* Owner Logout Button */}
+                {/* Owner Logout Button (Desktop only; Mobile uses BottomNavBar) */}
                 <button
                   type="button"
                   onClick={onOwnerLogout}
                   title="Đăng xuất quản lý"
                   aria-label="Đăng xuất"
-                  className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100/80 hover:bg-rose-50 text-slate-600 hover:text-rose-600 active:bg-rose-100 border border-slate-200/80 hover:border-rose-200 transition-all flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 shrink-0"
+                  className="hidden sm:flex h-9 px-3 rounded-xl bg-slate-100/80 hover:bg-rose-50 text-slate-600 hover:text-rose-600 active:bg-rose-100 border border-slate-200/80 hover:border-rose-200 transition-all items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 shrink-0 whitespace-nowrap"
                 >
                   <LogOut className="w-4 h-4 text-inherit shrink-0" />
-                  <span className="hidden sm:inline">Đăng xuất</span>
+                  <span>Đăng xuất</span>
                 </button>
               </>
             )}

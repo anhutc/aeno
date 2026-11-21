@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard,
-  Users,
-  Plus,
-  UserPlus,
+  ClipboardList,
   Settings,
+  LogOut,
+  ShieldAlert,
 } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptic';
 
@@ -12,122 +13,169 @@ interface BottomNavBarProps {
   currentView: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS';
   isOwnerAuthenticated: boolean;
   onViewChange: (view: 'OWNER' | 'GUEST' | 'SETTINGS' | 'LOGS') => void;
-  onOpenAddTx: () => void;
-  onOpenSplitParty: () => void;
-  onOpenAddDebtor: () => void;
+  onOwnerLogout: () => void;
+  logsAlertCount?: number;
 }
 
 export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   currentView,
   isOwnerAuthenticated,
   onViewChange,
-  onOpenAddTx,
-  onOpenSplitParty,
-  onOpenAddDebtor,
+  onOwnerLogout,
+  logsAlertCount = 0,
 }) => {
-  // Chỉ hiển thị cho Chủ Sổ khi đã đăng nhập
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+
   if (!isOwnerAuthenticated) {
     return null;
   }
 
+  const navItems: Array<{
+    id: 'OWNER' | 'LOGS' | 'SETTINGS';
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badgeCount?: number;
+  }> = [
+    { id: 'OWNER', label: 'Tổng quan', icon: LayoutDashboard },
+    { id: 'LOGS', label: 'Nhật ký', icon: ClipboardList, badgeCount: logsAlertCount },
+    { id: 'SETTINGS', label: 'Cài đặt', icon: Settings },
+  ];
+
   return (
-    <nav
-      aria-label="Thanh điều hướng nhanh trên di động"
-      className="sm:hidden shrink-0 z-30 bg-white/80 backdrop-blur-xl border-t border-slate-200/60 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] pt-1.5 select-none"
-      style={{
-        paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 10px), 16px)',
-      }}
-    >
-      <div className="max-w-md mx-auto px-2">
-        <div className="grid grid-cols-5 items-center justify-items-center h-14">
-          {/* 1. Tổng quan */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('selection');
-              onViewChange('OWNER');
-            }}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 active:scale-95 transition-all cursor-pointer ${
-              currentView === 'OWNER'
-                ? 'text-emerald-700 font-bold'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <LayoutDashboard
-              className={`w-5 h-5 transition-transform ${
-                currentView === 'OWNER' ? 'scale-105 stroke-[2.4]' : 'stroke-[1.8]'
-              }`}
-            />
-            <span className="text-[10px] tracking-tight leading-none">Tổng quan</span>
-          </button>
+    <>
+      <nav
+        aria-label="Thanh điều hướng trên di động"
+        className="sm:hidden shrink-0 z-30 bg-white/95 backdrop-blur-xl border-t border-slate-200/80 shadow-[0_-2px_16px_rgba(15,23,42,0.05)] select-none"
+        style={{
+          paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 6px)',
+        }}
+      >
+        <div className="max-w-md mx-auto px-2">
+          <div className="grid grid-cols-4 items-stretch h-14">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('selection');
+                    onViewChange(item.id);
+                  }}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`relative flex flex-col items-center justify-center min-h-[44px] gap-1 transition-colors cursor-pointer active:scale-95 whitespace-nowrap ${
+                    isActive
+                      ? 'text-emerald-700 font-semibold'
+                      : 'text-slate-500 hover:text-slate-900 font-medium'
+                  }`}
+                >
+                  {isActive && (
+                    <motion.span
+                      layoutId="mobile-bottom-nav-indicator"
+                      transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+                      className="absolute top-0 inset-x-4 h-[2.5px] rounded-b-full bg-emerald-600"
+                    />
+                  )}
 
-          {/* 2. Chia tiền */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('light');
-              onOpenSplitParty();
-            }}
-            className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-500 hover:text-emerald-700 active:scale-95 transition-all cursor-pointer"
-          >
-            <Users className="w-5 h-5 stroke-[1.8]" />
-            <span className="text-[10px] tracking-tight leading-none">Chia tiền</span>
-          </button>
+                  <span className="relative inline-flex items-center justify-center">
+                    <Icon
+                      className={`w-[21px] h-[21px] transition-transform ${
+                        isActive ? 'stroke-[2.3]' : 'stroke-[1.8]'
+                      }`}
+                    />
+                    {typeof item.badgeCount === 'number' && item.badgeCount > 0 && (
+                      <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-mono font-bold flex items-center justify-center leading-none">
+                        {item.badgeCount > 99 ? '99+' : item.badgeCount}
+                      </span>
+                    )}
+                  </span>
 
-          {/* 3. NÚT CHÍNH GIỮA: GHI NỢ (+) */}
-          <div className="flex flex-col items-center justify-center relative -top-3">
+                  <span className="text-[11px] leading-none tracking-tight">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+
+            {/* 4. Đăng xuất */}
             <button
               type="button"
               onClick={() => {
                 triggerHaptic('medium');
-                onOpenAddTx();
+                setConfirmLogoutOpen(true);
               }}
-              title="Ghi nợ mới"
-              aria-label="Ghi nợ mới"
-              className="w-12 h-12 rounded-full bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-600/35 border-4 border-white flex items-center justify-center active:scale-90 hover:scale-105 transition-all cursor-pointer ring-1 ring-emerald-500/20"
+              className="relative flex flex-col items-center justify-center min-h-[44px] gap-1 text-slate-500 hover:text-rose-600 active:text-rose-700 font-medium transition-colors cursor-pointer active:scale-95 whitespace-nowrap"
             >
-              <Plus className="w-6 h-6 stroke-[2.6]" />
+              <LogOut className="w-[21px] h-[21px] stroke-[1.8]" />
+              <span className="text-[11px] leading-none tracking-tight">Đăng xuất</span>
             </button>
-            <span className="text-[10px] font-bold text-emerald-800 tracking-tight leading-none mt-0.5">
-              Ghi nợ
-            </span>
           </div>
-
-          {/* 4. Người mới */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('light');
-              onOpenAddDebtor();
-            }}
-            className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-500 hover:text-emerald-700 active:scale-95 transition-all cursor-pointer"
-          >
-            <UserPlus className="w-5 h-5 stroke-[1.8]" />
-            <span className="text-[10px] tracking-tight leading-none">Thêm người</span>
-          </button>
-
-          {/* 5. Cài đặt */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('selection');
-              onViewChange('SETTINGS');
-            }}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 active:scale-95 transition-all cursor-pointer ${
-              currentView === 'SETTINGS'
-                ? 'text-emerald-700 font-bold'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Settings
-              className={`w-5 h-5 transition-transform ${
-                currentView === 'SETTINGS' ? 'scale-105 stroke-[2.4]' : 'stroke-[1.8]'
-              }`}
-            />
-            <span className="text-[10px] tracking-tight leading-none">Cài đặt</span>
-          </button>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      {/* Mobile Bottom Confirmation Sheet for Safe Logout */}
+      <AnimatePresence>
+        {confirmLogoutOpen && (
+          <motion.div
+            key="mobile-logout-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onClick={() => setConfirmLogoutOpen(false)}
+            className="sm:hidden fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-end justify-center p-3"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl p-5 space-y-4"
+              style={{
+                paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 16px), 20px)',
+              }}
+            >
+              <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto -mt-1" />
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200/80 text-rose-600 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-900">
+                    Đăng xuất phiên quản trị?
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                    Bạn sẽ quay về màn hình khóa và cần nhập lại mật khẩu để truy cập lại sổ.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmLogoutOpen(false)}
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  Ở lại
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmLogoutOpen(false);
+                    onOwnerLogout();
+                  }}
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Đăng xuất</span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };

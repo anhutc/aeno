@@ -37,6 +37,7 @@ import {
   deepCleanSessionData,
   loadAuditLogs,
   recordAuditLog,
+  getAuditEnvironmentContext,
 } from './utils/storage';
 import { triggerSettledCelebration } from './utils/confetti';
 import { Header } from './components/Header';
@@ -53,6 +54,8 @@ import { DebtorDetailModal } from './components/DebtorDetailModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { BottomNavBar } from './components/BottomNavBar';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { StartupConnectionGate } from './components/StartupConnectionGate';
+import { WorkspaceDataLoader, WorkspaceConnectionError } from './components/WorkspaceDataLoader';
 
 export default function App() {
   const [debtors, setDebtors] = useState<Debtor[]>([]);
@@ -69,12 +72,13 @@ export default function App() {
   }>({});
   const [cloudStatus, setCloudStatus] = useState<{
     checked?: boolean;
+    checking?: boolean;
     configured: boolean;
     connected: boolean;
     needsUpgrade?: boolean;
     error: string | null;
     errorCode?: string | null;
-  }>({ checked: false, configured: true, connected: false, error: null });
+  }>({ checked: false, checking: true, configured: true, connected: false, error: null });
 
   const [ownerDataStatus, setOwnerDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const ownerDataStatusRef = useRef<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
@@ -88,6 +92,7 @@ export default function App() {
     };
     const handleLogsCleared = () => {
       setAuditLogs([]);
+      setRemoteLogsStatus((prev) => ({ ...prev, hiddenByClearCount: 0 }));
     };
     window.addEventListener('audit-log-recorded', handleLogRecorded);
     window.addEventListener('audit-logs-cleared', handleLogsCleared);
@@ -172,11 +177,15 @@ export default function App() {
 
   // Load / Sync Data from Backend
   const refreshDataFromServer = useCallback(async (force = false) => {
-    // Nếu chưa xác thực Chủ Nợ, chỉ cập nhật cấu hình hiển thị công khai (Settings)
+    // Nếu chưa xác thực Chủ Nợ, kiểm tra kết nối hệ thống & cấu hình hiển thị công khai
     if (!getStoredOwnerToken()) {
+      setCloudStatus((prev) => ({ ...prev, checking: true }));
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
       try {
-        const sRes = await fetch('/api/settings', {
+        const sRes = await fetch(force ? '/api/settings?force=1' : '/api/settings', {
           cache: 'no-store',
+          signal: controller.signal,
         });
         const contentType = sRes.headers.get('content-type') || '';
         const isJson = contentType.includes('application/json');
@@ -189,6 +198,7 @@ export default function App() {
           const isConnected = sData.sheetsConnected === true;
           setCloudStatus({
             checked: true,
+            checking: false,
             configured: isConnected,
             connected: isConnected,
             needsUpgrade: false,
@@ -212,6 +222,7 @@ export default function App() {
         setCloudStatus((prev) => ({
           ...prev,
           checked: true,
+          checking: false,
           configured: false,
           connected: false,
           needsUpgrade: false,
@@ -222,9 +233,14 @@ export default function App() {
         setCloudStatus((prev) => ({
           ...prev,
           checked: true,
+          checking: false,
+          configured: false,
           connected: false,
+          errorCode: 'SERVICE_UNAVAILABLE',
           error: 'Hệ thống đang tạm gián đoạn kết nối. Vui lòng thử lại sau.',
         }));
+      } finally {
+        clearTimeout(timeoutId);
       }
       return;
     }
@@ -414,20 +430,23 @@ export default function App() {
   // Đăng xuất hoàn toàn về màn hình đăng nhập (xóa token, dữ liệu phiên và chuyển view)
   const handleLogoutOwner = useCallback((reason: 'MANUAL' | 'AUTO_LOCK' = 'MANUAL', elapsedMs?: number) => {
     try {
+      const env = getAuditEnvironmentContext();
       if (reason === 'AUTO_LOCK') {
         recordAuditLog({
           action: 'AUTO_LOCK',
           actor: 'Hệ thống bảo mật',
           title: 'Tự động khóa phiên quản trị',
-          description: `Hệ thống đã tự động khóa và đăng xuất Chủ sổ khi rời ứng dụng (Cấu hình: ${settings.autoLockTimeout || 'IMMEDIATE'}${elapsedMs ? `, thời gian ẩn: ${Math.round(elapsedMs / 1000)}s` : ''}).`,
+          description: `Hệ thống đã tự động khóa và đăng xuất Chủ sổ khi rời ứng dụng (Cấu hình: ${settings.autoLockTimeout || 'IMMEDIATE'}${elapsedMs ? `, thời gian ẩn: ${Math.round(elapsedMs / 1000)}s` : ''}) trên ${env.device}.`,
           beforeState: 'Phiên quản trị đang mở',
           afterState: 'Đã tự động khóa an toàn',
           changes: [
             { fieldLabel: 'Cơ chế khóa', before: 'Đang hoạt động', after: `Tự động khóa (${settings.autoLockTimeout || 'IMMEDIATE'})` },
+            { fieldLabel: 'Thiết bị', before: '-', after: env.device },
           ],
           metadata: {
             autoLockTimeout: settings.autoLockTimeout || 'IMMEDIATE',
             elapsedMs: elapsedMs ?? 0,
+            ...env,
           },
         });
       } else {
@@ -435,10 +454,16 @@ export default function App() {
           action: 'LOGOUT',
           actor: `Chủ Sổ (${settings.ownerName || 'Admin'})`,
           title: 'Chủ sổ đăng xuất thủ công',
-          description: 'Chủ sổ đã chủ động nhấn đăng xuất và khóa phiên làm việc an toàn.',
+          description: `Chủ sổ đã chủ động nhấn đăng xuất và khóa phiên làm việc an toàn trên ${env.device}.`,
           beforeState: 'Phiên quản trị đang hoạt động',
           afterState: 'Đã đăng xuất, trở về màn hình khóa',
-          changes: [{ fieldLabel: 'Trạng thái phiên', before: 'Đang hoạt động', after: 'Đã khóa an toàn' }],
+          changes: [
+            { fieldLabel: 'Trạng thái phiên', before: 'Đang hoạt động', after: 'Đã khóa an toàn' },
+            { fieldLabel: 'Thiết bị', before: '-', after: env.device },
+          ],
+          metadata: {
+            ...env,
+          },
         });
       }
     } catch {
@@ -917,6 +942,7 @@ export default function App() {
     setViewImageUrl(url);
     if (title) setViewImageTitle(title);
     try {
+      const env = getAuditEnvironmentContext();
       const actor = isOwnerAuthenticated
         ? 'Chủ Sổ (Admin)'
         : guestInitialDebtor
@@ -926,12 +952,16 @@ export default function App() {
         action: 'VIEW_RECEIPT',
         actor,
         title: 'Xem ảnh hóa đơn / chứng từ',
-        description: `${actor} đã mở xem phóng to ảnh chứng từ${title ? `: "${title}"` : ''}.`,
+        description: `${actor} đã mở xem phóng to ảnh chứng từ${title ? `: "${title}"` : ''} trên ${env.device}.`,
         debtorId: guestInitialDebtor?.id || selectedDetailDebtor?.id,
         debtorName: guestInitialDebtor?.name || selectedDetailDebtor?.name,
         beforeState: 'Thu gọn trên giao diện',
         afterState: `Đang xem phóng to (${title || 'Ảnh bill'})`,
         changes: [{ fieldLabel: 'Chứng từ đã xem', before: '-', after: title || 'Ảnh hóa đơn đính kèm' }],
+        metadata: {
+          ...env,
+          ...(guestInitialDebtor?.pin ? { pin: guestInitialDebtor.pin } : {}),
+        },
       });
     } catch {
       // ignore
@@ -940,17 +970,28 @@ export default function App() {
 
   const handleDirectGuestView = (debtor: Debtor) => {
     try {
+      const env = getAuditEnvironmentContext();
+      const bal = getDebtorBalance(debtor.id, transactions);
       recordAuditLog({
         action: 'GUEST_LOOKUP',
         actor: 'Chủ Sổ (Xem trước khách)',
         title: `Xem trước giao diện khách: ${debtor.name}`,
-        description: `Chủ sổ mở xem trực tiếp giao diện tra cứu công nợ của "${debtor.name}" (PIN: ${debtor.pin}).`,
+        description: `Chủ sổ mở xem trực tiếp giao diện tra cứu công nợ của "${debtor.name}" (PIN: ${debtor.pin}) trên ${env.device}.`,
         debtorId: debtor.id,
         debtorName: debtor.name,
-        amount: getDebtorBalance(debtor.id, transactions),
+        amount: bal,
         beforeState: 'Giao diện quản trị',
         afterState: `Đang xem chế độ khách của ${debtor.name}`,
-        changes: [{ fieldLabel: 'Chế độ xem', before: 'Quản trị', after: `Xem trước giao diện khách (${debtor.name})` }],
+        changes: [
+          { fieldLabel: 'Chế độ xem', before: 'Quản trị', after: `Xem trước giao diện khách (${debtor.name})` },
+          { fieldLabel: 'Mã PIN', before: '-', after: debtor.pin },
+        ],
+        metadata: {
+          pin: debtor.pin,
+          balance: bal,
+          method: 'OWNER_PREVIEW',
+          ...env,
+        },
       });
     } catch {
       // ignore
@@ -963,216 +1004,107 @@ export default function App() {
     }
   };
 
+  const isStartupGatePending = !cloudStatus.checked;
+  const isStartupGateError = Boolean(
+    cloudStatus.checked && (!cloudStatus.configured || !cloudStatus.connected || cloudStatus.error)
+  );
+  const showStartupGate = !isOwnerAuthenticated && !guestInitialDebtor && (isStartupGatePending || isStartupGateError);
+
   return (
     <div className="h-full h-dvh flex flex-col bg-slate-100/70 text-slate-800 font-sans antialiased overflow-hidden">
-      {/* Top Navigation - Cố định ở trên cùng, không bị trôi khi cuộn */}
-      <Header
-        currentView={currentView}
-        isOwnerAuthenticated={isOwnerAuthenticated}
-        isOwnerDataReady={ownerDataStatus === 'READY'}
-        onViewChange={handleViewChange}
-        onOwnerLogout={handleOwnerLogout}
-        settings={settings}
-        activeGuestDebtor={guestInitialDebtor}
-        onGuestLogout={() => {
-          if (guestInitialDebtor) {
-            try {
-              recordAuditLog({
-                action: 'LOGOUT',
-                actor: `Khách: ${guestInitialDebtor.name}`,
-                title: `Khách thoát trang tra cứu: ${guestInitialDebtor.name}`,
-                description: `Khách "${guestInitialDebtor.name}" đã thoát khỏi trang đối soát công nợ.`,
-                debtorId: guestInitialDebtor.id,
-                debtorName: guestInitialDebtor.name,
-                beforeState: 'Đang xem đối soát nợ',
-                afterState: 'Đã quay về màn hình đăng nhập',
-              });
-            } catch {
-              // ignore
-            }
-          }
-          setGuestInitialDebtor(null);
-          setTransactions([]);
-          window.location.hash = '';
-        }}
-      />
-
-      {/* Vùng cuộn nội dung độc lập - Thanh scroll chỉ giới hạn ở đây, KHÔNG chèn qua Header hay BottomNavBar */}
-      <div id="main-scroll-container" className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain">
-        <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 py-3.5 sm:py-5 pb-5 sm:pb-6">
+      {showStartupGate ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <AnimatePresence mode="wait">
-          {!isOwnerAuthenticated && !guestInitialDebtor ? (
-            <motion.div
-              key="view-login"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <UnifiedLoginView
-                settings={settings}
-                cloudStatus={cloudStatus}
-                onRefreshCloudStatus={() => refreshDataFromServer(true)}
-                onLoginOwnerSuccess={handleOwnerLoginSuccess}
-                onLoginGuestSuccess={(debtor, txs, setts) => {
-                  setGuestInitialDebtor(debtor);
-                  const validTxs = txs || [];
-                  setTransactions(validTxs);
-                  if (setts) {
-                    setSettings(setts);
-                    saveSettings(setts);
-                  }
-                  setCurrentView('GUEST');
-                  if (window.location.hash) {
-                    window.history.replaceState(null, '', window.location.pathname);
-                  }
-                  // Nếu đã hết nợ (số dư <= 0) thì bắn pháo hoa ăn mừng ngay khi tra cứu thành công
-                  const balance = getDebtorBalance(debtor.id, validTxs);
-                  if (balance <= 0) {
-                    setTimeout(() => {
-                      triggerSettledCelebration();
-                    }, 350);
-                  }
-                }}
-              />
-            </motion.div>
+            <StartupConnectionGate
+              key={isStartupGatePending ? 'startup-connecting' : 'startup-error'}
+              status={isStartupGatePending ? 'connecting' : 'error'}
+              isRetrying={Boolean(cloudStatus.checking)}
+              onRetry={() => refreshDataFromServer(true)}
+            />
+          </AnimatePresence>
+        </div>
+      ) : (
+        <>
+          {/* Top Navigation - Cố định ở trên cùng, không bị trôi khi cuộn */}
+          <Header
+            currentView={currentView}
+            isOwnerAuthenticated={isOwnerAuthenticated}
+            isOwnerDataReady={ownerDataStatus === 'READY'}
+            onViewChange={handleViewChange}
+            onOwnerLogout={handleOwnerLogout}
+            settings={settings}
+            activeGuestDebtor={guestInitialDebtor}
+            onGuestLogout={() => {
+              if (guestInitialDebtor) {
+                try {
+                  recordAuditLog({
+                    action: 'LOGOUT',
+                    actor: `Khách: ${guestInitialDebtor.name}`,
+                    title: `Khách thoát trang tra cứu: ${guestInitialDebtor.name}`,
+                    description: `Khách "${guestInitialDebtor.name}" đã thoát khỏi trang đối soát công nợ.`,
+                    debtorId: guestInitialDebtor.id,
+                    debtorName: guestInitialDebtor.name,
+                    beforeState: 'Đang xem đối soát nợ',
+                    afterState: 'Đã quay về màn hình đăng nhập',
+                  });
+                } catch {
+                  // ignore
+                }
+              }
+              setGuestInitialDebtor(null);
+              setTransactions([]);
+              window.location.hash = '';
+            }}
+          />
+
+          {/* Vùng cuộn nội dung độc lập - Thanh scroll chỉ giới hạn ở đây, KHÔNG chèn qua Header hay BottomNavBar */}
+          <div id="main-scroll-container" className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+            <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 py-3.5 sm:py-5 pb-5 sm:pb-6">
+              <AnimatePresence mode="wait">
+              {!isOwnerAuthenticated && !guestInitialDebtor ? (
+                <motion.div
+                  key="view-login"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <UnifiedLoginView
+                    settings={settings}
+                    onLoginOwnerSuccess={handleOwnerLoginSuccess}
+                    onLoginGuestSuccess={(debtor, txs, setts) => {
+                      setGuestInitialDebtor(debtor);
+                      const validTxs = txs || [];
+                      setTransactions(validTxs);
+                      if (setts) {
+                        setSettings(setts);
+                        saveSettings(setts);
+                      }
+                      setCurrentView('GUEST');
+                      if (window.location.hash) {
+                        window.history.replaceState(null, '', window.location.pathname);
+                      }
+                      // Nếu đã hết nợ (số dư <= 0) thì bắn pháo hoa ăn mừng ngay khi tra cứu thành công
+                      const balance = getDebtorBalance(debtor.id, validTxs);
+                      if (balance <= 0) {
+                        setTimeout(() => {
+                          triggerSettledCelebration();
+                        }, 350);
+                      }
+                    }}
+                  />
+                </motion.div>
           ) : isOwnerAuthenticated ? (
             ownerDataStatus !== 'READY' ? (
-              <motion.div
-                key="view-sheets-gate"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                className="min-h-[68vh] flex items-center justify-center py-6"
-              >
-                <div className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/80 border border-slate-200/90 p-6 sm:p-8 text-center space-y-5">
-                  {ownerDataStatus === 'ERROR' ? (
-                    <>
-                      <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 mx-auto flex items-center justify-center">
-                        <AlertCircle className="w-7 h-7" />
-                      </div>
-                      <div className="space-y-2">
-                        <h2 className="text-lg sm:text-xl font-black text-slate-900">
-                          Tạm thời chưa thể tải dữ liệu
-                        </h2>
-                        <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                          Kết nối tới máy chủ đang bị gián đoạn. Hệ thống tạm khóa thao tác để bảo vệ an toàn dữ liệu. Vui lòng thử kết nối lại.
-                        </p>
-                      </div>
-
-                      <div className="space-y-2.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => refreshDataFromServer(true)}
-                          className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                          <span>Thử kết nối lại</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleOwnerLogout}
-                          className="w-full py-2.5 px-4 text-rose-600 hover:bg-rose-50 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          <span>Đăng xuất</span>
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="py-2 space-y-6">
-                      {/* Orbital ripple & dual-ring spinner */}
-                      <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
-                        <motion.div
-                          className="absolute inset-0 rounded-full bg-emerald-400/20"
-                          animate={{ scale: [1, 1.45, 1], opacity: [0.55, 0, 0.55] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                        />
-                        <motion.div
-                          className="absolute inset-1 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 border-r-teal-400"
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 1.35, repeat: Infinity, ease: 'linear' }}
-                        />
-                        <motion.div
-                          className="absolute inset-3.5 rounded-full border-2 border-teal-500/15 border-b-emerald-600 border-l-emerald-400"
-                          animate={{ rotate: -360 }}
-                          transition={{ duration: 1.9, repeat: Infinity, ease: 'linear' }}
-                        />
-                        <motion.div
-                          className="w-7 h-7 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/30"
-                          animate={{ scale: [0.92, 1.08, 0.92], rotate: [0, 90, 180, 270, 360] }}
-                          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-                        />
-                      </div>
-
-                      {/* Staggered wave equalizer dots */}
-                      <div className="flex items-center justify-center gap-2" aria-hidden="true">
-                        {[0, 1, 2, 3, 4].map((idx) => (
-                          <motion.span
-                            key={idx}
-                            className="w-2 h-2 rounded-full bg-gradient-to-t from-emerald-600 to-teal-400"
-                            animate={{
-                              y: [0, -7, 0],
-                              scaleY: [1, 1.4, 1],
-                              opacity: [0.4, 1, 0.4],
-                            }}
-                            transition={{
-                              duration: 1.1,
-                              repeat: Infinity,
-                              delay: idx * 0.12,
-                              ease: 'easeInOut',
-                            }}
-                          />
-                        ))}
-                      </div>
-
-                      {/* Shimmer ledger card skeleton */}
-                      <div className="space-y-2.5 text-left" aria-hidden="true">
-                        {[0, 1, 2].map((row) => (
-                          <div
-                            key={row}
-                            className="relative overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/90 p-3 flex items-center gap-3"
-                          >
-                            <div className="w-9 h-9 rounded-xl bg-slate-200/80 shrink-0" />
-                            <div className="flex-1 space-y-2">
-                              <div
-                                className="h-2.5 rounded-full bg-slate-200/90"
-                                style={{ width: row === 0 ? '62%' : row === 1 ? '48%' : '56%' }}
-                              />
-                              <div
-                                className="h-2 rounded-full bg-slate-200/60"
-                                style={{ width: row === 0 ? '38%' : row === 1 ? '30%' : '42%' }}
-                              />
-                            </div>
-                            <div className="w-14 h-4 rounded-lg bg-emerald-100/80 shrink-0" />
-                            <motion.div
-                              className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-white/75 to-transparent"
-                              animate={{ x: ['0%', '300%'] }}
-                              transition={{
-                                duration: 1.5,
-                                repeat: Infinity,
-                                delay: row * 0.18,
-                                ease: 'easeInOut',
-                              }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleOwnerLogout}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-rose-600 cursor-pointer transition-colors"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>Hủy &amp; Đăng xuất</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
+              ownerDataStatus === 'ERROR' ? (
+                <WorkspaceConnectionError
+                  isRetrying={Boolean(cloudStatus.checking)}
+                  onRetry={() => refreshDataFromServer(true)}
+                  onLogout={handleOwnerLogout}
+                />
+              ) : (
+                <WorkspaceDataLoader onCancelSession={handleOwnerLogout} />
+              )
             ) : currentView === 'SETTINGS' ? (
               <motion.div
                 key="view-settings"
@@ -1388,28 +1320,24 @@ export default function App() {
         title={viewImageTitle}
         onClose={() => setViewImageUrl(null)}
       />
+        </>
+      )}
 
       {/* Offline Status Awareness Indicator */}
       <OfflineIndicator />
 
-      {/* Mobile Bottom Navigation Dock (Chỉ cho Chủ Sổ khi đã tải xong Google Sheets) */}
+      {/* Mobile Bottom Navigation Dock (Chỉ cho Chủ Sổ khi đã tải xong dữ liệu) */}
       {isOwnerAuthenticated && ownerDataStatus === 'READY' && (
         <BottomNavBar
           currentView={currentView}
           isOwnerAuthenticated={isOwnerAuthenticated}
           onViewChange={handleViewChange}
-          onOpenAddTx={() => {
-            setDefaultTxDebtorId(undefined);
-            setIsAddTxOpen(true);
-          }}
-          onOpenSplitParty={() => {
-            setEditingParty(null);
-            setIsSplitPartyOpen(true);
-          }}
-          onOpenAddDebtor={() => {
-            setEditingDebtor(null);
-            setIsAddDebtorOpen(true);
-          }}
+          onOwnerLogout={handleOwnerLogout}
+          logsAlertCount={
+            auditLogs.filter((l) =>
+              ['OPERATION_FAILED', 'LOGIN_FAILED', 'LOOKUP_FAILED'].includes(l.action)
+            ).length
+          }
         />
       )}
 

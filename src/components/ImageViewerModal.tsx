@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { resolveBillImageFallback } from '../utils/imageUploader';
+import { KineticScanBar, LedgerWaveBars } from './DataPulseLoader';
 
 interface ImageViewerModalProps {
   imageUrl: string | null;
@@ -194,11 +195,23 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
                 {/* Viewport - Giao diện sáng thanh lịch (Light Theme Gallery Canvas) */}
                 <div className="flex-1 overflow-auto bg-slate-100/90 p-4 sm:p-6 flex items-center justify-center relative">
                   {isLoading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/85 backdrop-blur-xs z-20 text-slate-800 gap-2">
-                      <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-                      <span className="text-xs font-semibold text-slate-600">
-                        Đang tải ảnh từ Google Drive / Google Sheets...
-                      </span>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-xs z-20 p-6">
+                      <div className="w-full max-w-[280px] rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
+                        <KineticScanBar tone="emerald" />
+                        <div className="px-5 py-6 flex flex-col items-center gap-3 text-center">
+                          <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-200/70 flex items-center justify-center">
+                            <LedgerWaveBars size="md" tone="emerald" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900">
+                              Đang tải ảnh chứng từ
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              Đang kết nối kho lưu trữ đám mây...
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 

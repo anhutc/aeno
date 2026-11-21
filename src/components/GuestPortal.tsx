@@ -182,16 +182,30 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
       setCopiedAcc(true);
       setTimeout(() => setCopiedAcc(false), 2000);
       if (debtor) {
+        const bankLabel = activeSettings.bankName || activeSettings.bankId || 'Ngân hàng';
+        const curBal = getDebtorBalance(debtor.id, transactions);
         recordAuditLog({
           action: 'SHARE_REMINDER',
           actor: `Khách: ${debtor.name}`,
           title: `Khách sao chép STK thanh toán: ${debtor.name}`,
-          description: `Khách "${debtor.name}" đã sao chép số tài khoản nhận tiền (${activeSettings.bankName || activeSettings.bankId}: ${acc}).`,
+          description: `Khách "${debtor.name}" (PIN: ${debtor.pin}) đã sao chép số tài khoản nhận tiền (${bankLabel}: ${acc} · Chủ TK: ${activeSettings.accountName || '-'}). Dư nợ hiện tại: ${formatVND(curBal)}.`,
           debtorId: debtor.id,
           debtorName: debtor.name,
+          amount: curBal > 0 ? curBal : undefined,
           beforeState: 'Xem thông tin chuyển khoản',
-          afterState: `Đã sao chép STK ${acc}`,
-          changes: [{ fieldLabel: 'Thao tác khách', before: '-', after: `Sao chép STK (${acc})` }],
+          afterState: `Đã sao chép STK ${acc} (${bankLabel})`,
+          changes: [
+            { fieldLabel: 'Ngân hàng nhận', before: '-', after: bankLabel },
+            { fieldLabel: 'Số tài khoản', before: '-', after: acc },
+            ...(activeSettings.accountName ? [{ fieldLabel: 'Chủ tài khoản', before: '-', after: activeSettings.accountName }] : []),
+            { fieldLabel: 'Dư nợ thời điểm chép', before: '-', after: formatVND(curBal) },
+          ],
+          metadata: {
+            pin: debtor.pin,
+            bankName: bankLabel,
+            accountNumber: acc,
+            balance: curBal,
+          },
         });
       }
     }
@@ -208,13 +222,20 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
           action: 'SHARE_REMINDER',
           actor: `Khách: ${debtor.name}`,
           title: `Khách sao chép số tiền cần trả: ${debtor.name}`,
-          description: `Khách "${debtor.name}" đã sao chép số tiền thanh toán (${formatVND(amt)}).`,
+          description: `Khách "${debtor.name}" (PIN: ${debtor.pin}) đã sao chép số tiền thanh toán (${formatVND(amt)}).`,
           debtorId: debtor.id,
           debtorName: debtor.name,
           amount: amt,
           beforeState: 'Xem số dư nợ',
           afterState: `Đã sao chép số tiền ${formatVND(amt)}`,
-          changes: [{ fieldLabel: 'Số tiền đã chép', before: '-', after: `${formatVND(amt)}` }],
+          changes: [
+            { fieldLabel: 'Số tiền đã chép', before: '-', after: formatVND(amt) },
+            { fieldLabel: 'Mã PIN khách', before: '-', after: debtor.pin },
+          ],
+          metadata: {
+            pin: debtor.pin,
+            balance: amt,
+          },
         });
       }
     }
@@ -282,17 +303,29 @@ export const GuestPortal: React.FC<GuestPortalProps> = ({
     document.body.removeChild(a);
     setDownloadedQr(true);
     setTimeout(() => setDownloadedQr(false), 2500);
+    const qrFilename = `VietQR_Thanh_Toan_${debtor?.name || 'So_No'}.png`;
     recordAuditLog({
       action: 'EXPORT_STATEMENT',
       actor: `Khách: ${debtor.name}`,
       title: `Khách tải ảnh mã VietQR: ${debtor.name}`,
-      description: `Khách "${debtor.name}" đã tải mã VietQR thanh toán về thiết bị (Số tiền: ${currentBalance > 0 ? formatVND(currentBalance) : 'Tự nhập'}).`,
+      description: `Khách "${debtor.name}" (PIN: ${debtor.pin}) đã tải mã VietQR thanh toán về thiết bị (Số tiền: ${currentBalance > 0 ? formatVND(currentBalance) : 'Tự nhập'} · Ngân hàng: ${activeSettings.bankName || activeSettings.bankId || '-'}).`,
       debtorId: debtor.id,
       debtorName: debtor.name,
       amount: currentBalance > 0 ? currentBalance : undefined,
       beforeState: 'Xem mã QR thanh toán',
-      afterState: 'Đã tải ảnh VietQR về máy',
-      changes: [{ fieldLabel: 'Tệp tải về', before: '-', after: `VietQR_Thanh_Toan_${debtor.name}.png` }],
+      afterState: `Đã tải ảnh VietQR (${qrFilename})`,
+      changes: [
+        { fieldLabel: 'Tệp tải về', before: '-', after: qrFilename },
+        { fieldLabel: 'Số tiền trên mã QR', before: '-', after: currentBalance > 0 ? formatVND(currentBalance) : 'Khách tự nhập' },
+        { fieldLabel: 'Ngân hàng nhận', before: '-', after: `${activeSettings.bankName || activeSettings.bankId || '-'} (${activeSettings.accountNumber || '-'})` },
+      ],
+      metadata: {
+        filename: qrFilename,
+        pin: debtor.pin,
+        balance: currentBalance,
+        bankName: activeSettings.bankName || activeSettings.bankId,
+        accountNumber: activeSettings.accountNumber,
+      },
     });
   };
 
